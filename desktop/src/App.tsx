@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { FolderOpenIcon, MoonIcon, SunIcon } from "lucide-react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  FolderOpenIcon,
+  MinusIcon,
+  MoonIcon,
+  SquareIcon,
+  SunIcon,
+  XIcon,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -113,6 +121,38 @@ function foldEvent(progress: ExportProgress, event: SidecarEvent): ExportProgres
   }
 }
 
+/** Windows-style window controls for the frameless title bar. */
+function WindowControls() {
+  const win = getCurrentWindow();
+  const control =
+    "flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-[var(--background-modifier-hover)]";
+  return (
+    <div className="flex h-full items-stretch">
+      <button
+        className={control}
+        onClick={() => win.minimize()}
+        aria-label="最小化"
+      >
+        <MinusIcon className="size-3.5" />
+      </button>
+      <button
+        className={control}
+        onClick={() => win.toggleMaximize()}
+        aria-label="最大化"
+      >
+        <SquareIcon className="size-3" />
+      </button>
+      <button
+        className="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-[#e81123] hover:text-white"
+        onClick={() => win.close()}
+        aria-label="关闭"
+      >
+        <XIcon className="size-4" />
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
   const [theme, setTheme] = useTheme();
   const [phase, setPhase] = useState<Phase>("setup");
@@ -186,8 +226,11 @@ export default function App() {
 
   return (
     <div className="flex h-screen flex-col bg-[var(--background-secondary)]">
-      <header className="flex h-11 shrink-0 items-center justify-between border-b bg-[var(--background-primary)] px-4">
-        <div className="flex items-center gap-2.5">
+      <header
+        data-tauri-drag-region
+        className="flex h-11 shrink-0 items-center justify-between border-b bg-[var(--background-primary)] pr-0 pl-4"
+      >
+        <div data-tauri-drag-region className="flex items-center gap-2.5">
           <span className="size-2.5 rounded-full bg-[var(--interactive-accent)]" />
           <span className="font-semibold">Obsidian Export</span>
           {sidecarBanner && (
@@ -201,14 +244,17 @@ export default function App() {
             </span>
           )}
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          aria-label="切换主题"
-        >
-          {theme === "dark" ? <SunIcon className="size-4" /> : <MoonIcon className="size-4" />}
-        </Button>
+        <div className="flex h-full items-center">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            aria-label="切换主题"
+          >
+            {theme === "dark" ? <SunIcon className="size-4" /> : <MoonIcon className="size-4" />}
+          </Button>
+          <WindowControls />
+        </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-4 overflow-y-auto p-4">
