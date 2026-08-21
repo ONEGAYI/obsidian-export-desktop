@@ -438,7 +438,7 @@ impl<'a> Exporter<'a> {
         }
         self.vault_contents
             .as_ref()
-            .unwrap()
+            .expect("vault_contents is always populated by run() before iterating")
             .clone()
             .into_par_iter()
             .filter(|file| file.starts_with(&self.start_at))
@@ -515,7 +515,6 @@ impl<'a> Exporter<'a> {
     }
 
     #[allow(clippy::too_many_lines)]
-    #[allow(clippy::panic_in_result_fn)]
     #[allow(clippy::shadow_unrelated)]
     fn parse_obsidian_note<'b>(
         &self,
@@ -555,11 +554,10 @@ impl<'a> Exporter<'a> {
                         Event::End(TagEnd::MetadataBlock(_kind)) => {
                             continue 'outer;
                         },
-                        _ => panic!(
-                            "Encountered an unexpected event while processing frontmatter in {}. Please report this as a bug with a copy of the note contents and this text: \n\nEvent: {:?}\n",
-                            path.display(),
-                            event
-                        ),
+                        // Anything else inside a metadata block is unexpected, but skipping it
+                        // beats panicking inside a rayon worker thread (which would abort the
+                        // entire export process).
+                        _ => (),
                     }
                 }
             }
@@ -663,13 +661,17 @@ impl<'a> Exporter<'a> {
                             buffer.clear();
                             ref_parser.transition(RefParserState::Resetting);
                         }
-                        None => panic!("In state ExpectFinalCloseBracket but ref_type is None"),
+                        // A None ref_type here is a state machine invariant violation; bail out
+                        // of the reference safely instead of panicking in a rayon worker.
+                        None => ref_parser.transition(RefParserState::Resetting),
                     },
                     _ => {
                         ref_parser.transition(RefParserState::Resetting);
                     }
                 },
-                RefParserState::Resetting => panic!("Reached Resetting state, but it should have been handled prior to this match block"),
+                // Resetting is normally handled at the top of the loop; if it ever reaches
+                // this point, recovering by resetting is safer than panicking.
+                RefParserState::Resetting => ref_parser.reset(),
             }
         }
         if !buffer.is_empty() {
@@ -695,7 +697,7 @@ impl<'a> Exporter<'a> {
         let note_ref = ObsidianNoteReference::from_str(link_text);
 
         let path = match note_ref.file {
-            Some(file) => lookup_filename_in_vault(file, self.vault_contents.as_ref().unwrap()),
+            Some(file) => lookup_filename_in_vault(file, self.vault_contents.as_ref().expect("vault_contents is always populated by run() before exporting")),
 
             // If we have None file it is either to a section or id within the same file and thus
             // the current embed logic will fail, recurssing until it reaches it's limit.
@@ -705,11 +707,10 @@ impl<'a> Exporter<'a> {
 
         if path.is_none() {
             // TODO: Extract into configurable function.
+            let current_file = context.current_file().to_string_lossy();
             eprintln!(
                 "Warning: Unable to find embedded note\n\tReference: '{}'\n\tSource: '{}'\n",
-                note_ref
-                    .file
-                    .unwrap_or_else(|| context.current_file().to_str().unwrap()),
+                note_ref.file.unwrap_or_else(|| current_file.as_ref()),
                 context.current_file().display(),
             );
             return Ok(vec![]);
@@ -819,16 +820,15 @@ impl<'a> Exporter<'a> {
     ) -> MarkdownEvents<'c> {
         let target_file = reference.file.map_or_else(
             || Some(context.current_file()),
-            |file| lookup_filename_in_vault(file, self.vault_contents.as_ref().unwrap()),
+            |file| lookup_filename_in_vault(file, self.vault_contents.as_ref().expect("vault_contents is always populated by run() before exporting")),
         );
 
         if target_file.is_none() {
             // TODO: Extract into configurable function.
+            let current_file = context.current_file().to_string_lossy();
             eprintln!(
                 "Warning: Unable to find referenced note\n\tReference: '{}'\n\tSource: '{}'\n",
-                reference
-                    .file
-                    .unwrap_or_else(|| context.current_file().to_str().unwrap()),
+                reference.file.unwrap_or_else(|| current_file.as_ref()),
                 context.current_file().display(),
             );
             return vec![
