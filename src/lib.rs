@@ -1155,7 +1155,8 @@ struct VaultIndex {
 
 impl VaultIndex {
     fn build(vault_contents: &[PathBuf]) -> Self {
-        let mut map: HashMap<String, PathBuf> = HashMap::with_capacity(vault_contents.len().saturating_mul(4));
+        let mut map: HashMap<String, PathBuf> =
+            HashMap::with_capacity(vault_contents.len().saturating_mul(4));
 
         for path in vault_contents {
             let normalized = path.to_string_lossy().nfc().collect::<String>();
@@ -1185,9 +1186,9 @@ impl VaultIndex {
                         .copied()
                         .collect::<Vec<&str>>()
                         .join("/");
-                    let replace = map.get(key.as_str()).map_or(true, |existing| {
-                        new_key < lookup_tiebreak_key(existing)
-                    });
+                    let replace = map
+                        .get(key.as_str())
+                        .map_or(true, |existing| new_key < lookup_tiebreak_key(existing));
                     if replace {
                         map.insert(key, path.clone());
                     }
@@ -1345,8 +1346,10 @@ fn is_markdown_file(file: &Path) -> bool {
 ///
 /// Returns `None` when no heading matches `section`, letting the caller decide how to handle
 /// the missing section (see [`MissingSectionStrategy`]). Heading comparison aggregates all
-/// inline text of the heading (so `## *Foo* Bar` matches "Foo Bar") and is case-insensitive
-/// as well as Unicode-normalized (NFC).
+/// inline content of the heading, including emphasis, inline code and math (so `## *Foo* Bar`
+/// matches "Foo Bar"), and is case-insensitive as well as Unicode-normalized (NFC). When
+/// several headings share the name, the first match wins and same-named headings nested
+/// deeper are treated as regular content of that section.
 fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<MarkdownEvents<'a>> {
     let section_normalized = section.nfc().collect::<String>().to_lowercase();
 
@@ -1375,15 +1378,27 @@ fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<Markdown
                     filtered_events.pop();
                 }
             }
-            Event::Text(cowstr) => {
+            // Inline code and math inside a heading surface as these events instead of
+            // Text; their literal text still counts towards the heading name.
+            Event::Text(cowstr) | Event::Code(cowstr) | Event::InlineMath(cowstr) => {
                 if in_heading {
                     heading_text.push_str(cowstr);
+                }
+            }
+            Event::SoftBreak | Event::HardBreak => {
+                if in_heading {
+                    heading_text.push(' ');
                 }
             }
             Event::End(TagEnd::Heading(_)) => {
                 if in_heading {
                     in_heading = false;
-                    if heading_text.nfc().collect::<String>().to_lowercase() == section_normalized {
+                    // A same-named heading nested deeper than the target is simply part
+                    // of the section content; only the first match starts the section.
+                    if !currently_in_target_section
+                        && heading_text.nfc().collect::<String>().to_lowercase()
+                            == section_normalized
+                    {
                         target_section_encountered = true;
                         currently_in_target_section = true;
                         section_level = last_level;
@@ -1655,6 +1670,41 @@ mod tests {
         assert!(
             rendered.contains("content."),
             "section content kept: {}",
+            rendered
+        );
+    }
+
+    #[test]
+    fn test_reduce_to_section_heading_with_inline_code() {
+        // Headings containing inline code (or math) surface as Code/InlineMath events
+        // rather than Text; aggregation must include their text, or the section would
+        // wrongly look missing.
+        let events = parse_events("# First\n\nfirst.\n\n## `code` heading\n\ncontent.");
+        let reduced =
+            reduce_to_section(&events, "code heading").expect("inline-code heading should match");
+        let rendered = render_mdevents_to_mdtext(&reduced);
+        assert!(
+            rendered.contains("content."),
+            "section content kept: {}",
+            rendered
+        );
+    }
+
+    #[test]
+    fn test_reduce_to_section_nested_duplicate_heading_keeps_first_section() {
+        // A same-named heading nested deeper than the target must not restart the
+        // section: the embed runs from the first match to the end of that section.
+        let events = parse_events("## Target\n\nouter.\n\n### Target\n\ninner.\n");
+        let reduced = reduce_to_section(&events, "Target").expect("section should be found");
+        let rendered = render_mdevents_to_mdtext(&reduced);
+        assert!(
+            rendered.contains("outer."),
+            "outer content kept: {}",
+            rendered
+        );
+        assert!(
+            rendered.contains("### Target"),
+            "nested same-named heading kept: {}",
             rendered
         );
     }

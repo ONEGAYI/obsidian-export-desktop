@@ -51,9 +51,9 @@ fn version_goes_to_stdout_with_zero_exit() {
     );
     assert!(out.stderr.is_empty(), "stderr should be silent");
 
-    let out = run_cli(&["-v"]);
-    assert_eq!(out.code, Some(0_i32));
-    assert!(out.stdout.starts_with("obsidian-export "));
+    let out_short = run_cli(&["-v"]);
+    assert_eq!(out_short.code, Some(0_i32));
+    assert!(out_short.stdout.starts_with("obsidian-export "));
 }
 
 #[test]
@@ -86,9 +86,9 @@ fn argument_errors_go_to_stderr_with_exit_2() {
     );
     assert!(out.stdout.is_empty());
 
-    let out = run_cli(&["--no-such-flag", "a", "b"]);
-    assert_eq!(out.code, Some(2_i32));
-    assert!(out.stderr.contains("Error:"));
+    let out_unknown = run_cli(&["--no-such-flag", "a", "b"]);
+    assert_eq!(out_unknown.code, Some(2_i32));
+    assert!(out_unknown.stderr.contains("Error:"));
 }
 
 #[test]

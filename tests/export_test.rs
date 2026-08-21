@@ -612,6 +612,51 @@ fn test_chinese_section_anchor() {
 }
 
 #[test]
+fn test_section_matching_variants() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+
+    Exporter::new(
+        PathBuf::from("tests/testdata/input/section-variants/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .expect("exporter returned error");
+
+    // Headings containing inline code must match section references by their plain
+    // text, mirroring how Obsidian resolves such links.
+    let actual = read_to_string(tmp_dir.path().join("note-code-heading.md")).unwrap();
+    assert!(
+        actual.contains("## `code` heading"),
+        "embed keeps the heading, got: {:?}",
+        actual
+    );
+    assert!(
+        actual.contains("code section content."),
+        "embed keeps the section content, got: {:?}",
+        actual
+    );
+    assert!(
+        actual.contains("(target.md#code-heading)"),
+        "link anchor resolves, got: {:?}",
+        actual
+    );
+
+    // A same-named heading nested deeper than the target must not restart the
+    // section: the embed runs from the first match to the end of the note.
+    let actual = read_to_string(tmp_dir.path().join("note-nested-duplicate.md")).unwrap();
+    assert!(
+        actual.contains("outer content."),
+        "embed starts at the first matching heading, got: {:?}",
+        actual
+    );
+    assert!(
+        actual.contains("### Target"),
+        "embed includes the nested same-named heading, got: {:?}",
+        actual
+    );
+}
+
+#[test]
 fn test_missing_section_skip_by_default() {
     let tmp_dir = TempDir::new().expect("failed to make tempdir");
 
