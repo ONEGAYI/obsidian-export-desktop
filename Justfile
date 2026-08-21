@@ -2,15 +2,16 @@ towncrier_cmd := "uvx towncrier==24.8.0"
 
 # --- Desktop app (Tauri) -----------------------------------------------------
 
+# Git Bash on Windows: plain lines run via `bash -c` (shebang recipes hit a
+# temp-file path bug in just 1.53 on Windows, so keep recipes single-line).
+set windows-shell := ["bash.exe", "-c"]
+
+exe := if os() == "windows" { ".exe" } else { "" }
+triple := `rustc -vV | sed -n 's/^host: //p'`
+
 # Build the CLI and copy it into the desktop app's sidecar location
 desktop-sync-sidecar:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    cargo build --release --bin obsidian-export
-    mkdir -p desktop/src-tauri/binaries
-    cp "target/release/obsidian-export$(test "{{os()}}" = "windows" && echo '.exe')" \
-       "desktop/src-tauri/binaries/obsidian-export-$(rustc -vV | sed -n 's/^host: //p')$(test "{{os()}}" = "windows" && echo '.exe')"
-    echo "Sidecar synced."
+    cargo build --release --bin obsidian-export && mkdir -p desktop/src-tauri/binaries && cp "target/release/obsidian-export{{exe}}" "desktop/src-tauri/binaries/obsidian-export-{{triple}}{{exe}}" && echo "Sidecar synced."
 
 # Run the desktop app in dev mode (syncs the sidecar first)
 desktop-dev: desktop-sync-sidecar
