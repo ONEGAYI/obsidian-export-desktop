@@ -1624,6 +1624,14 @@ mod tests {
     }
 
     #[test]
+    fn test_percentencode_set_includes_hash() {
+        // A '#' in a path segment would otherwise be read as a fragment separator
+        // once the segment lands in a generated Markdown link.
+        let encoded = utf8_percent_encode("a#b.md", PERCENTENCODE_CHARS).to_string();
+        assert_eq!(encoded, "a%23b.md");
+    }
+
+    #[test]
     fn test_destination_parent_validation() {
         // A bare filename treats the current directory as its parent instead of
         // reporting an empty path as missing.
@@ -1667,6 +1675,39 @@ mod tests {
         assert_eq!(
             lookup_filename_in_vault("nested/NoteA", &vault_two),
             Some(&expected_nested)
+        );
+
+        // The prebuilt index must agree with the linear scan on all of the above,
+        // including the same-depth lexicographic tie-break.
+        assert_eq!(
+            VaultIndex::build(&vault_one).lookup("NoteA"),
+            Some(&expected)
+        );
+        assert_eq!(
+            VaultIndex::build(&vault_two).lookup("NoteA"),
+            Some(&expected)
+        );
+        assert_eq!(
+            VaultIndex::build(&vault_lex).lookup("NoteA"),
+            Some(&expected_lex)
+        );
+        assert_eq!(
+            VaultIndex::build(&vault_two).lookup("nested/NoteA"),
+            Some(&expected_nested)
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn test_lookup_backslash_separator_agrees_between_paths() {
+        // On Windows both '\' and '/' are component separators; the linear scan (via
+        // Path component matching) and the index (via explicit replacement) must
+        // resolve such references identically.
+        let vault = vec![PathBuf::from("dir/file.md")];
+        let index = VaultIndex::build(&vault);
+        assert_eq!(
+            lookup_filename_in_vault("dir\\file", &vault),
+            index.lookup("dir\\file")
         );
     }
 

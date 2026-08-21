@@ -137,23 +137,45 @@ fn invalid_enum_values_are_argument_errors() {
     ]);
     assert_eq!(out.code, Some(2_i32));
     assert!(out.stderr.contains("embed-full"));
+
+    let out_progress = run_cli(&[
+        "--progress",
+        "bogus",
+        "tests/testdata/input/main-samples",
+        dest,
+    ]);
+    assert_eq!(out_progress.code, Some(2_i32));
+    assert!(out_progress.stderr.contains("none"));
+
+    let out_frontmatter = run_cli(&[
+        "--frontmatter",
+        "bogus",
+        "tests/testdata/input/main-samples",
+        dest,
+    ]);
+    assert_eq!(out_frontmatter.code, Some(2_i32));
+    assert!(out_frontmatter.stderr.contains("auto"));
 }
 
 #[test]
 fn successful_export_is_silent_with_zero_exit() {
     let tmp_dir = TempDir::new().expect("failed to make tempdir");
     let dest = tmp_dir.path().to_str().expect("non-unicode tmpdir");
-    let out = run_cli(&["tests/testdata/input/main-samples", dest]);
+    // chinese-anchor contains no dead links or missing embeds; main-samples does
+    // (embeds.md), whose warnings legitimately go to stderr in default mode.
+    let out = run_cli(&["tests/testdata/input/chinese-anchor", dest]);
     assert_eq!(out.code, Some(0_i32));
     assert!(
         out.stdout.is_empty(),
         "stdout must stay silent without --progress"
     );
     assert!(
-        tmp_dir
-            .path()
-            .join(PathBuf::from("note-without-frontmatter.md"))
-            .exists(),
+        out.stderr.is_empty(),
+        "stderr must stay silent on a vault without warnings, got: {:?}",
+        out.stderr
+    );
+    assert!(
+        tmp_dir.path().join(PathBuf::from("note.md")).exists(),
         "notes should have been exported"
     );
 }
@@ -214,6 +236,14 @@ fn progress_json_emits_schema_start_events_and_end() {
             .contains("broken-link.md"),
         "warning should point at the file that emitted it, got: {}",
         warning
+    );
+
+    // json mode routes warnings through the event stream; stderr must only carry the
+    // final error report.
+    assert!(
+        !out.stderr.contains("Warning:"),
+        "json mode must not leak warnings to stderr, got: {:?}",
+        out.stderr
     );
 }
 
@@ -325,4 +355,120 @@ fn event_types(events: &[Value]) -> Vec<&str> {
         .iter()
         .map(|event| event["type"].as_str().expect("event type"))
         .collect()
+}
+
+#[test]
+fn progress_json_reports_skipped_files() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let dest = tmp_dir.path().to_str().expect("non-unicode tmpdir");
+    let out = run_cli(&[
+        "--progress",
+        "json",
+        "--skip-tags",
+        "private",
+        "tests/testdata/input/filter-by-tags",
+        dest,
+    ]);
+    assert_eq!(
+        out.code,
+        Some(0_i32),
+        "skipping notes is not a failure, stderr: {:?}",
+        out.stderr
+    );
+
+    // Notes dropped by a postprocessor surface as file-skipped events.
+    let events = parse_json_lines(&out.stdout);
+    let types = event_types(&events);
+    assert!(
+        types.contains(&"file-skipped"),
+        "tag-filtered notes report skipped, got: {:?}",
+        types
+    );
+    let end = events.last().expect("end event");
+    assert_eq!(
+        end["failed"].as_array().map(Vec::len),
+        Some(0_usize),
+        "skips are not failures, got: {end}"
+    );
+}
+
+#[test]
+fn start_at_restricts_export_and_outside_root_fails() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let dest = tmp_dir.path().to_str().expect("non-unicode tmpdir");
+    let out = run_cli(&[
+        "--start-at",
+        "tests/testdata/input/start-at/subdir",
+        "tests/testdata/input/start-at",
+        dest,
+    ]);
+    assert_eq!(
+        out.code,
+        Some(0_i32),
+        "subdir export succeeds, stderr: {:?}",
+        out.stderr
+    );
+    assert!(
+        tmp_dir.path().join("Note B.md").exists(),
+        "notes under --start-at are exported"
+    );
+    assert!(
+        !tmp_dir.path().join("Note A.md").exists(),
+        "notes outside --start-at are not exported"
+    );
+
+    // A start_at outside the root is rejected instead of silently exporting nothing.
+    let out_outside = run_cli(&[
+        "--start-at",
+        "tests/testdata",
+        "tests/testdata/input/main-samples",
+        dest,
+    ]);
+    assert_eq!(out_outside.code, Some(1_i32));
+    assert!(
+        out_outside.stderr.contains("start-at"),
+        "error mentions start-at, got: {:?}",
+        out_outside.stderr
+    );
+}
+
+#[test]
+fn aggregation_summary_goes_to_stderr() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let dest = tmp_dir.path().to_str().expect("non-unicode tmpdir");
+    let out = run_cli(&["tests/testdata/input/mixed-health", dest]);
+    assert_eq!(out.code, Some(1_i32));
+    assert!(
+        out.stderr.contains("1 failing file(s)"),
+        "summary counts failures, got: {:?}",
+        out.stderr
+    );
+    assert!(
+        out.stderr.contains("bad-frontmatter.md"),
+        "summary lists the failing file, got: {:?}",
+        out.stderr
+    );
+    assert!(
+        out.stderr.contains("Hint:"),
+        "summary carries the hint, got: {:?}",
+        out.stderr
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn non_utf8_arguments_exit_cleanly_instead_of_panicking() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let bad_arg = OsStr::from_bytes(b"\xff\xfeinvalid").to_os_string();
+    let output = Command::new(BIN)
+        .arg(&bad_arg)
+        .arg("some-dest")
+        .output()
+        .expect("failed to run CLI");
+    // Arguments that aren't valid UTF-8 undergo lossy conversion and report a
+    // (nonexistent) path error, rather than panicking with exit code 101.
+    assert_eq!(output.status.code(), Some(1_i32));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Error:"));
 }

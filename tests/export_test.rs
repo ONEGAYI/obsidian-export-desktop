@@ -661,6 +661,25 @@ fn test_section_matching_variants() {
 }
 
 #[test]
+fn test_numeric_image_size_label_falls_back_to_filename() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+
+    Exporter::new(
+        PathBuf::from("tests/testdata/input/image-size/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .expect("exporter returned error");
+
+    // Obsidian's size syntax (`![[img.png|300]]`) surfaces as a purely numeric label;
+    // plain Markdown has no image sizing, so the filename is used as alt text instead
+    // of a bare number.
+    let expected = "![img.png](img.png)\n";
+    let actual = read_to_string(tmp_dir.path().join("note.md")).unwrap();
+    assert_eq!(expected, actual);
+}
+
+#[test]
 fn test_missing_section_skip_by_default() {
     let tmp_dir = TempDir::new().expect("failed to make tempdir");
 
@@ -710,6 +729,23 @@ fn test_missing_section_embed_full() {
     let actual = read_to_string(tmp_dir.path().join("note-embed-missing.md")).unwrap();
     assert_eq!(expected, actual);
 
+    // Outer embed missing: the strategy applies per nesting level, so the outer embed
+    // pulls in the whole nested note, whose own missing-section embed pulls in the
+    // whole target note. No section cut happens here, so nothing is truncated.
+    let expected =
+        "外层缺失嵌入：\n\n# Real\n\n内文开头。\n\n# Real\n\nreal content.\n\n内文结尾。\n\n尾注。\n";
+    let actual = read_to_string(tmp_dir.path().join("note-outer-missing.md")).unwrap();
+    assert_eq!(expected, actual);
+
+    // Outer embed hits, inner embed missing. Known limitation (shared with upstream):
+    // embeds are expanded during parsing, before the section is cut. The full note
+    // pulled in by the inner embed starts with a same-level "# Real" heading, which
+    // the outer cut then treats as the end of the requested section, so anything
+    // after it ("内文结尾") is dropped.
+    let expected = "外层命中、内层缺失：\n\n# Real\n\n内文开头。\n\n\n";
+    let actual = read_to_string(tmp_dir.path().join("note-inner-missing.md")).unwrap();
+    assert_eq!(expected, actual);
+
     // Block references embed the full note as well.
     let expected = "块引用嵌入：\n\n# Real\n\nreal content.\n";
     let actual = read_to_string(tmp_dir.path().join("note-block-ref.md")).unwrap();
@@ -727,14 +763,44 @@ fn test_missing_section_fail() {
 
     match exporter.run() {
         Err(ExportError::ExportCompletedWithErrors { errors }) => {
-            assert!(!errors.is_empty());
+            // Exactly the five notes carrying a missing-section embed must fail (in
+            // some order — the export runs in parallel); target.md must survive.
+            let mut failed_files: Vec<String> = errors
+                .iter()
+                .map(|failed| {
+                    failed
+                        .path
+                        .file_name()
+                        .expect("failed path has a filename")
+                        .to_string_lossy()
+                        .into_owned()
+                })
+                .collect();
+            failed_files.sort();
+            assert_eq!(
+                failed_files,
+                vec![
+                    "note-block-ref.md",
+                    "note-embed-missing.md",
+                    "note-inner-missing.md",
+                    "note-nested-inner.md",
+                    "note-outer-missing.md",
+                ],
+                "expected exactly the five embedding notes to fail, got {:?}",
+                errors
+            );
+            // Block references (`#^block-id`) never match a heading, so they fail
+            // through the same SectionNotFound path.
             assert!(
                 errors.iter().any(|failed| matches!(
                     &failed.error,
                     ExportError::FileExportError { source, .. }
-                        if matches!(**source, ExportError::SectionNotFound { .. })
+                        if matches!(
+                            &**source,
+                            ExportError::SectionNotFound { section, .. } if section == "^blockid"
+                        )
                 )),
-                "expected at least one SectionNotFound failure, got {:?}",
+                "expected a SectionNotFound for the block reference, got {:?}",
                 errors
             );
         }
