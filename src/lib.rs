@@ -249,7 +249,7 @@ pub struct Exporter<'a> {
 
 impl fmt::Debug for Exporter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("WalkOptions")
+        f.debug_struct("Exporter")
             .field("root", &self.root)
             .field("destination", &self.destination)
             .field("frontmatter_strategy", &self.frontmatter_strategy)
@@ -420,7 +420,7 @@ impl<'a> Exporter<'a> {
         // Don't try to set mtime if the file was not exported
         if let Some(dest) = output_file {
             if self.preserve_mtime {
-                copy_mtime(src, &dest)?;
+                copy_mtime(src, &dest).context(FileExportSnafu { path: src })?;
             }
         }
 
@@ -704,6 +704,18 @@ impl<'a> Exporter<'a> {
                 events
             }
             Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "svg") => {
+                // Obsidian's size syntax (`![[img.png|300]]`) surfaces as a purely numeric
+                // label. Plain Markdown has no notion of image sizes, so fall back to the
+                // filename instead of rendering a bare number as alt text.
+                let note_ref = match note_ref.label {
+                    Some(label) if !label.is_empty() && label.chars().all(|c| c.is_ascii_digit()) => {
+                        ObsidianNoteReference {
+                            label: None,
+                            ..note_ref
+                        }
+                    }
+                    _ => note_ref,
+                };
                 self.make_link_to_file(note_ref, &child_context)
                     .into_iter()
                     .map(|event| match event {
