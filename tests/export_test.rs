@@ -582,9 +582,13 @@ fn test_event_stream_reports_progress_and_warnings() {
         "missing FileFailed for bad-frontmatter.md"
     );
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, ExportEvent::Warning { .. })),
+        events.iter().any(|e| matches!(
+            e,
+            ExportEvent::Warning {
+                path: Some(path),
+                ..
+            } if path.ends_with("broken-link.md")
+        )),
         "missing Warning event for broken link"
     );
     match events.last() {

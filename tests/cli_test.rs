@@ -166,6 +166,21 @@ fn progress_json_emits_schema_start_events_and_end() {
         Some(1_usize),
         "end event lists the failed file"
     );
+
+    // Warnings carry the originating file so consumers can locate them without
+    // parsing the human-readable message.
+    let warning = events
+        .iter()
+        .find(|event| event["type"] == "warning")
+        .expect("warning event");
+    assert!(
+        warning["path"]
+            .as_str()
+            .expect("warning carries a path")
+            .contains("broken-link.md"),
+        "warning should point at the file that emitted it, got: {}",
+        warning
+    );
 }
 
 #[test]
@@ -203,4 +218,77 @@ fn fail_fast_stops_at_first_failure() {
         "stderr should carry the first error, got: {:?}",
         out.stderr
     );
+}
+
+#[test]
+fn fail_fast_json_stream_still_ends_with_end_event() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let dest = tmp_dir.path().to_str().expect("non-unicode tmpdir");
+    let out = run_cli(&[
+        "--progress",
+        "json",
+        "--fail-fast",
+        "tests/testdata/input/mixed-health",
+        dest,
+    ]);
+    assert_eq!(out.code, Some(1_i32));
+
+    // A fail-fast abort must still terminate the event stream: consumers treat a
+    // missing end event as a hard crash of the sidecar process itself.
+    let events = parse_json_lines(&out.stdout);
+    let types = event_types(&events);
+    assert_eq!(types.first(), Some(&"schema"));
+    assert_eq!(
+        *types.last().expect("at least schema and start"),
+        "end",
+        "fail-fast abort must emit end, got: {types:?}"
+    );
+    let end = events.last().expect("end event");
+    assert!(
+        !end["failed"]
+            .as_array()
+            .expect("end carries a failed array")
+            .is_empty(),
+        "end after a fail-fast abort lists the failed file, got: {}",
+        end
+    );
+}
+
+#[test]
+fn single_file_failure_json_stream_emits_end_event() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let dest = tmp_dir.path().join("out.md");
+    let dest = dest.to_str().expect("non-unicode tmpdir");
+    let out = run_cli(&[
+        "--progress",
+        "json",
+        "tests/testdata/input/mixed-health/bad-frontmatter.md",
+        dest,
+    ]);
+    assert_eq!(out.code, Some(1_i32));
+
+    // The single-file code path (source is a file, not a directory) must follow the
+    // same stream contract as directory exports.
+    let events = parse_json_lines(&out.stdout);
+    let types = event_types(&events);
+    assert_eq!(types.get(1), Some(&"start"));
+    assert!(
+        types.contains(&"file-failed"),
+        "broken note reports failure, got: {:?}",
+        types
+    );
+    assert_eq!(
+        *types.last().expect("at least schema and start"),
+        "end",
+        "single-file failure must emit end, got: {types:?}"
+    );
+    let end = events.last().expect("end event");
+    assert_eq!(end["failed"].as_array().map(Vec::len), Some(1_usize));
+}
+
+fn event_types(events: &[Value]) -> Vec<&str> {
+    events
+        .iter()
+        .map(|event| event["type"].as_str().expect("event type"))
+        .collect()
 }

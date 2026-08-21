@@ -284,7 +284,11 @@ fn event_to_json(event: &ExportEvent) -> Option<String> {
             "path": path.display().to_string(),
             "message": message,
         }),
-        ExportEvent::Warning { message } => json!({"type": "warning", "message": message}),
+        ExportEvent::Warning { path, message } => json!({
+            "type": "warning",
+            "path": path.as_ref().map(|p| p.display().to_string()),
+            "message": message,
+        }),
         ExportEvent::End { failed } => json!({
             "type": "end",
             "failed": failed.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),

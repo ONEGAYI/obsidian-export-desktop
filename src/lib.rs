@@ -272,9 +272,15 @@ pub enum ExportEvent {
     /// result ([`ExportError::ExportCompletedWithErrors`]) retains full error types.
     FileFailed { path: PathBuf, message: String },
     /// A non-fatal warning, e.g. a wikilink pointing at a note that doesn't exist.
-    Warning { message: String },
-    /// Emitted once after the last file was processed. `failed` lists the source paths
-    /// of all files that failed. Not emitted when a fail-fast export aborts early.
+    /// `path` is the note the warning originates from, when known.
+    Warning {
+        path: Option<PathBuf>,
+        message: String,
+    },
+    /// Emitted once after processing stops. `failed` lists the source paths of all
+    /// files that failed. Emitted on every termination of a started run — successful,
+    /// with failures, or aborted by [`Exporter::fail_fast`] — so event consumers can
+    /// rely on its presence; only its absence signals a hard crash of the process.
     End { failed: Vec<PathBuf> },
 }
 
@@ -559,6 +565,12 @@ impl<'a> Exporter<'a> {
                         path: self.start_at.clone(),
                         message: error_chain_string(&error),
                     });
+                    // The stream contract requires an end event on every started run,
+                    // so consumers can distinguish "run finished (with errors)" from
+                    // "process died".
+                    self.emit(&ExportEvent::End {
+                        failed: vec![self.start_at.clone()],
+                    });
                     return Err(error);
                 }
             }
@@ -583,7 +595,11 @@ impl<'a> Exporter<'a> {
         self.emit(&ExportEvent::Start { total: files.len() });
 
         if self.fail_fast {
-            files.into_par_iter().try_for_each(|file| {
+            // Even though try_for_each short-circuits, files already in flight on other
+            // worker threads may fail around the same time; collect them all so the end
+            // event can report what actually failed.
+            let failed_paths: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+            let result = files.into_par_iter().try_for_each(|file| {
                 let relative_path = file
                     .strip_prefix(&self.start_at)
                     .expect("file should always be nested under root")
@@ -600,15 +616,25 @@ impl<'a> Exporter<'a> {
                     }
                     Err(error) => {
                         self.emit(&ExportEvent::FileFailed {
-                            path: file,
+                            path: file.clone(),
                             message: error_chain_string(&error),
                         });
+                        failed_paths
+                            .lock()
+                            .expect("fail-fast failure collector mutex poisoned")
+                            .push(file);
                         Err(error)
                     }
                 }
-            })?;
-            self.emit(&ExportEvent::End { failed: vec![] });
-            return Ok(());
+            });
+            let failed_paths = failed_paths
+                .into_inner()
+                .expect("fail-fast failure collector mutex poisoned");
+            // Emitted on aborts as well: see the stream contract on ExportEvent::End.
+            self.emit(&ExportEvent::End {
+                failed: failed_paths,
+            });
+            return result;
         }
 
         let failures: Mutex<Vec<FailedFile>> = Mutex::new(Vec::new());
@@ -666,9 +692,12 @@ impl<'a> Exporter<'a> {
         }
     }
 
-    fn warn(&self, message: String) {
+    fn warn(&self, source: Option<&Path>, message: String) {
         match &self.event_callback {
-            Some(callback) => callback(&ExportEvent::Warning { message }),
+            Some(callback) => callback(&ExportEvent::Warning {
+                path: source.map(Path::to_path_buf),
+                message,
+            }),
             None => eprintln!("Warning: {message}"),
         }
     }
@@ -901,6 +930,7 @@ impl<'a> Exporter<'a> {
     // - If the file being embedded is a note, it's content is included at the point of embed.
     // - If the file is an image, an image tag is generated.
     // - For other types of file, a regular link is created instead.
+    #[allow(clippy::too_many_lines)]
     fn embed_file<'b>(
         &self,
         link_text: &'a str,
@@ -919,11 +949,14 @@ impl<'a> Exporter<'a> {
 
         if path.is_none() {
             let current_file = context.current_file().to_string_lossy();
-            self.warn(format!(
-                "Unable to find embedded note\n\tReference: '{}'\n\tSource: '{}'\n",
-                note_ref.file.unwrap_or_else(|| current_file.as_ref()),
-                context.current_file().display(),
-            ));
+            self.warn(
+                Some(context.current_file()),
+                format!(
+                    "Unable to find embedded note\n\tReference: '{}'\n\tSource: '{}'\n",
+                    note_ref.file.unwrap_or_else(|| current_file.as_ref()),
+                    context.current_file().display(),
+                ),
+            );
             return Ok(vec![]);
         }
 
@@ -952,11 +985,14 @@ impl<'a> Exporter<'a> {
                         None => match self.missing_section_strategy {
                             MissingSectionStrategy::EmbedFull => (),
                             MissingSectionStrategy::Skip => {
-                                self.warn(format!(
-                                    "Unable to find section '{section}' in note '{}'\n\tSource: '{}'\n",
-                                    path.display(),
-                                    context.current_file().display(),
-                                ));
+                                self.warn(
+                                    Some(context.current_file()),
+                                    format!(
+                                        "Unable to find section '{section}' in note '{}'\n\tSource: '{}'\n",
+                                        path.display(),
+                                        context.current_file().display(),
+                                    ),
+                                );
                                 events = vec![];
                             }
                             MissingSectionStrategy::Fail => {
@@ -1036,11 +1072,14 @@ impl<'a> Exporter<'a> {
 
         if target_file.is_none() {
             let current_file = context.current_file().to_string_lossy();
-            self.warn(format!(
-                "Unable to find referenced note\n\tReference: '{}'\n\tSource: '{}'\n",
-                reference.file.unwrap_or_else(|| current_file.as_ref()),
-                context.current_file().display(),
-            ));
+            self.warn(
+                Some(context.current_file()),
+                format!(
+                    "Unable to find referenced note\n\tReference: '{}'\n\tSource: '{}'\n",
+                    reference.file.unwrap_or_else(|| current_file.as_ref()),
+                    context.current_file().display(),
+                ),
+            );
             return vec![
                 Event::Start(Tag::Emphasis),
                 Event::Text(CowStr::from(reference.display())),
