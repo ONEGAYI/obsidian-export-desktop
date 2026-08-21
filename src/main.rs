@@ -106,17 +106,42 @@ fn missing_section_from_str(input: &str) -> Result<MissingSectionStrategy> {
 }
 
 fn main() {
-    // Due to the use of free arguments in Opts, we must bypass Gumdrop to determine whether the
-    // version flag was specified. Without this, "missing required free argument" would get printed
-    // when no other args are specified.
-    if env::args().any(|arg| arg == "-v" || arg == "--version") {
+    // Lossy conversion avoids panicking on non-UTF-8 arguments; gumdrop's built-in
+    // parse_args_default_or_exit panics on those (see the "# Panics" section of its docs).
+    let argv: Vec<String> = env::args_os()
+        .skip(1)
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+
+    // Due to the use of free arguments in Opts, we must bypass gumdrop to determine
+    // whether the version flag was specified. Without this, "missing required free
+    // argument" would get printed when no other args are specified.
+    if argv.iter().any(|arg| arg == "-v" || arg == "--version") {
         println!("obsidian-export {VERSION}");
         std::process::exit(0);
     }
 
-    let args = Opts::parse_args_default_or_exit();
-    let root = args.source.unwrap();
-    let destination = args.destination.unwrap();
+    let args = Opts::parse_args_default(&argv).unwrap_or_else(|err| {
+        eprintln!("Error: {err}\n\n{}", Opts::usage());
+        std::process::exit(2);
+    });
+
+    // Unlike gumdrop's default behavior of printing usage to stderr, help goes to
+    // stdout, which is what virtually every other CLI does.
+    if args.help {
+        println!(
+            "Usage: obsidian-export [OPTIONS] SOURCE DESTINATION\n\n{}",
+            Opts::usage()
+        );
+        std::process::exit(0);
+    }
+
+    let root = args
+        .source
+        .expect("source is a required free argument enforced by gumdrop");
+    let destination = args
+        .destination
+        .expect("destination is a required free argument enforced by gumdrop");
 
     let walk_options = WalkOptions {
         ignore_filename: &args.ignore_file,
