@@ -2,24 +2,22 @@ towncrier_cmd := "uvx towncrier==24.8.0"
 
 # --- Desktop app (Tauri) -----------------------------------------------------
 
-# Git Bash on Windows: plain lines run via `bash -c` (shebang recipes hit a
-# temp-file path bug in just 1.53 on Windows, so keep recipes single-line).
-set windows-shell := ["bash.exe", "-c"]
-
-exe := if os() == "windows" { ".exe" } else { "" }
-triple := `rustc -vV | sed -n 's/^host: //p'`
+# On Windows, delegate everything to pnpm/Node/PowerShell: spawning msys bash
+# from just loses .cargo/bin from PATH on some setups. Recipes are single-line
+# because Windows PowerShell 5.1 has no `&&`.
+set windows-shell := ["powershell.exe", "-NoProfile", "-Command"]
 
 # Build the CLI and copy it into the desktop app's sidecar location
 desktop-sync-sidecar:
-    cargo build --release --bin obsidian-export && mkdir -p desktop/src-tauri/binaries && cp "target/release/obsidian-export{{exe}}" "desktop/src-tauri/binaries/obsidian-export-{{triple}}{{exe}}" && echo "Sidecar synced."
+    pnpm -C desktop run sync-sidecar
 
 # Run the desktop app in dev mode (syncs the sidecar first)
 desktop-dev: desktop-sync-sidecar
-    cd desktop && pnpm tauri dev
+    pnpm -C desktop tauri dev
 
 # Build a distributable desktop bundle (syncs the sidecar first)
 desktop-build: desktop-sync-sidecar
-    cd desktop && pnpm tauri build
+    pnpm -C desktop tauri build
 
 # Run the desktop crate's Rust tests
 desktop-test:
