@@ -378,14 +378,9 @@ impl<'a> Exporter<'a> {
             let destination = match self.destination.is_dir() {
                 true => self.destination.join(String::from(source_filename)),
                 false => {
-                    let parent = self.destination.parent().unwrap_or(&self.destination);
                     // Avoid recursively creating self.destination through the call to
                     // export_note when the parent directory doesn't exist.
-                    if !parent.exists() {
-                        return Err(ExportError::PathDoesNotExist {
-                            path: parent.to_path_buf(),
-                        });
-                    }
+                    validate_destination_parent(&self.destination)?;
                     self.destination.clone()
                 }
             };
@@ -858,6 +853,23 @@ fn format_anchor(section: &str) -> String {
     anchor
 }
 
+/// Validate that the parent directory of a destination file exists.
+///
+/// A bare filename (e.g. `out.md`) has an empty parent component; its parent is really the
+/// current directory, which is assumed to exist instead of reporting an empty path as missing.
+fn validate_destination_parent(dest: &Path) -> Result<()> {
+    let parent = match dest.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    if !parent.exists() {
+        return Err(ExportError::PathDoesNotExist {
+            path: parent.to_path_buf(),
+        });
+    }
+    Ok(())
+}
+
 fn render_mdevents_to_mdtext(markdown: &MarkdownEvents<'_>) -> String {
     let mut buffer = String::new();
     cmark_with_options(
@@ -1124,6 +1136,20 @@ mod tests {
         assert_eq!(format_anchor("C++ and Rust!"), "c-and-rust");
         assert_eq!(format_anchor("  spaced   out  "), "spaced-out");
         assert_eq!(format_anchor("-dashed-"), "dashed");
+    }
+
+    #[test]
+    fn test_destination_parent_validation() {
+        // A bare filename treats the current directory as its parent instead of
+        // reporting an empty path as missing.
+        assert!(validate_destination_parent(Path::new("out.md")).is_ok());
+        assert!(validate_destination_parent(Path::new("no-such-dir/out.md")).is_err());
+        match validate_destination_parent(Path::new("no-such-dir/out.md")) {
+            Err(ExportError::PathDoesNotExist { path }) => {
+                assert!(!path.as_os_str().is_empty());
+            }
+            _ => panic!("expected PathDoesNotExist with a non-empty path"),
+        }
     }
 
     #[rstest]
