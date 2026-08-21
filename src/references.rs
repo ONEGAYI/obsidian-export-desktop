@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 static OBSIDIAN_NOTE_LINK_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?P<file>[^#|]+)??(#(?P<section>.+?))??(\|(?P<label>.+?))??$").unwrap()
+    Regex::new(r"^(?P<file>[^#|]+)??(#(?P<section>.*?))??(\|(?P<label>.*?))??$").unwrap()
 });
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -74,9 +74,27 @@ impl ObsidianNoteReference<'_> {
         let captures = OBSIDIAN_NOTE_LINK_RE
             .captures(text)
             .expect("note link regex didn't match - bad input?");
-        let file = captures.name("file").map(|v| v.as_str().trim());
-        let label = captures.name("label").map(|v| v.as_str());
-        let section = captures.name("section").map(|v| v.as_str().trim());
+        // Empty captures (e.g. `note|` or `Note#`) are treated the same as the
+        // component being absent.
+        let file = captures
+            .name("file")
+            .map(|v| v.as_str().trim())
+            .filter(|v| !v.is_empty());
+        let label = captures
+            .name("label")
+            .map(|v| v.as_str())
+            .filter(|v| !v.is_empty());
+        let section = captures
+            .name("section")
+            .map(|v| v.as_str().trim())
+            .filter(|v| !v.is_empty());
+
+        // Degenerate inputs like `#` or `|` leave every component empty. Keep the raw
+        // text as the label so that rendering the reference can never fail.
+        let (file, label, section) = match (file, label, section) {
+            (None, None, None) => (None, Some(text), None),
+            components => components,
+        };
 
         ObsidianNoteReference {
             file,
@@ -118,6 +136,13 @@ mod tests {
     #[case("Note#with heading", Some("Note"), None, Some("with heading"))]
     #[case("Note#Heading|Label", Some("Note"), Some("Label"), Some("Heading"))]
     #[case("#Heading|Label", None, Some("Label"), Some("Heading"))]
+    // Degenerate inputs commonly produced by templates. These must never panic.
+    #[case("note|", Some("note"), None, None)]
+    #[case("Note#", Some("Note"), None, None)]
+    #[case("#Heading|", None, None, Some("Heading"))]
+    #[case("#", None, Some("#"), None)]
+    #[case("|", None, Some("|"), None)]
+    #[case("|label", None, Some("label"), None)]
     fn parse_note_refs_from_strings(
         #[case] input: &str,
         #[case] expected_file: Option<&str>,
