@@ -88,18 +88,22 @@ impl Default for WalkOptions<'_> {
 
 /// `vault_contents` returns all of the files in an Obsidian vault located at `path` which would be
 /// exported when using the given [`WalkOptions`].
+///
+/// The returned list is sorted, making both the export order and any order-dependent behavior
+/// (such as resolving ambiguous same-name references) deterministic across platforms and runs.
 pub fn vault_contents(root: &Path, opts: WalkOptions<'_>) -> Result<Vec<PathBuf>> {
     let mut contents = Vec::new();
     let walker = opts.build_walker(root);
     for entry in walker {
         let entry = entry.context(WalkDirSnafu { path: root })?;
         let path = entry.path();
-        let metadata = entry.metadata().context(WalkDirSnafu { path })?;
+        let metadata = entry.metadata().context(WalkDirSnafu { path: root })?;
 
         if metadata.is_dir() {
             continue;
         }
         contents.push(path.to_path_buf());
     }
+    contents.sort();
     Ok(contents)
 }

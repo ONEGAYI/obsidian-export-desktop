@@ -811,27 +811,40 @@ impl<'a> Exporter<'a> {
 /// 1. Standard Obsidian note references not including a .md extension.
 /// 2. Case-insensitive matching
 /// 3. Unicode normalization rules using normalization form C (<https://www.w3.org/TR/charmod-norm/#unicodeNormalization>)
+///
+/// When multiple files match (e.g. a bare-name reference while `Note.md` and `nested/Note.md`
+/// both exist), the result is deterministic and independent of traversal order: the candidate
+/// with the fewest path components wins, ties broken lexicographically.
 fn lookup_filename_in_vault<'a>(
     filename: &str,
     vault_contents: &'a [PathBuf],
 ) -> Option<&'a PathBuf> {
     let filename = PathBuf::from(filename);
     let filename_normalized = filename.to_string_lossy().nfc().collect::<String>();
+    let filename_normalized_lowered = filename_normalized.to_lowercase();
 
-    vault_contents.iter().find(|path| {
-        let path_normalized_str = path.to_string_lossy().nfc().collect::<String>();
-        let path_normalized = PathBuf::from(&path_normalized_str);
-        let path_normalized_lowered = PathBuf::from(&path_normalized_str.to_lowercase());
+    vault_contents
+        .iter()
+        .filter(|path| {
+            let path_normalized_str = path.to_string_lossy().nfc().collect::<String>();
+            let path_normalized = PathBuf::from(&path_normalized_str);
+            let path_normalized_lowered = PathBuf::from(&path_normalized_str.to_lowercase());
 
-        // It would be convenient if we could just do `filename.set_extension("md")` at the start
-        // of this funtion so we don't need multiple separate + ".md" match cases here, however
-        // that would break with a reference of `[[Note.1]]` linking to `[[Note.1.md]]`.
+            // It would be convenient if we could just do `filename.set_extension("md")` at the start
+            // of this funtion so we don't need multiple separate + ".md" match cases here, however
+            // that would break with a reference of `[[Note.1]]` linking to `[[Note.1.md]]`.
 
-        path_normalized.ends_with(&filename_normalized)
-            || path_normalized.ends_with(filename_normalized.clone() + ".md")
-            || path_normalized_lowered.ends_with(filename_normalized.to_lowercase())
-            || path_normalized_lowered.ends_with(filename_normalized.to_lowercase() + ".md")
-    })
+            path_normalized.ends_with(&filename_normalized)
+                || path_normalized.ends_with(filename_normalized.clone() + ".md")
+                || path_normalized_lowered.ends_with(&filename_normalized_lowered)
+                || path_normalized_lowered.ends_with(filename_normalized_lowered.clone() + ".md")
+        })
+        .min_by_key(|path| {
+            (
+                path.components().count(),
+                path.to_string_lossy().to_lowercase(),
+            )
+        })
 }
 
 /// Generate a URL fragment for a section reference.
@@ -1162,6 +1175,33 @@ mod tests {
             }
             _ => panic!("expected PathDoesNotExist with a non-empty path"),
         }
+    }
+
+    #[test]
+    fn test_lookup_same_filename_is_deterministic() {
+        // A bare-name reference hitting multiple candidates must resolve to the same
+        // file regardless of the order files were discovered in: shortest path first,
+        // then lexicographically smallest.
+        let vault_one = vec![PathBuf::from("NoteA.md"), PathBuf::from("nested/NoteA.md")];
+        let vault_two = vec![PathBuf::from("nested/NoteA.md"), PathBuf::from("NoteA.md")];
+        let expected = PathBuf::from("NoteA.md");
+        assert_eq!(lookup_filename_in_vault("NoteA", &vault_one), Some(&expected));
+        assert_eq!(lookup_filename_in_vault("NoteA", &vault_two), Some(&expected));
+
+        let vault_lex = vec![PathBuf::from("b/NoteA.md"), PathBuf::from("a/NoteA.md")];
+        let expected_lex = PathBuf::from("a/NoteA.md");
+        assert_eq!(
+            lookup_filename_in_vault("NoteA", &vault_lex),
+            Some(&expected_lex)
+        );
+
+        // A path-qualified reference keeps pointing at the nested file, not the
+        // shorter bare-name candidate.
+        let expected_nested = PathBuf::from("nested/NoteA.md");
+        assert_eq!(
+            lookup_filename_in_vault("nested/NoteA", &vault_two),
+            Some(&expected_nested)
+        );
     }
 
     #[rstest]
