@@ -1223,18 +1223,15 @@ impl VaultIndex {
 ///
 /// Unlike the `slug` crate (which transliterates non-ASCII characters, turning e.g. a Chinese
 /// heading into pinyin), this keeps Unicode letters and digits as-is, matching how common
-/// Markdown renderers such as GitHub generate heading anchors. ASCII punctuation is stripped,
-/// whitespace becomes a single hyphen, and leading/trailing hyphens are dropped.
+/// Markdown renderers such as GitHub generate heading anchors. Underscores are kept (they
+/// are word characters, as on GitHub), other ASCII punctuation is stripped, whitespace
+/// becomes hyphens, and leading/trailing hyphens are dropped. Unlike GitHub, runs of
+/// consecutive hyphens are collapsed into one.
 fn format_anchor(section: &str) -> String {
     let mut anchor = String::with_capacity(section.len());
     let mut prev_hyphen = true;
     for ch in section.chars().flat_map(char::to_lowercase) {
-        if ch.is_ascii_punctuation() {
-            if ch == '-' && !prev_hyphen {
-                anchor.push('-');
-                prev_hyphen = true;
-            }
-        } else if ch.is_whitespace() {
+        if (ch.is_ascii_punctuation() && ch != '_') || ch.is_whitespace() {
             if !prev_hyphen {
                 anchor.push('-');
                 prev_hyphen = true;
@@ -1569,6 +1566,14 @@ mod tests {
         assert_eq!(format_anchor("Heading One"), "heading-one");
         assert_eq!(format_anchor("with heading"), "with-heading");
         assert_eq!(format_anchor("dda637"), "dda637");
+    }
+
+    #[test]
+    fn test_format_anchor_keeps_underscores() {
+        // GitHub's slugger keeps underscores (they're word characters); links like
+        // [note#Foo_Bar] must produce anchors that resolve on such renderers.
+        assert_eq!(format_anchor("Foo_Bar"), "foo_bar");
+        assert_eq!(format_anchor("snake_case_heading"), "snake_case_heading");
     }
 
     #[test]
