@@ -223,6 +223,15 @@ pub enum ExportError {
     /// This occurs when an embed points at a section which doesn't exist in the target
     /// note and [`MissingSectionStrategy::Fail`] is configured.
     SectionNotFound { section: String, path: PathBuf },
+
+    #[snafu(display(
+        "start-at path '{}' is not under the export root '{}'",
+        start_at.display(),
+        root.display()
+    ))]
+    /// This occurs when [`Exporter::start_at`] points outside of the export root,
+    /// which would otherwise silently export zero files.
+    StartAtNotUnderRoot { start_at: PathBuf, root: PathBuf },
 }
 
 /// Emitted by [Postprocessor]s to signal the next action to take.
@@ -402,6 +411,22 @@ impl<'a> Exporter<'a> {
             return Err(ExportError::PathDoesNotExist {
                 path: self.root.clone(),
             });
+        }
+
+        // A start_at outside of root would silently produce an empty export; reject it
+        // up front so users get a clear error instead.
+        if self.start_at != self.root {
+            if !self.start_at.exists() {
+                return Err(ExportError::PathDoesNotExist {
+                    path: self.start_at.clone(),
+                });
+            }
+            if !self.start_at.starts_with(&self.root) {
+                return Err(ExportError::StartAtNotUnderRoot {
+                    start_at: self.start_at.clone(),
+                    root: self.root.clone(),
+                });
+            }
         }
 
         self.vault_contents = Some(vault_contents(

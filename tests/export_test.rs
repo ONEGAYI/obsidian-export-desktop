@@ -441,6 +441,35 @@ fn test_non_ascii_filenames() {
 }
 
 #[test]
+fn test_start_at_outside_root_errors() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let mut exporter = Exporter::new(
+        PathBuf::from("tests/testdata/input/start-at/"),
+        tmp_dir.path().to_path_buf(),
+    );
+    // A start-at path outside the vault root used to silently export zero files.
+    exporter.start_at(PathBuf::from("tests/testdata/input/non-ascii"));
+    match exporter.run() {
+        Err(ExportError::StartAtNotUnderRoot { .. }) => (),
+        _ => panic!("expected StartAtNotUnderRoot"),
+    }
+}
+
+#[test]
+fn test_start_at_nonexistent_errors() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let mut exporter = Exporter::new(
+        PathBuf::from("tests/testdata/input/start-at/"),
+        tmp_dir.path().to_path_buf(),
+    );
+    exporter.start_at(PathBuf::from("tests/testdata/input/start-at/no-such-subdir"));
+    match exporter.run() {
+        Err(ExportError::PathDoesNotExist { .. }) => (),
+        _ => panic!("expected PathDoesNotExist"),
+    }
+}
+
+#[test]
 fn test_chinese_section_anchor() {
     let tmp_dir = TempDir::new().expect("failed to make tempdir");
 
