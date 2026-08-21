@@ -465,7 +465,8 @@ impl<'a> Exporter<'a> {
     /// When disabled (the default), a failing file is recorded and the export continues
     /// with the remaining files; [`Exporter::run`] then returns
     /// [`ExportError::ExportCompletedWithErrors`] listing every failure. When enabled,
-    /// the first error aborts the export immediately.
+    /// the first error stops the run: no new files are scheduled, though files already
+    /// being processed concurrently may still complete (and be reported as usual).
     pub const fn fail_fast(&mut self, fail_fast: bool) -> &mut Self {
         self.fail_fast = fail_fast;
         self

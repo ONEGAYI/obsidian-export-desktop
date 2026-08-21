@@ -57,6 +57,40 @@ fn version_goes_to_stdout_with_zero_exit() {
 }
 
 #[test]
+fn version_flag_in_options_position_is_handled_by_the_parser() {
+    // --version after other options is a regular flag once the required free arguments
+    // are present, and still prints the version instead of exporting.
+    let out = run_cli(&["--fail-fast", "--version", "a", "b"]);
+    assert_eq!(out.code, Some(0_i32));
+    assert!(out.stdout.starts_with("obsidian-export "));
+}
+
+#[test]
+fn version_flag_as_option_value_is_not_special() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let dest = tmp_dir.path().to_str().expect("non-unicode tmpdir");
+    // "-v" consumed as the value of --ignore-file must not trigger version output
+    // (it is only special in first position).
+    let out = run_cli(&[
+        "--ignore-file",
+        "-v",
+        "tests/testdata/input/main-samples",
+        dest,
+    ]);
+    assert_eq!(
+        out.code,
+        Some(0_i32),
+        "export should proceed, stderr: {:?}",
+        out.stderr
+    );
+    assert!(
+        !out.stdout.starts_with("obsidian-export "),
+        "no version banner expected, got: {:?}",
+        out.stdout
+    );
+}
+
+#[test]
 fn help_goes_to_stdout_with_zero_exit() {
     let out = run_cli(&["--help"]);
     assert_eq!(out.code, Some(0_i32));

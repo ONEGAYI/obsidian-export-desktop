@@ -102,7 +102,7 @@ struct Opts {
 
     #[options(
         no_short,
-        help = "Stop the export on the first failing file (default: keep going and report all failures at the end)",
+        help = "Stop on the first failing file instead of continuing and reporting all failures at the end",
         default = "false"
     )]
     fail_fast: bool,
@@ -150,10 +150,13 @@ fn main() {
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
 
-    // Due to the use of free arguments in Opts, we must bypass gumdrop to determine
-    // whether the version flag was specified. Without this, "missing required free
-    // argument" would get printed when no other args are specified.
-    if argv.iter().any(|arg| arg == "-v" || arg == "--version") {
+    // The version flag in first position must work without the required free arguments
+    // present, so it gets handled before parsing. Elsewhere, gumdrop owns it (as the
+    // value of another option, or as a free argument error, just like every other flag).
+    if argv
+        .first()
+        .is_some_and(|arg| arg == "-v" || arg == "--version")
+    {
         println!("obsidian-export {VERSION}");
         std::process::exit(0);
     }
@@ -170,6 +173,10 @@ fn main() {
             "Usage: obsidian-export [OPTIONS] SOURCE DESTINATION\n\n{}",
             Opts::usage()
         );
+        std::process::exit(0);
+    }
+    if args.version {
+        println!("obsidian-export {VERSION}");
         std::process::exit(0);
     }
 
@@ -207,16 +214,16 @@ fn main() {
     }
 
     if args.progress == ProgressFormat::Json {
-        println!(
-            "{}",
-            json!({
+        print_json_line(
+            &json!({
                 "type": "schema",
                 "version": JSON_EVENT_SCHEMA_VERSION,
             })
+            .to_string(),
         );
         let callback: obsidian_export::ExportEventCallback = Arc::new(|event: &ExportEvent| {
             if let Some(line) = event_to_json(event) {
-                println!("{line}");
+                print_json_line(&line);
             }
         });
         exporter.on_event(callback);
@@ -226,42 +233,62 @@ fn main() {
     #[allow(clippy::ref_patterns)]
     #[allow(clippy::shadow_unrelated)]
     if let Err(err) = exporter.run() {
-        match err {
-            ExportError::ExportCompletedWithErrors { errors } => {
-                eprintln!(
-                    "Error: export completed with {} failing file(s):",
-                    errors.len()
-                );
-                for failed in &errors {
-                    eprintln!("  {}: {:?}", failed.path.display(), failed.error);
-                }
-                eprintln!("\nHint: the first error per file is usually the root cause; re-run with --fail-fast to abort on the first failure");
+        print_run_error(err);
+        std::process::exit(1);
+    }
+}
+
+/// Print a human-readable report for a failed export run to stderr.
+#[allow(clippy::pattern_type_mismatch)]
+#[allow(clippy::shadow_unrelated)]
+fn print_run_error(err: ExportError) {
+    match err {
+        ExportError::ExportCompletedWithErrors { errors } => {
+            eprintln!(
+                "Error: export completed with {} failing file(s):",
+                errors.len()
+            );
+            for failed in errors {
+                eprintln!("  {}: {:?}", failed.path.display(), failed.error);
             }
-            ExportError::FileExportError {
-                ref path,
-                ref source,
-            } => match &**source {
-                // An arguably better way of enhancing error reports would be to construct a custom
-                // `eyre::EyreHandler`, but that would require a fair amount of boilerplate and
-                // reimplementation of basic reporting.
-                ExportError::RecursionLimitExceeded { file_tree } => {
-                    eprintln!(
-                        "Error: {:?}",
-                        eyre!(
-                            "'{}' exceeds the maximum nesting limit of embeds",
-                            path.display()
-                        )
-                    );
-                    eprintln!("\nFile tree:");
-                    for (idx, path) in file_tree.iter().enumerate() {
-                        eprintln!("  {}-> {}", "  ".repeat(idx), path.display());
-                    }
-                    eprintln!("\nHint: Ensure notes are non-recursive, or specify --no-recursive-embeds to break cycles");
-                }
-                _ => eprintln!("Error: {:?}", eyre!(err)),
-            },
-            _ => eprintln!("Error: {:?}", eyre!(err)),
+            eprintln!("\nHint: the first error per file is usually the root cause; re-run with --fail-fast to abort on the first failure");
         }
+        ExportError::FileExportError {
+            ref path,
+            ref source,
+        } => match &**source {
+            // An arguably better way of enhancing error reports would be to construct a custom
+            // `eyre::EyreHandler`, but that would require a fair amount of boilerplate and
+            // reimplementation of basic reporting.
+            ExportError::RecursionLimitExceeded { file_tree } => {
+                eprintln!(
+                    "Error: {:?}",
+                    eyre!(
+                        "'{}' exceeds the maximum nesting limit of embeds",
+                        path.display()
+                    )
+                );
+                eprintln!("\nFile tree:");
+                for (idx, path) in file_tree.iter().enumerate() {
+                    eprintln!("  {}-> {}", "  ".repeat(idx), path.display());
+                }
+                eprintln!("\nHint: Ensure notes are non-recursive, or specify --no-recursive-embeds to break cycles");
+            }
+            _ => eprintln!("Error: {:?}", eyre!(err)),
+        },
+        _ => eprintln!("Error: {:?}", eyre!(err)),
+    }
+}
+
+/// Print a single JSON Lines event to stdout.
+///
+/// A closed stdout pipe (e.g. a GUI consumer that stopped reading) must not turn into
+/// a panic with exit code 101; exit quietly with a failure code instead, keeping the
+/// documented 0/1/2 exit code contract intact.
+fn print_json_line(line: &str) {
+    use std::io::Write;
+    let mut stdout = std::io::stdout().lock();
+    if writeln!(stdout, "{line}").is_err() {
         std::process::exit(1);
     }
 }
