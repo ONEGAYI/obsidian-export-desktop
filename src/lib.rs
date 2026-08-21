@@ -132,8 +132,13 @@ pub type Postprocessor<'f> =
     dyn Fn(&mut Context, &mut MarkdownEvents<'_>) -> PostprocessorResult + Send + Sync + 'f;
 type Result<T, E = ExportError> = std::result::Result<T, E>;
 
-const PERCENTENCODE_CHARS: &AsciiSet =
-    &CONTROLS.add(b' ').add(b'(').add(b')').add(b'%').add(b'?').add(b'#');
+const PERCENTENCODE_CHARS: &AsciiSet = &CONTROLS
+    .add(b' ')
+    .add(b'(')
+    .add(b')')
+    .add(b'%')
+    .add(b'?')
+    .add(b'#');
 const NOTE_RECURSION_LIMIT: usize = 10;
 
 #[non_exhaustive]
@@ -213,6 +218,11 @@ pub enum ExportError {
         #[snafu(source(from(serde_yaml::Error, Box::new)))]
         source: Box<serde_yaml::Error>,
     },
+
+    #[snafu(display("Section '{}' not found in '{}'", section, path.display()))]
+    /// This occurs when an embed points at a section which doesn't exist in the target
+    /// note and [`MissingSectionStrategy::Fail`] is configured.
+    SectionNotFound { section: String, path: PathBuf },
 }
 
 /// Emitted by [Postprocessor]s to signal the next action to take.
@@ -225,6 +235,27 @@ pub enum PostprocessorResult {
     StopHere,
     /// Skip this note (don't export it) and don't run any more post-processors.
     StopAndSkipNote,
+}
+
+/// Controls what happens when an embed points at a section which doesn't exist in the
+/// target note (including block references like `![[note#^block-id]]`, which never match
+/// a heading).
+///
+/// The strategy is applied independently at every level of embedding: a missing section
+/// only affects that single embed, never the rest of the parent note. Detection of
+/// embed cycles and the recursion limit are orthogonal and keep working as before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
+pub enum MissingSectionStrategy {
+    /// Embed the entire note (upstream behavior). The result silently contains more
+    /// content than the reference asked for.
+    EmbedFull,
+    /// Replace the embed with nothing and emit a warning. Closest to Obsidian's own
+    /// "not found" rendering. This is the default.
+    #[default]
+    Skip,
+    /// Fail the export of the file containing the embed with [`ExportError::SectionNotFound`].
+    Fail,
 }
 
 #[derive(Clone)]
@@ -243,6 +274,7 @@ pub struct Exporter<'a> {
     walk_options: WalkOptions<'a>,
     process_embeds_recursively: bool,
     preserve_mtime: bool,
+    missing_section_strategy: MissingSectionStrategy,
     postprocessors: Vec<&'a Postprocessor<'a>>,
     embed_postprocessors: Vec<&'a Postprocessor<'a>>,
 }
@@ -259,6 +291,7 @@ impl fmt::Debug for Exporter<'_> {
                 "process_embeds_recursively",
                 &self.process_embeds_recursively,
             )
+            .field("missing_section_strategy", &self.missing_section_strategy)
             .field("preserve_mtime", &self.preserve_mtime)
             .field(
                 "postprocessors",
@@ -288,6 +321,7 @@ impl<'a> Exporter<'a> {
             walk_options: WalkOptions::default(),
             process_embeds_recursively: true,
             preserve_mtime: false,
+            missing_section_strategy: MissingSectionStrategy::default(),
             vault_contents: None,
             postprocessors: vec![],
             embed_postprocessors: vec![],
@@ -336,6 +370,16 @@ impl<'a> Exporter<'a> {
     /// time of the source file.
     pub const fn preserve_mtime(&mut self, preserve: bool) -> &mut Self {
         self.preserve_mtime = preserve;
+        self
+    }
+
+    /// Set the strategy for embeds pointing at a missing section (default:
+    /// [`MissingSectionStrategy::Skip`]).
+    pub const fn missing_section_strategy(
+        &mut self,
+        strategy: MissingSectionStrategy,
+    ) -> &mut Self {
+        self.missing_section_strategy = strategy;
         self
     }
 
@@ -688,7 +732,29 @@ impl<'a> Exporter<'a> {
                 let (frontmatter, mut events) = self.parse_obsidian_note(path, &child_context)?;
                 child_context.frontmatter = frontmatter;
                 if let Some(section) = note_ref.section {
-                    events = reduce_to_section(events, section);
+                    // TODO: block references (`![[note#^block-id]]`) never match a heading and
+                    // therefore always take the missing-section path below. Extracting the
+                    // actual block contents is a future enhancement (tracked in AGENTS.md).
+                    match reduce_to_section(&events, section) {
+                        Some(reduced) => events = reduced,
+                        None => match self.missing_section_strategy {
+                            MissingSectionStrategy::EmbedFull => (),
+                            MissingSectionStrategy::Skip => {
+                                eprintln!(
+                                    "Warning: Unable to find section '{section}' in note '{}'\n\tSource: '{}'\n",
+                                    path.display(),
+                                    context.current_file().display(),
+                                );
+                                events = vec![];
+                            }
+                            MissingSectionStrategy::Fail => {
+                                return Err(ExportError::SectionNotFound {
+                                    section: section.to_owned(),
+                                    path: path.clone(),
+                                });
+                            }
+                        },
+                    }
                 }
                 for func in &self.embed_postprocessors {
                     // Postprocessors running on embeds shouldn't be able to change frontmatter (or
@@ -708,7 +774,9 @@ impl<'a> Exporter<'a> {
                 // label. Plain Markdown has no notion of image sizes, so fall back to the
                 // filename instead of rendering a bare number as alt text.
                 let note_ref = match note_ref.label {
-                    Some(label) if !label.is_empty() && label.chars().all(|c| c.is_ascii_digit()) => {
+                    Some(label)
+                        if !label.is_empty() && label.chars().all(|c| c.is_ascii_digit()) =>
+                    {
                         ObsidianNoteReference {
                             label: None,
                             ..note_ref
@@ -830,9 +898,10 @@ fn lookup_filename_in_vault<'a>(
             let path_normalized = PathBuf::from(&path_normalized_str);
             let path_normalized_lowered = PathBuf::from(&path_normalized_str.to_lowercase());
 
-            // It would be convenient if we could just do `filename.set_extension("md")` at the start
-            // of this funtion so we don't need multiple separate + ".md" match cases here, however
-            // that would break with a reference of `[[Note.1]]` linking to `[[Note.1.md]]`.
+            // It would be convenient if we could just do `filename.set_extension("md")` at the
+            // start of this funtion so we don't need multiple separate + ".md" match
+            // cases here, however that would break with a reference of `[[Note.1]]`
+            // linking to `[[Note.1.md]]`.
 
             path_normalized.ends_with(&filename_normalized)
                 || path_normalized.ends_with(filename_normalized.clone() + ".md")
@@ -957,19 +1026,33 @@ fn is_markdown_file(file: &Path) -> bool {
 
 /// Reduce a given `MarkdownEvents` to just those elements which are children of the given section
 /// (heading name).
-fn reduce_to_section<'a>(events: MarkdownEvents<'a>, section: &str) -> MarkdownEvents<'a> {
+///
+/// Returns `None` when no heading matches `section`, letting the caller decide how to handle
+/// the missing section (see [`MissingSectionStrategy`]). Heading comparison aggregates all
+/// inline text of the heading (so `## *Foo* Bar` matches "Foo Bar") and is case-insensitive
+/// as well as Unicode-normalized (NFC).
+fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<MarkdownEvents<'a>> {
+    let section_normalized = section.nfc().collect::<String>().to_lowercase();
+
     let mut filtered_events = Vec::with_capacity(events.len());
     let mut target_section_encountered = false;
     let mut currently_in_target_section = false;
     let mut section_level = HeadingLevel::H1;
     let mut last_level = HeadingLevel::H1;
-    let mut last_tag_was_heading = false;
+    let mut heading_start_idx = 0;
+    let mut heading_text = String::new();
+    let mut in_heading = false;
 
     for event in events {
+        if matches!(event, Event::Start(Tag::Heading { .. })) {
+            heading_start_idx = filtered_events.len();
+        }
         filtered_events.push(event.clone());
         match event {
             Event::Start(Tag::Heading { level, .. }) => {
-                last_tag_was_heading = true;
+                let level = *level;
+                in_heading = true;
+                heading_text.clear();
                 last_level = level;
                 if currently_in_target_section && level <= section_level {
                     currently_in_target_section = false;
@@ -977,31 +1060,32 @@ fn reduce_to_section<'a>(events: MarkdownEvents<'a>, section: &str) -> MarkdownE
                 }
             }
             Event::Text(cowstr) => {
-                if !last_tag_was_heading {
-                    last_tag_was_heading = false;
-                    continue;
+                if in_heading {
+                    heading_text.push_str(cowstr);
                 }
-                last_tag_was_heading = false;
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                if in_heading {
+                    in_heading = false;
+                    if heading_text.nfc().collect::<String>().to_lowercase() == section_normalized {
+                        target_section_encountered = true;
+                        currently_in_target_section = true;
+                        section_level = last_level;
 
-                if cowstr.to_string().to_lowercase() == section.to_lowercase() {
-                    target_section_encountered = true;
-                    currently_in_target_section = true;
-                    section_level = last_level;
-
-                    let current_event = filtered_events.pop().unwrap();
-                    let heading_start_event = filtered_events.pop().unwrap();
-                    filtered_events.clear();
-                    filtered_events.push(heading_start_event);
-                    filtered_events.push(current_event);
+                        // Discard everything collected before the target heading; the heading
+                        // itself (which may consist of multiple inline events) is kept.
+                        let heading_events = filtered_events.split_off(heading_start_idx);
+                        filtered_events = heading_events;
+                    }
                 }
             }
             _ => {}
         }
         if target_section_encountered && !currently_in_target_section {
-            return filtered_events;
+            return Some(filtered_events);
         }
     }
-    filtered_events
+    target_section_encountered.then_some(filtered_events)
 }
 
 fn event_to_owned<'a>(event: Event<'_>) -> Event<'a> {
@@ -1185,8 +1269,14 @@ mod tests {
         let vault_one = vec![PathBuf::from("NoteA.md"), PathBuf::from("nested/NoteA.md")];
         let vault_two = vec![PathBuf::from("nested/NoteA.md"), PathBuf::from("NoteA.md")];
         let expected = PathBuf::from("NoteA.md");
-        assert_eq!(lookup_filename_in_vault("NoteA", &vault_one), Some(&expected));
-        assert_eq!(lookup_filename_in_vault("NoteA", &vault_two), Some(&expected));
+        assert_eq!(
+            lookup_filename_in_vault("NoteA", &vault_one),
+            Some(&expected)
+        );
+        assert_eq!(
+            lookup_filename_in_vault("NoteA", &vault_two),
+            Some(&expected)
+        );
 
         let vault_lex = vec![PathBuf::from("b/NoteA.md"), PathBuf::from("a/NoteA.md")];
         let expected_lex = PathBuf::from("a/NoteA.md");
@@ -1201,6 +1291,68 @@ mod tests {
         assert_eq!(
             lookup_filename_in_vault("nested/NoteA", &vault_two),
             Some(&expected_nested)
+        );
+    }
+
+    fn parse_events(text: &str) -> MarkdownEvents<'static> {
+        Parser::new(text).map(event_to_owned).collect()
+    }
+
+    #[test]
+    fn test_reduce_to_section_found() {
+        let events =
+            parse_events("# First\n\nfirst.\n\n## Target\n\ntarget content.\n\n## After\n\nafter.");
+        let reduced = reduce_to_section(&events, "Target").expect("section should be found");
+        let rendered = render_mdevents_to_mdtext(&reduced);
+        assert!(rendered.contains("## Target"), "heading kept: {}", rendered);
+        assert!(
+            rendered.contains("target content"),
+            "content kept: {}",
+            rendered
+        );
+        assert!(
+            !rendered.contains("first"),
+            "prior section dropped: {}",
+            rendered
+        );
+        assert!(
+            !rendered.contains("after"),
+            "following section dropped: {}",
+            rendered
+        );
+    }
+
+    #[test]
+    fn test_reduce_to_section_missing_returns_none() {
+        let events = parse_events("# First\n\nfirst.");
+        assert!(reduce_to_section(&events, "Nope").is_none());
+    }
+
+    #[test]
+    fn test_reduce_to_section_matches_formatted_heading() {
+        // A heading with inline formatting arrives as several text events; matching must
+        // aggregate them all instead of comparing only the first fragment.
+        let events = parse_events("# First\n\nfirst.\n\n## *Target* Heading\n\ncontent.");
+        let reduced =
+            reduce_to_section(&events, "Target Heading").expect("formatted heading should match");
+        let rendered = render_mdevents_to_mdtext(&reduced);
+        assert!(
+            rendered.contains("content."),
+            "section content kept: {}",
+            rendered
+        );
+    }
+
+    #[test]
+    fn test_reduce_to_section_matching_is_case_insensitive_and_nfc() {
+        let events = parse_events("# First\n\nfirst.\n\n## Café\n\ncontent.");
+        // NFD ("e" + combining diaeresis) should still match the NFC heading above.
+        let section_nfd = "Cafe\u{301}";
+        let reduced = reduce_to_section(&events, section_nfd).expect("NFC/NFD should match");
+        assert!(render_mdevents_to_mdtext(&reduced).contains("content."));
+        assert!(
+            reduce_to_section(&events, "café").is_some(),
+            "case-insensitive match"
         );
     }
 

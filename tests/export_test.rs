@@ -1,15 +1,15 @@
 #![allow(clippy::shadow_unrelated)]
 
+use std::fs::read_to_string;
 #[cfg(not(target_os = "windows"))]
 use std::fs::{create_dir, set_permissions, File, Permissions};
-use std::fs::read_to_string;
 #[cfg(not(target_os = "windows"))]
 use std::io::prelude::*;
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
-use obsidian_export::{ExportError, Exporter, FrontmatterStrategy};
+use obsidian_export::{ExportError, Exporter, FrontmatterStrategy, MissingSectionStrategy};
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use walkdir::WalkDir;
@@ -456,6 +456,84 @@ fn test_chinese_section_anchor() {
     let expected = "链接到 [target > 中文标题](target.md#中文标题) 的引用。\n\n也链接到 [target > Mixed 混合 Heading](target.md#mixed-混合-heading)。\n";
     let actual = read_to_string(tmp_dir.path().join(PathBuf::from("note.md"))).unwrap();
     assert_eq!(expected, actual);
+}
+
+#[test]
+fn test_missing_section_skip_by_default() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+
+    Exporter::new(
+        PathBuf::from("tests/testdata/input/missing-sections/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .expect("exporter returned error");
+
+    // A direct missing-section embed collapses to nothing (leaving the blank lines of its
+    // paragraph, mirroring how missing-file embeds behave); surrounding content is kept.
+    let expected = "嵌入缺失章节：\n\n\n\n后文。\n";
+    let actual = read_to_string(tmp_dir.path().join("note-embed-missing.md")).unwrap();
+    assert_eq!(expected, actual);
+
+    // Outer embed missing: only the embed disappears, the rest of the note survives.
+    let expected = "外层缺失嵌入：\n\n\n\n尾注。\n";
+    let actual = read_to_string(tmp_dir.path().join("note-outer-missing.md")).unwrap();
+    assert_eq!(expected, actual);
+
+    // Outer embed hits, inner embed (inside the embedded note) misses: the strategy
+    // applies per nesting level, so the inner embed is dropped but the outer content
+    // around it is preserved.
+    let expected = "外层命中、内层缺失：\n\n# Real\n\n内文开头。\n\n\n\n内文结尾。\n";
+    let actual = read_to_string(tmp_dir.path().join("note-inner-missing.md")).unwrap();
+    assert_eq!(expected, actual);
+
+    // Block references never match a heading and follow the same strategy.
+    let expected = "块引用嵌入：\n\n\n";
+    let actual = read_to_string(tmp_dir.path().join("note-block-ref.md")).unwrap();
+    assert_eq!(expected, actual);
+}
+
+#[test]
+fn test_missing_section_embed_full() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let mut exporter = Exporter::new(
+        PathBuf::from("tests/testdata/input/missing-sections/"),
+        tmp_dir.path().to_path_buf(),
+    );
+    exporter.missing_section_strategy(MissingSectionStrategy::EmbedFull);
+    exporter.run().expect("exporter returned error");
+
+    // Upstream behavior: the entire note is embedded when the section is missing.
+    let expected = "嵌入缺失章节：\n\n# Real\n\nreal content.\n\n后文。\n";
+    let actual = read_to_string(tmp_dir.path().join("note-embed-missing.md")).unwrap();
+    assert_eq!(expected, actual);
+
+    // Block references embed the full note as well.
+    let expected = "块引用嵌入：\n\n# Real\n\nreal content.\n";
+    let actual = read_to_string(tmp_dir.path().join("note-block-ref.md")).unwrap();
+    assert_eq!(expected, actual);
+}
+
+#[test]
+fn test_missing_section_fail() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let mut exporter = Exporter::new(
+        PathBuf::from("tests/testdata/input/missing-sections/"),
+        tmp_dir.path().to_path_buf(),
+    );
+    exporter.missing_section_strategy(MissingSectionStrategy::Fail);
+
+    match exporter.run() {
+        Err(ExportError::FileExportError { source, .. }) => {
+            assert!(
+                matches!(*source, ExportError::SectionNotFound { .. }),
+                "expected SectionNotFound, got {:?}",
+                source
+            );
+        }
+        Err(err) => panic!("expected FileExportError, got {:?}", err),
+        Ok(()) => panic!("expected export to fail with SectionNotFound"),
+    }
 }
 
 #[test]

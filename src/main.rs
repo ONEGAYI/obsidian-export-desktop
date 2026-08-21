@@ -4,7 +4,13 @@ use std::path::PathBuf;
 use eyre::{eyre, Result};
 use gumdrop::Options;
 use obsidian_export::postprocessors::{filter_by_tags, softbreaks_to_hardbreaks};
-use obsidian_export::{ExportError, Exporter, FrontmatterStrategy, WalkOptions};
+use obsidian_export::{
+    ExportError,
+    Exporter,
+    FrontmatterStrategy,
+    MissingSectionStrategy,
+    WalkOptions,
+};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -66,6 +72,15 @@ struct Opts {
 
     #[options(
         no_short,
+        help = "What to do when an embed points at a missing section (one of: embed-full, skip, fail)",
+        long = "missing-section",
+        parse(try_from_str = "missing_section_from_str"),
+        default = "skip"
+    )]
+    missing_section: MissingSectionStrategy,
+
+    #[options(
+        no_short,
         help = "Convert soft line breaks to hard line breaks. This mimics Obsidian's 'Strict line breaks' setting",
         default = "false"
     )]
@@ -78,6 +93,15 @@ fn frontmatter_strategy_from_str(input: &str) -> Result<FrontmatterStrategy> {
         "always" => Ok(FrontmatterStrategy::Always),
         "never" => Ok(FrontmatterStrategy::Never),
         _ => Err(eyre!("must be one of: always, never, auto")),
+    }
+}
+
+fn missing_section_from_str(input: &str) -> Result<MissingSectionStrategy> {
+    match input {
+        "embed-full" => Ok(MissingSectionStrategy::EmbedFull),
+        "skip" => Ok(MissingSectionStrategy::Skip),
+        "fail" => Ok(MissingSectionStrategy::Fail),
+        _ => Err(eyre!("must be one of: embed-full, skip, fail")),
     }
 }
 
@@ -105,6 +129,7 @@ fn main() {
     exporter.frontmatter_strategy(args.frontmatter_strategy);
     exporter.process_embeds_recursively(!args.no_recursive_embeds);
     exporter.preserve_mtime(args.preserve_mtime);
+    exporter.missing_section_strategy(args.missing_section);
     exporter.walk_options(walk_options);
 
     if args.hard_linebreaks {
