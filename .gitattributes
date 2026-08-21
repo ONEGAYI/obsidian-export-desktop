@@ -1,0 +1,10 @@
+# 统一以 LF 检出，避免 Windows 上 core.autocrlf 把测试期望文件（golden files）
+# 换成 CRLF 导致集成测试失败。二进制资源显式标记，防止被当作文本处理。
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.pdf binary
