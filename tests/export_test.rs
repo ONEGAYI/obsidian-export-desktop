@@ -1,6 +1,9 @@
 #![allow(clippy::shadow_unrelated)]
 
-use std::fs::{create_dir, read_to_string, set_permissions, File, Permissions};
+#[cfg(not(target_os = "windows"))]
+use std::fs::{create_dir, set_permissions, File, Permissions};
+use std::fs::read_to_string;
+#[cfg(not(target_os = "windows"))]
 use std::io::prelude::*;
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::PermissionsExt;

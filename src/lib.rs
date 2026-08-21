@@ -1167,7 +1167,7 @@ mod tests {
     fn test_destination_parent_validation() {
         // A bare filename treats the current directory as its parent instead of
         // reporting an empty path as missing.
-        assert!(validate_destination_parent(Path::new("out.md")).is_ok());
+        validate_destination_parent(Path::new("out.md")).unwrap();
         assert!(validate_destination_parent(Path::new("no-such-dir/out.md")).is_err());
         match validate_destination_parent(Path::new("no-such-dir/out.md")) {
             Err(ExportError::PathDoesNotExist { path }) => {
