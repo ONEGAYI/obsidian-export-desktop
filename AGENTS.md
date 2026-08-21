@@ -48,7 +48,7 @@ obsidian-export/
 │   ├── postprocessors.rs# 后处理器：对导出结果再加工
 │   ├── references.rs    # 引用解析：wikilink、嵌入等链接形式
 │   └── walker.rs        # vault 的递归遍历
-├── tests/               # 集成测试
+├── tests/               # 集成测试（export_test/postprocessors_test 与 cli_test 的 CLI 契约测试）
 ├── docs/                # 项目文档
 ├── changelog.d/         # towncrier 的 changelog 片段
 ├── .github/             # CI 工作流

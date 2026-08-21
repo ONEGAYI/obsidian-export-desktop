@@ -10,8 +10,13 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use obsidian_export::{ExportError, Exporter, FrontmatterStrategy, MissingSectionStrategy};
-use obsidian_export::ExportEvent;
+use obsidian_export::{
+    ExportError,
+    ExportEvent,
+    Exporter,
+    FrontmatterStrategy,
+    MissingSectionStrategy,
+};
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use walkdir::WalkDir;
@@ -478,7 +483,9 @@ fn test_start_at_nonexistent_errors() {
         PathBuf::from("tests/testdata/input/start-at/"),
         tmp_dir.path().to_path_buf(),
     );
-    exporter.start_at(PathBuf::from("tests/testdata/input/start-at/no-such-subdir"));
+    exporter.start_at(PathBuf::from(
+        "tests/testdata/input/start-at/no-such-subdir",
+    ));
     match exporter.run() {
         Err(ExportError::PathDoesNotExist { .. }) => (),
         _ => panic!("expected PathDoesNotExist"),
@@ -533,7 +540,8 @@ fn test_fail_fast_aborts_immediately() {
         ExportError::FileExportError { source, .. } => {
             assert!(
                 matches!(**source, ExportError::FrontMatterDecodeError { .. }),
-                "expected FrontMatterDecodeError, got {:?}", source
+                "expected FrontMatterDecodeError, got {:?}",
+                source
             );
         }
         _ => panic!("expected FileExportError"),
@@ -550,12 +558,17 @@ fn test_event_stream_reports_progress_and_warnings() {
     );
     let sink = Arc::clone(&events);
     exporter.on_event(Arc::new(move |event: &ExportEvent| {
-        sink.lock().expect("event sink poisoned").push(event.clone());
+        sink.lock()
+            .expect("event sink poisoned")
+            .push(event.clone());
     }));
     exporter.run().unwrap_err();
 
     let events = events.lock().expect("event sink poisoned").clone();
-    assert!(matches!(events.first(), Some(ExportEvent::Start { total: 3 })));
+    assert!(matches!(
+        events.first(),
+        Some(ExportEvent::Start { total: 3 })
+    ));
     assert!(
         events
             .iter()
@@ -672,7 +685,8 @@ fn test_missing_section_fail() {
                     ExportError::FileExportError { source, .. }
                         if matches!(**source, ExportError::SectionNotFound { .. })
                 )),
-                "expected at least one SectionNotFound failure, got {:?}", errors
+                "expected at least one SectionNotFound failure, got {:?}",
+                errors
             );
         }
         Err(err) => panic!("expected ExportCompletedWithErrors, got {:?}", err),

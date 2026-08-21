@@ -1,18 +1,39 @@
 use std::env;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use eyre::{eyre, Result};
 use gumdrop::Options;
 use obsidian_export::postprocessors::{filter_by_tags, softbreaks_to_hardbreaks};
 use obsidian_export::{
     ExportError,
+    ExportEvent,
     Exporter,
     FrontmatterStrategy,
     MissingSectionStrategy,
     WalkOptions,
 };
+use serde_json::json;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Version of the JSON Lines event schema emitted by `--progress json`. Bump on any
+/// breaking change to the event format.
+const JSON_EVENT_SCHEMA_VERSION: usize = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProgressFormat {
+    None,
+    Json,
+}
+
+fn progress_format_from_str(input: &str) -> Result<ProgressFormat> {
+    match input {
+        "none" => Ok(ProgressFormat::None),
+        "json" => Ok(ProgressFormat::Json),
+        _ => Err(eyre!("must be one of: none, json")),
+    }
+}
 
 #[derive(Debug, Options)]
 #[allow(clippy::struct_excessive_bools)]
@@ -78,6 +99,22 @@ struct Opts {
         default = "skip"
     )]
     missing_section: MissingSectionStrategy,
+
+    #[options(
+        no_short,
+        help = "Stop the export on the first failing file (default: keep going and report all failures at the end)",
+        default = "false"
+    )]
+    fail_fast: bool,
+
+    #[options(
+        no_short,
+        help = "Progress output format (one of: none, json). json emits machine-readable JSON Lines events on stdout",
+        long = "progress",
+        parse(try_from_str = "progress_format_from_str"),
+        default = "none"
+    )]
+    progress: ProgressFormat,
 
     #[options(
         no_short,
@@ -155,6 +192,7 @@ fn main() {
     exporter.process_embeds_recursively(!args.no_recursive_embeds);
     exporter.preserve_mtime(args.preserve_mtime);
     exporter.missing_section_strategy(args.missing_section);
+    exporter.fail_fast(args.fail_fast);
     exporter.walk_options(walk_options);
 
     if args.hard_linebreaks {
@@ -168,11 +206,37 @@ fn main() {
         exporter.start_at(path);
     }
 
+    if args.progress == ProgressFormat::Json {
+        println!(
+            "{}",
+            json!({
+                "type": "schema",
+                "version": JSON_EVENT_SCHEMA_VERSION,
+            })
+        );
+        let callback: obsidian_export::ExportEventCallback = Arc::new(|event: &ExportEvent| {
+            if let Some(line) = event_to_json(event) {
+                println!("{line}");
+            }
+        });
+        exporter.on_event(callback);
+    }
+
     #[allow(clippy::pattern_type_mismatch)]
     #[allow(clippy::ref_patterns)]
     #[allow(clippy::shadow_unrelated)]
     if let Err(err) = exporter.run() {
         match err {
+            ExportError::ExportCompletedWithErrors { errors } => {
+                eprintln!(
+                    "Error: export completed with {} failing file(s):",
+                    errors.len()
+                );
+                for failed in &errors {
+                    eprintln!("  {}: {:?}", failed.path.display(), failed.error);
+                }
+                eprintln!("\nHint: the first error per file is usually the root cause; re-run with --fail-fast to abort on the first failure");
+            }
             ExportError::FileExportError {
                 ref path,
                 ref source,
@@ -200,4 +264,32 @@ fn main() {
         }
         std::process::exit(1);
     }
+}
+
+/// Render an [`ExportEvent`] as a single-line JSON value for `--progress json`.
+/// Returns `None` for future event variants unknown to this CLI version.
+fn event_to_json(event: &ExportEvent) -> Option<String> {
+    let value = match event {
+        ExportEvent::Start { total } => json!({"type": "start", "total": total}),
+        ExportEvent::FileDone { path } => json!({
+            "type": "file-done",
+            "path": path.display().to_string(),
+        }),
+        ExportEvent::FileSkipped { path } => json!({
+            "type": "file-skipped",
+            "path": path.display().to_string(),
+        }),
+        ExportEvent::FileFailed { path, message } => json!({
+            "type": "file-failed",
+            "path": path.display().to_string(),
+            "message": message,
+        }),
+        ExportEvent::Warning { message } => json!({"type": "warning", "message": message}),
+        ExportEvent::End { failed } => json!({
+            "type": "end",
+            "failed": failed.iter().map(|p| p.display().to_string()).collect::<Vec<_>>(),
+        }),
+        _ => return None,
+    };
+    Some(value.to_string())
 }

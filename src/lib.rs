@@ -626,10 +626,7 @@ impl<'a> Exporter<'a> {
                     failures
                         .lock()
                         .expect("failure collector mutex poisoned")
-                        .push(FailedFile {
-                            path: file,
-                            error,
-                        });
+                        .push(FailedFile { path: file, error });
                 }
             }
         });
@@ -638,7 +635,9 @@ impl<'a> Exporter<'a> {
             .into_inner()
             .expect("failure collector mutex poisoned");
         let failed_paths = failures.iter().map(|f| f.path.clone()).collect();
-        self.emit(&ExportEvent::End { failed: failed_paths });
+        self.emit(&ExportEvent::End {
+            failed: failed_paths,
+        });
         if failures.is_empty() {
             Ok(())
         } else {
@@ -758,7 +757,7 @@ impl<'a> Exporter<'a> {
                         Event::Text(cowstr) => frontmatter.push_str(&cowstr),
                         Event::End(TagEnd::MetadataBlock(_kind)) => {
                             continue 'outer;
-                        },
+                        }
                         // Anything else inside a metadata block is unexpected, but skipping it
                         // beats panicking inside a rayon worker thread (which would abort the
                         // entire export process).
@@ -773,22 +772,20 @@ impl<'a> Exporter<'a> {
             }
             buffer.push(event.clone());
             match ref_parser.state {
-                RefParserState::NoState => {
-                    match event {
-                        Event::Text(CowStr::Borrowed("![")) => {
-                            ref_parser.ref_type = Some(RefType::Embed);
-                            ref_parser.transition(RefParserState::ExpectSecondOpenBracket);
-                        }
-                        Event::Text(CowStr::Borrowed("[")) => {
-                            ref_parser.ref_type = Some(RefType::Link);
-                            ref_parser.transition(RefParserState::ExpectSecondOpenBracket);
-                        }
-                        _ => {
-                            events.push(event);
-                            buffer.clear();
-                        },
+                RefParserState::NoState => match event {
+                    Event::Text(CowStr::Borrowed("![")) => {
+                        ref_parser.ref_type = Some(RefType::Embed);
+                        ref_parser.transition(RefParserState::ExpectSecondOpenBracket);
                     }
-                }
+                    Event::Text(CowStr::Borrowed("[")) => {
+                        ref_parser.ref_type = Some(RefType::Link);
+                        ref_parser.transition(RefParserState::ExpectSecondOpenBracket);
+                    }
+                    _ => {
+                        events.push(event);
+                        buffer.clear();
+                    }
+                },
                 RefParserState::ExpectSecondOpenBracket => match event {
                     Event::Text(CowStr::Borrowed("[")) => {
                         ref_parser.transition(RefParserState::ExpectRefText);
@@ -808,14 +805,12 @@ impl<'a> Exporter<'a> {
                     Event::Start(Tag::Emphasis) | Event::End(TagEnd::Emphasis) => {
                         ref_parser.ref_text.push('*');
                         ref_parser.transition(RefParserState::ExpectRefTextOrCloseBracket);
-
                     }
-                    Event::Start(Tag::Strong) | Event::End(TagEnd::Strong)=> {
+                    Event::Start(Tag::Strong) | Event::End(TagEnd::Strong) => {
                         ref_parser.ref_text.push_str("**");
                         ref_parser.transition(RefParserState::ExpectRefTextOrCloseBracket);
-
                     }
-                    Event::Start(Tag::Strikethrough) | Event::End(TagEnd::Strikethrough)=> {
+                    Event::Start(Tag::Strikethrough) | Event::End(TagEnd::Strikethrough) => {
                         ref_parser.ref_text.push_str("~~");
                         ref_parser.transition(RefParserState::ExpectRefTextOrCloseBracket);
                     }
@@ -832,12 +827,11 @@ impl<'a> Exporter<'a> {
                     }
                     Event::Start(Tag::Emphasis) | Event::End(TagEnd::Emphasis) => {
                         ref_parser.ref_text.push('*');
-
                     }
-                    Event::Start(Tag::Strong) | Event::End(TagEnd::Strong)=> {
+                    Event::Start(Tag::Strong) | Event::End(TagEnd::Strong) => {
                         ref_parser.ref_text.push_str("**");
                     }
-                    Event::Start(Tag::Strikethrough) | Event::End(TagEnd::Strikethrough)=> {
+                    Event::Start(Tag::Strikethrough) | Event::End(TagEnd::Strikethrough) => {
                         ref_parser.ref_text.push_str("~~");
                     }
                     _ => {
@@ -849,7 +843,7 @@ impl<'a> Exporter<'a> {
                         Some(RefType::Link) => {
                             let mut elements = self.make_link_to_file(
                                 ObsidianNoteReference::from_str(
-                                    ref_parser.ref_text.clone().as_ref()
+                                    ref_parser.ref_text.clone().as_ref(),
                                 ),
                                 context,
                             );
@@ -858,10 +852,8 @@ impl<'a> Exporter<'a> {
                             ref_parser.transition(RefParserState::Resetting);
                         }
                         Some(RefType::Embed) => {
-                            let mut elements = self.embed_file(
-                                ref_parser.ref_text.clone().as_ref(),
-                                context
-                            )?;
+                            let mut elements =
+                                self.embed_file(ref_parser.ref_text.clone().as_ref(), context)?;
                             events.append(&mut elements);
                             buffer.clear();
                             ref_parser.transition(RefParserState::Resetting);
@@ -902,7 +894,12 @@ impl<'a> Exporter<'a> {
         let note_ref = ObsidianNoteReference::from_str(link_text);
 
         let path = match note_ref.file {
-            Some(file) => lookup_filename_in_vault(file, self.vault_contents.as_ref().expect("vault_contents is always populated by run() before exporting")),
+            Some(file) => lookup_filename_in_vault(
+                file,
+                self.vault_contents
+                    .as_ref()
+                    .expect("vault_contents is always populated by run() before exporting"),
+            ),
 
             // If we have None file it is either to a section or id within the same file and thus
             // the current embed logic will fail, recurssing until it reaches it's limit.
@@ -1024,7 +1021,14 @@ impl<'a> Exporter<'a> {
     ) -> MarkdownEvents<'c> {
         let target_file = reference.file.map_or_else(
             || Some(context.current_file()),
-            |file| lookup_filename_in_vault(file, self.vault_contents.as_ref().expect("vault_contents is always populated by run() before exporting")),
+            |file| {
+                lookup_filename_in_vault(
+                    file,
+                    self.vault_contents
+                        .as_ref()
+                        .expect("vault_contents is always populated by run() before exporting"),
+                )
+            },
         );
 
         if target_file.is_none() {
