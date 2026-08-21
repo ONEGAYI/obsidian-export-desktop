@@ -20,7 +20,6 @@ use filetime::set_file_mtime;
 use frontmatter::{frontmatter_from_str, frontmatter_to_str};
 pub use frontmatter::{Frontmatter, FrontmatterStrategy};
 use pathdiff::diff_paths;
-use percent_encoding::{utf8_percent_encode, AsciiSet, CONTROLS};
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use pulldown_cmark_to_cmark::cmark_with_options;
 use rayon::prelude::*;
@@ -134,13 +133,6 @@ pub type Postprocessor<'f> =
     dyn Fn(&mut Context, &mut MarkdownEvents<'_>) -> PostprocessorResult + Send + Sync + 'f;
 type Result<T, E = ExportError> = std::result::Result<T, E>;
 
-const PERCENTENCODE_CHARS: &AsciiSet = &CONTROLS
-    .add(b' ')
-    .add(b'(')
-    .add(b')')
-    .add(b'%')
-    .add(b'?')
-    .add(b'#');
 const NOTE_RECURSION_LIMIT: usize = 10;
 
 #[non_exhaustive]
@@ -680,11 +672,25 @@ impl<'a> Exporter<'a> {
     }
 
     /// Resolve a reference string to a vault file via the prebuilt index.
-    fn resolve_reference(&self, file: &str) -> Option<&PathBuf> {
-        self.vault_index
+    fn resolve_reference(&self, file: &str, context: &Context) -> Option<&PathBuf> {
+        let index = self
+            .vault_index
             .as_ref()
-            .expect("vault_index is always built by run() before exporting")
-            .lookup(file)
+            .expect("vault_index is always built by run() before exporting");
+        if let Some(found) = index.lookup(file) {
+            return Some(found);
+        }
+
+        // Obsidian resolves wikilinks containing explicit relative components (`./`,
+        // `../`) against the containing note's directory rather than by vault-wide
+        // suffix match. The index never contains such components, so re-resolve the
+        // reference against the note's location and look up the normalized result.
+        if !file.split(['/', '\\']).any(|c| c == "." || c == "..") {
+            return None;
+        }
+        let base = context.current_file().parent()?;
+        let resolved = normalize_lexically(&base.join(file));
+        index.lookup(&resolved.to_string_lossy())
     }
 
     fn emit(&self, event: &ExportEvent) {
@@ -940,7 +946,7 @@ impl<'a> Exporter<'a> {
         let note_ref = ObsidianNoteReference::from_str(link_text);
 
         let path = match note_ref.file {
-            Some(file) => self.resolve_reference(file),
+            Some(file) => self.resolve_reference(file, context),
 
             // If we have None file it is either to a section or id within the same file and thus
             // the current embed logic will fail, recurssing until it reaches it's limit.
@@ -1068,7 +1074,7 @@ impl<'a> Exporter<'a> {
     ) -> MarkdownEvents<'c> {
         let target_file = reference.file.map_or_else(
             || Some(context.current_file()),
-            |file| self.resolve_reference(file),
+            |file| self.resolve_reference(file, context),
         );
 
         if target_file.is_none() {
@@ -1100,8 +1106,11 @@ impl<'a> Exporter<'a> {
         )
         .expect("should be able to build relative path when target file is found in vault");
 
-        let rel_link = rel_link.to_string_lossy();
-        let mut link = utf8_percent_encode(&rel_link, PERCENTENCODE_CHARS).to_string();
+        // Plain-Markdown link destinations require forward slashes; on Windows the
+        // platform-specific relative path from `diff_paths` would otherwise end up
+        // with backslashes that most renderers can't resolve.
+        let rel_link = rel_link.to_string_lossy().replace('\\', "/");
+        let mut link = encode_link_destination(&rel_link);
 
         if let Some(section) = reference.section {
             link.push('#');
@@ -1259,6 +1268,49 @@ impl VaultIndex {
         }
         best
     }
+}
+
+/// Percent-encode only the characters whose presence would break a Markdown
+/// inline link destination (or URL semantics): controls, spaces, parentheses,
+/// `%`, `?`, `#`. Everything else — including non-ASCII characters such as
+/// Chinese filenames — is kept verbatim, matching what Obsidian itself writes.
+fn encode_link_destination(link: &str) -> String {
+    link.chars()
+        .map(|ch| {
+            if ch.is_ascii_control() || matches!(ch, ' ' | '(' | ')' | '%' | '?' | '#') {
+                // The branch condition guarantees the codepoint is below 0x80, so
+                // two hex digits always suffice.
+                format!("%{:02X}", u32::from(ch))
+            } else {
+                ch.to_string()
+            }
+        })
+        .collect()
+}
+
+/// Resolve `.` and `..` components in `path` without touching the filesystem.
+///
+/// When a `..` has no preceding normal component left to consume (e.g. it would
+/// climb above the start of the path), it is kept as-is so that the resulting
+/// path can never accidentally match a vault file.
+fn normalize_lexically(path: &Path) -> PathBuf {
+    use std::path::Component;
+
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => (),
+            Component::ParentDir => {
+                if matches!(normalized.components().next_back(), Some(Component::Normal(_))) {
+                    normalized.pop();
+                } else {
+                    normalized.push("..");
+                }
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
 }
 
 /// Generate a URL fragment for a section reference.
@@ -1626,11 +1678,23 @@ mod tests {
     }
 
     #[test]
-    fn test_percentencode_set_includes_hash() {
+    fn test_link_destination_encoding() {
         // A '#' in a path segment would otherwise be read as a fragment separator
         // once the segment lands in a generated Markdown link.
-        let encoded = utf8_percent_encode("a#b.md", PERCENTENCODE_CHARS).to_string();
-        assert_eq!(encoded, "a%23b.md");
+        assert_eq!(encode_link_destination("a#b.md"), "a%23b.md");
+        // Spaces and parentheses would terminate or unbalance an inline link
+        // destination, so they must be escaped.
+        assert_eq!(
+            encode_link_destination("a b(c).md?q"),
+            "a%20b%28c%29.md%3Fq"
+        );
+        // Non-ASCII characters such as Chinese filenames stay verbatim, matching
+        // what Obsidian itself writes; renderers handle Unicode paths fine.
+        assert_eq!(encode_link_destination("笔记/图.svg"), "笔记/图.svg");
+        assert_eq!(
+            encode_link_destination("Nöte with 'quotes'.md"),
+            "Nöte%20with%20'quotes'.md"
+        );
     }
 
     #[test]

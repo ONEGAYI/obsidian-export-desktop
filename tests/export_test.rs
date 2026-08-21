@@ -174,13 +174,8 @@ fn test_start_at_subdir() {
     exporter.start_at(PathBuf::from("tests/testdata/input/start-at/subdir"));
     exporter.run().unwrap();
 
-    let expected = if cfg!(windows) {
-        read_to_string("tests/testdata/expected/start-at/subdir/Note B.md")
-            .unwrap()
-            .replace('/', "\\")
-    } else {
-        read_to_string("tests/testdata/expected/start-at/subdir/Note B.md").unwrap()
-    };
+    let expected =
+        read_to_string("tests/testdata/expected/start-at/subdir/Note B.md").unwrap();
 
     assert_eq!(
         expected,
@@ -200,13 +195,8 @@ fn test_start_at_file_within_subdir_destination_is_dir() {
     ));
     exporter.run().unwrap();
 
-    let expected = if cfg!(windows) {
-        read_to_string("tests/testdata/expected/start-at/single-file/Note B.md")
-            .unwrap()
-            .replace('/', "\\")
-    } else {
-        read_to_string("tests/testdata/expected/start-at/single-file/Note B.md").unwrap()
-    };
+    let expected =
+        read_to_string("tests/testdata/expected/start-at/single-file/Note B.md").unwrap();
 
     assert_eq!(
         expected,
@@ -227,13 +217,8 @@ fn test_start_at_file_within_subdir_destination_is_file() {
     ));
     exporter.run().unwrap();
 
-    let expected = if cfg!(windows) {
-        read_to_string("tests/testdata/expected/start-at/single-file/Note B.md")
-            .unwrap()
-            .replace('/', "\\")
-    } else {
-        read_to_string("tests/testdata/expected/start-at/single-file/Note B.md").unwrap()
-    };
+    let expected =
+        read_to_string("tests/testdata/expected/start-at/single-file/Note B.md").unwrap();
     assert_eq!(expected, read_to_string(dest).unwrap(),);
 }
 
@@ -680,6 +665,54 @@ fn test_numeric_image_size_label_falls_back_to_filename() {
 }
 
 #[test]
+fn test_embedded_images_with_relative_paths() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+
+    Exporter::new(
+        PathBuf::from("tests/testdata/input/relative-references/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .expect("exporter returned error");
+
+    let actual = read_to_string(tmp_dir.path().join("notes/note.md")).unwrap();
+
+    // Obsidian resolves wikilinks with explicit relative components (`./`, `../`)
+    // against the containing note's directory; image URLs use forward slashes so
+    // plain-Markdown renderers resolve them.
+    assert!(
+        actual.contains("![../assets/diagram.svg](../assets/diagram.svg)"),
+        "parent-relative image embed resolves, got: {:?}",
+        actual
+    );
+    // Non-ASCII filenames resolve the same way, kept verbatim in the URL (only
+    // characters that would break a Markdown link destination are escaped).
+    assert!(
+        actual.contains("![../assets/图.svg](../assets/图.svg)"),
+        "parent-relative non-ASCII image embed resolves, got: {:?}",
+        actual
+    );
+    assert!(
+        actual.contains("![./same-dir.svg](same-dir.svg)"),
+        "current-dir image embed resolves, got: {:?}",
+        actual
+    );
+    // References without relative components keep the vault suffix-match behavior,
+    // with forward slashes in the URL (relative to the containing note).
+    assert!(
+        actual.contains("![assets/diagram.svg](../assets/diagram.svg)"),
+        "suffix-matched image embed keeps forward slashes, got: {:?}",
+        actual
+    );
+    // References whose relative path escapes the vault must not resolve to anything.
+    assert!(
+        !actual.contains("escape.svg]("),
+        "out-of-vault embed stays unresolved, got: {:?}",
+        actual
+    );
+}
+
+#[test]
 fn test_missing_section_skip_by_default() {
     let tmp_dir = TempDir::new().expect("failed to make tempdir");
 
@@ -819,14 +852,9 @@ fn test_same_filename_different_directories() {
     .run()
     .unwrap();
 
-    let expected = if cfg!(windows) {
+    let expected =
         read_to_string("tests/testdata/expected/same-filename-different-directories/Note.md")
-            .unwrap()
-            .replace('/', "\\")
-    } else {
-        read_to_string("tests/testdata/expected/same-filename-different-directories/Note.md")
-            .unwrap()
-    };
+            .unwrap();
 
     let actual = read_to_string(tmp_dir.path().join(PathBuf::from("Note.md"))).unwrap();
     assert_eq!(expected, actual);
