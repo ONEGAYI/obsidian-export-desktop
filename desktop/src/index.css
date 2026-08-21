@@ -1,0 +1,128 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Obsidian-flavored theme.
+ *
+ * The variables in :root / .dark mirror Obsidian's own theme variable naming
+ * (background-primary, text-normal, interactive-accent, ...) with values close
+ * to Obsidian's default theme; the shadcn-style semantic tokens in @theme inline
+ * are all derived from them, so this file is the single place to tweak the look.
+ * Values are approximations of the default Obsidian dark/light palettes.
+ */
+
+:root {
+  /* Obsidian light palette */
+  --background-primary: #ffffff;
+  --background-primary-alt: #f2f3f5;
+  --background-secondary: #f6f6f6;
+  --background-modifier-hover: rgba(0, 0, 0, 0.05);
+  --background-modifier-border: #dbdbdb;
+  --text-normal: #222222;
+  --text-muted: #5b5b5b;
+  --text-faint: #999999;
+  --text-on-accent: #ffffff;
+  --interactive-accent: #7c3aed;
+  --interactive-accent-hover: #8b5cf6;
+  --text-error: #e93147;
+  --text-success: #08b94e;
+
+  /* shadcn semantic tokens */
+  --background: var(--background-primary);
+  --foreground: var(--text-normal);
+  --card: var(--background-primary);
+  --card-foreground: var(--text-normal);
+  --popover: var(--background-primary);
+  --popover-foreground: var(--text-normal);
+  --primary: var(--interactive-accent);
+  --primary-foreground: var(--text-on-accent);
+  --secondary: var(--background-primary-alt);
+  --secondary-foreground: var(--text-normal);
+  --muted: var(--background-secondary);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--background-primary-alt);
+  --accent-foreground: var(--text-normal);
+  --destructive: var(--text-error);
+  --border: var(--background-modifier-border);
+  --input: var(--background-modifier-border);
+  --ring: var(--interactive-accent);
+  --radius: 0.375rem;
+}
+
+.dark {
+  /* Obsidian dark palette */
+  --background-primary: #1e1e1e;
+  --background-primary-alt: #262626;
+  --background-secondary: #161616;
+  --background-modifier-hover: rgba(255, 255, 255, 0.075);
+  --background-modifier-border: #333333;
+  --text-normal: #dadada;
+  --text-muted: #a0a0a0;
+  --text-faint: #666666;
+  --text-on-accent: #ffffff;
+  --interactive-accent: #7f6df2;
+  --interactive-accent-hover: #9373f6;
+  --text-error: #e93147;
+  --text-success: #4ec975;
+}
+
+@theme inline {
+  --color-background: var(--background-primary);
+  --color-foreground: var(--text-normal);
+  --color-card: var(--background-primary);
+  --color-card-foreground: var(--text-normal);
+  --color-popover: var(--background-primary);
+  --color-popover-foreground: var(--text-normal);
+  --color-primary: var(--interactive-accent);
+  --color-primary-foreground: var(--text-on-accent);
+  --color-secondary: var(--background-primary-alt);
+  --color-secondary-foreground: var(--text-normal);
+  --color-muted: var(--background-secondary);
+  --color-muted-foreground: var(--text-muted);
+  --color-accent: var(--background-primary-alt);
+  --color-accent-foreground: var(--text-normal);
+  --color-destructive: var(--text-error);
+  --color-border: var(--background-modifier-border);
+  --color-input: var(--background-modifier-border);
+  --color-ring: var(--interactive-accent);
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+
+  --font-sans:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei",
+    sans-serif;
+  --font-mono:
+    ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, "Courier New",
+    monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans text-sm antialiased;
+    user-select: none;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--interactive-accent) 40%, transparent);
+  }
+  /* Thin Obsidian-style scrollbars */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--background-modifier-border);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}

@@ -1,5 +1,31 @@
 towncrier_cmd := "uvx towncrier==24.8.0"
 
+# --- Desktop app (Tauri) -----------------------------------------------------
+
+# Build the CLI and copy it into the desktop app's sidecar location
+desktop-sync-sidecar:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build --release --bin obsidian-export
+    mkdir -p desktop/src-tauri/binaries
+    cp "target/release/obsidian-export$(test "{{os()}}" = "windows" && echo '.exe')" \
+       "desktop/src-tauri/binaries/obsidian-export-$(rustc -vV | sed -n 's/^host: //p')$(test "{{os()}}" = "windows" && echo '.exe')"
+    echo "Sidecar synced."
+
+# Run the desktop app in dev mode (syncs the sidecar first)
+desktop-dev: desktop-sync-sidecar
+    cd desktop && pnpm tauri dev
+
+# Build a distributable desktop bundle (syncs the sidecar first)
+desktop-build: desktop-sync-sidecar
+    cd desktop && pnpm tauri build
+
+# Run the desktop crate's Rust tests
+desktop-test:
+    cargo test --manifest-path desktop/src-tauri/Cargo.toml
+
+# -----------------------------------------------------------------------------
+
 _default:
     @{{just_executable()}} --choose
 

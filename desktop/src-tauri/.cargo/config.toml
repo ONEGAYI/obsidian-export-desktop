@@ -1,0 +1,5 @@
+# The repository toolchain is pinned to 1.87 (see root rust-toolchain.toml, which
+# cascades into this crate). Have the dependency resolver prefer versions whose
+# MSRV fits that toolchain instead of hand-pinning transitive deps.
+[resolver]
+incompatible-rust-versions = "fallback"
