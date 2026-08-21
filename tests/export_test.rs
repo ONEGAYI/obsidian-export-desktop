@@ -8,8 +8,10 @@ use std::io::prelude::*;
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use obsidian_export::{ExportError, Exporter, FrontmatterStrategy, MissingSectionStrategy};
+use obsidian_export::ExportEvent;
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use walkdir::WalkDir;
@@ -337,12 +339,26 @@ fn test_infinite_recursion() {
     .run()
     .unwrap_err();
 
+    // With error aggregation (the default), each file involved in the cycle fails
+    // individually with RecursionLimitExceeded; the export as a whole reports the
+    // collected failures instead of aborting on the first one.
     match err {
-        ExportError::FileExportError { source, .. } => match *source {
-            ExportError::RecursionLimitExceeded { .. } => {}
-            _ => panic!("Wrong error variant for source, got: {:?}", source),
-        },
-        err => panic!("Wrong error variant: {:?}", err),
+        ExportError::ExportCompletedWithErrors { errors } => {
+            assert!(!errors.is_empty());
+            for failed in &errors {
+                match &failed.error {
+                    ExportError::FileExportError { source, .. } => {
+                        assert!(
+                            matches!(**source, ExportError::RecursionLimitExceeded { .. }),
+                            "Wrong error variant for source, got: {:?}",
+                            source
+                        );
+                    }
+                    _ => panic!("Wrong error variant"),
+                }
+            }
+        }
+        _ => panic!("Wrong error variant"),
     }
 }
 
@@ -470,6 +486,101 @@ fn test_start_at_nonexistent_errors() {
 }
 
 #[test]
+fn test_error_aggregation_continues_by_default() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let err = Exporter::new(
+        PathBuf::from("tests/testdata/input/mixed-health/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .unwrap_err();
+
+    // One note has broken frontmatter; the rest of the vault still exports.
+    let failed_paths = match &err {
+        ExportError::ExportCompletedWithErrors { errors } => {
+            assert_eq!(errors.len(), 1);
+            errors.iter().map(|f| f.path.clone()).collect::<Vec<_>>()
+        }
+        _ => panic!("expected ExportCompletedWithErrors"),
+    };
+    assert!(
+        failed_paths
+            .first()
+            .is_some_and(|p| p.ends_with("bad-frontmatter.md")),
+        "unexpected failed paths: {:?}",
+        failed_paths
+    );
+    assert!(
+        tmp_dir.path().join("good.md").exists(),
+        "healthy notes should still be exported"
+    );
+    assert!(
+        tmp_dir.path().join("broken-link.md").exists(),
+        "notes with broken links are warnings, not failures"
+    );
+}
+
+#[test]
+fn test_fail_fast_aborts_immediately() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let mut exporter = Exporter::new(
+        PathBuf::from("tests/testdata/input/mixed-health/"),
+        tmp_dir.path().to_path_buf(),
+    );
+    exporter.fail_fast(true);
+    let err = exporter.run().unwrap_err();
+    match &err {
+        ExportError::FileExportError { source, .. } => {
+            assert!(
+                matches!(**source, ExportError::FrontMatterDecodeError { .. }),
+                "expected FrontMatterDecodeError, got {:?}", source
+            );
+        }
+        _ => panic!("expected FileExportError"),
+    }
+}
+
+#[test]
+fn test_event_stream_reports_progress_and_warnings() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let events: Arc<Mutex<Vec<ExportEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let mut exporter = Exporter::new(
+        PathBuf::from("tests/testdata/input/mixed-health/"),
+        tmp_dir.path().to_path_buf(),
+    );
+    let sink = Arc::clone(&events);
+    exporter.on_event(Arc::new(move |event: &ExportEvent| {
+        sink.lock().expect("event sink poisoned").push(event.clone());
+    }));
+    exporter.run().unwrap_err();
+
+    let events = events.lock().expect("event sink poisoned").clone();
+    assert!(matches!(events.first(), Some(ExportEvent::Start { total: 3 })));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, ExportEvent::FileDone { path } if path.ends_with("good.md"))),
+        "missing FileDone for good.md"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, ExportEvent::FileFailed { path, .. } if path.ends_with("bad-frontmatter.md"))),
+        "missing FileFailed for bad-frontmatter.md"
+    );
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, ExportEvent::Warning { .. })),
+        "missing Warning event for broken link"
+    );
+    match events.last() {
+        Some(ExportEvent::End { failed }) => assert_eq!(failed.len(), 1),
+        _ => panic!("expected End event"),
+    }
+}
+
+#[test]
 fn test_chinese_section_anchor() {
     let tmp_dir = TempDir::new().expect("failed to make tempdir");
 
@@ -553,14 +664,18 @@ fn test_missing_section_fail() {
     exporter.missing_section_strategy(MissingSectionStrategy::Fail);
 
     match exporter.run() {
-        Err(ExportError::FileExportError { source, .. }) => {
+        Err(ExportError::ExportCompletedWithErrors { errors }) => {
+            assert!(!errors.is_empty());
             assert!(
-                matches!(*source, ExportError::SectionNotFound { .. }),
-                "expected SectionNotFound, got {:?}",
-                source
+                errors.iter().any(|failed| matches!(
+                    &failed.error,
+                    ExportError::FileExportError { source, .. }
+                        if matches!(**source, ExportError::SectionNotFound { .. })
+                )),
+                "expected at least one SectionNotFound failure, got {:?}", errors
             );
         }
-        Err(err) => panic!("expected FileExportError, got {:?}", err),
+        Err(err) => panic!("expected ExportCompletedWithErrors, got {:?}", err),
         Ok(()) => panic!("expected export to fail with SectionNotFound"),
     }
 }

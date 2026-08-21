@@ -11,6 +11,7 @@ use std::fs::{self, File};
 use std::io::prelude::*;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::{fmt, str};
 
 pub use context::Context;
@@ -232,6 +233,48 @@ pub enum ExportError {
     /// This occurs when [`Exporter::start_at`] points outside of the export root,
     /// which would otherwise silently export zero files.
     StartAtNotUnderRoot { start_at: PathBuf, root: PathBuf },
+
+    #[snafu(display("Export completed with {} failing file(s)", errors.len()))]
+    /// This occurs when one or more files failed to export and [`Exporter::fail_fast`]
+    /// is disabled (the default). All other files will have been exported.
+    ExportCompletedWithErrors { errors: Vec<FailedFile> },
+}
+
+/// A single failed file, as reported by [`ExportError::ExportCompletedWithErrors`].
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct FailedFile {
+    /// The source path of the file that failed to export.
+    pub path: PathBuf,
+    /// The error that caused the export of this file to fail.
+    pub error: ExportError,
+}
+
+/// Events emitted during [`Exporter::run`], for progress reporting and structured
+/// error/warning collection. Register a handler with [`Exporter::on_event`].
+///
+/// Callbacks are invoked from parallel worker threads and must be `Send + Sync`.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub enum ExportEvent {
+    /// Emitted once before any file is processed. `total` is the number of files about
+    /// to be processed.
+    Start { total: usize },
+    /// A file was exported successfully.
+    FileDone { path: PathBuf },
+    /// A file was skipped, e.g. by a postprocessor.
+    FileSkipped { path: PathBuf },
+    /// A file failed to export. Unless [`Exporter::fail_fast`] is enabled, the export
+    /// continues with the remaining files.
+    ///
+    /// The error is provided in string form; the structured error of the aggregate
+    /// result ([`ExportError::ExportCompletedWithErrors`]) retains full error types.
+    FileFailed { path: PathBuf, message: String },
+    /// A non-fatal warning, e.g. a wikilink pointing at a note that doesn't exist.
+    Warning { message: String },
+    /// Emitted once after the last file was processed. `failed` lists the source paths
+    /// of all files that failed. Not emitted when a fail-fast export aborts early.
+    End { failed: Vec<PathBuf> },
 }
 
 /// Emitted by [Postprocessor]s to signal the next action to take.
@@ -267,6 +310,10 @@ pub enum MissingSectionStrategy {
     Fail,
 }
 
+/// Callback receiving [`ExportEvent`]s during [`Exporter::run`]. Invoked from parallel
+/// worker threads, hence the `Send + Sync` bound.
+pub type ExportEventCallback = Arc<dyn Fn(&ExportEvent) + Send + Sync>;
+
 #[derive(Clone)]
 /// Exporter provides the main interface to this library.
 ///
@@ -284,6 +331,8 @@ pub struct Exporter<'a> {
     process_embeds_recursively: bool,
     preserve_mtime: bool,
     missing_section_strategy: MissingSectionStrategy,
+    fail_fast: bool,
+    event_callback: Option<ExportEventCallback>,
     postprocessors: Vec<&'a Postprocessor<'a>>,
     embed_postprocessors: Vec<&'a Postprocessor<'a>>,
 }
@@ -301,6 +350,14 @@ impl fmt::Debug for Exporter<'_> {
                 &self.process_embeds_recursively,
             )
             .field("missing_section_strategy", &self.missing_section_strategy)
+            .field("fail_fast", &self.fail_fast)
+            .field(
+                "event_callback",
+                &match self.event_callback {
+                    Some(_) => "<set>",
+                    None => "<not set>",
+                },
+            )
             .field("preserve_mtime", &self.preserve_mtime)
             .field(
                 "postprocessors",
@@ -331,6 +388,8 @@ impl<'a> Exporter<'a> {
             process_embeds_recursively: true,
             preserve_mtime: false,
             missing_section_strategy: MissingSectionStrategy::default(),
+            fail_fast: false,
+            event_callback: None,
             vault_contents: None,
             postprocessors: vec![],
             embed_postprocessors: vec![],
@@ -392,6 +451,27 @@ impl<'a> Exporter<'a> {
         self
     }
 
+    /// Set whether the export should stop at the first failing file (default: false).
+    ///
+    /// When disabled (the default), a failing file is recorded and the export continues
+    /// with the remaining files; [`Exporter::run`] then returns
+    /// [`ExportError::ExportCompletedWithErrors`] listing every failure. When enabled,
+    /// the first error aborts the export immediately.
+    pub const fn fail_fast(&mut self, fail_fast: bool) -> &mut Self {
+        self.fail_fast = fail_fast;
+        self
+    }
+
+    /// Register a callback receiving [`ExportEvent`]s during [`Exporter::run`].
+    ///
+    /// The callback is invoked from parallel worker threads and must therefore be
+    /// `Send + Sync`. Only one callback can be registered; a subsequent call replaces
+    /// the previous one. Without a callback, warnings are printed to stderr instead.
+    pub fn on_event(&mut self, callback: ExportEventCallback) -> &mut Self {
+        self.event_callback = Some(callback);
+        self
+    }
+
     /// Append a function to the chain of [postprocessors][Postprocessor] to run on exported
     /// Obsidian Markdown notes.
     pub fn add_postprocessor(&mut self, processor: &'a Postprocessor<'_>) -> &mut Self {
@@ -406,6 +486,7 @@ impl<'a> Exporter<'a> {
     }
 
     /// Export notes using the settings configured on this exporter.
+    #[allow(clippy::too_many_lines)]
     pub fn run(&mut self) -> Result<()> {
         if !self.root.exists() {
             return Err(ExportError::PathDoesNotExist {
@@ -453,7 +534,29 @@ impl<'a> Exporter<'a> {
                     self.destination.clone()
                 }
             };
-            return self.export_note(&self.start_at, &destination);
+            self.emit(&ExportEvent::Start { total: 1 });
+            let result = self.export_note(&self.start_at, &destination);
+            match result {
+                Ok(true) => {
+                    self.emit(&ExportEvent::FileDone {
+                        path: self.start_at.clone(),
+                    });
+                }
+                Ok(false) => {
+                    self.emit(&ExportEvent::FileSkipped {
+                        path: self.start_at.clone(),
+                    });
+                }
+                Err(error) => {
+                    self.emit(&ExportEvent::FileFailed {
+                        path: self.start_at.clone(),
+                        message: error_chain_string(&error),
+                    });
+                    return Err(error);
+                }
+            }
+            self.emit(&ExportEvent::End { failed: vec![] });
+            return Ok(());
         }
 
         if !self.destination.exists() {
@@ -461,25 +564,102 @@ impl<'a> Exporter<'a> {
                 path: self.destination.clone(),
             });
         }
-        self.vault_contents
+
+        let files: Vec<PathBuf> = self
+            .vault_contents
             .as_ref()
             .expect("vault_contents is always populated by run() before iterating")
-            .clone()
-            .into_par_iter()
+            .iter()
             .filter(|file| file.starts_with(&self.start_at))
-            .try_for_each(|file| {
+            .cloned()
+            .collect();
+        self.emit(&ExportEvent::Start { total: files.len() });
+
+        if self.fail_fast {
+            files.into_par_iter().try_for_each(|file| {
                 let relative_path = file
-                    .strip_prefix(self.start_at.clone())
+                    .strip_prefix(&self.start_at)
                     .expect("file should always be nested under root")
                     .to_path_buf();
                 let destination = &self.destination.join(relative_path);
-                self.export_note(&file, destination)
+                match self.export_note(&file, destination) {
+                    Ok(true) => {
+                        self.emit(&ExportEvent::FileDone { path: file });
+                        Ok(())
+                    }
+                    Ok(false) => {
+                        self.emit(&ExportEvent::FileSkipped { path: file });
+                        Ok(())
+                    }
+                    Err(error) => {
+                        self.emit(&ExportEvent::FileFailed {
+                            path: file,
+                            message: error_chain_string(&error),
+                        });
+                        Err(error)
+                    }
+                }
             })?;
-        Ok(())
+            self.emit(&ExportEvent::End { failed: vec![] });
+            return Ok(());
+        }
+
+        let failures: Mutex<Vec<FailedFile>> = Mutex::new(Vec::new());
+        files.into_par_iter().for_each(|file| {
+            let relative_path = file
+                .strip_prefix(&self.start_at)
+                .expect("file should always be nested under root")
+                .to_path_buf();
+            let destination = &self.destination.join(relative_path);
+            match self.export_note(&file, destination) {
+                Ok(true) => {
+                    self.emit(&ExportEvent::FileDone { path: file });
+                }
+                Ok(false) => {
+                    self.emit(&ExportEvent::FileSkipped { path: file });
+                }
+                Err(error) => {
+                    self.emit(&ExportEvent::FileFailed {
+                        path: file.clone(),
+                        message: error_chain_string(&error),
+                    });
+                    failures
+                        .lock()
+                        .expect("failure collector mutex poisoned")
+                        .push(FailedFile {
+                            path: file,
+                            error,
+                        });
+                }
+            }
+        });
+
+        let failures = failures
+            .into_inner()
+            .expect("failure collector mutex poisoned");
+        let failed_paths = failures.iter().map(|f| f.path.clone()).collect();
+        self.emit(&ExportEvent::End { failed: failed_paths });
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(ExportError::ExportCompletedWithErrors { errors: failures })
+        }
     }
 
+    fn emit(&self, event: &ExportEvent) {
+        if let Some(callback) = &self.event_callback {
+            callback(event);
+        }
+    }
+
+    fn warn(&self, message: String) {
+        match &self.event_callback {
+            Some(callback) => callback(&ExportEvent::Warning { message }),
+            None => eprintln!("Warning: {message}"),
+        }
+    }
     #[allow(clippy::shadow_unrelated)]
-    fn export_note(&self, src: &Path, dest: &Path) -> Result<()> {
+    fn export_note(&self, src: &Path, dest: &Path) -> Result<bool> {
         let output_file = match is_markdown_file(src) {
             true => self.parse_and_export_obsidian_note(src, dest),
             false => copy_file(src, dest),
@@ -487,13 +667,13 @@ impl<'a> Exporter<'a> {
         .context(FileExportSnafu { path: src })?;
 
         // Don't try to set mtime if the file was not exported
-        if let Some(dest) = output_file {
+        if let Some(dest) = &output_file {
             if self.preserve_mtime {
-                copy_mtime(src, &dest).context(FileExportSnafu { path: src })?;
+                copy_mtime(src, dest).context(FileExportSnafu { path: src })?;
             }
         }
 
-        Ok(())
+        Ok(output_file.is_some())
     }
 
     /// Parse an Obsidian note and export it to the destination path, applying
@@ -731,13 +911,12 @@ impl<'a> Exporter<'a> {
         };
 
         if path.is_none() {
-            // TODO: Extract into configurable function.
             let current_file = context.current_file().to_string_lossy();
-            eprintln!(
-                "Warning: Unable to find embedded note\n\tReference: '{}'\n\tSource: '{}'\n",
+            self.warn(format!(
+                "Unable to find embedded note\n\tReference: '{}'\n\tSource: '{}'\n",
                 note_ref.file.unwrap_or_else(|| current_file.as_ref()),
                 context.current_file().display(),
-            );
+            ));
             return Ok(vec![]);
         }
 
@@ -766,11 +945,11 @@ impl<'a> Exporter<'a> {
                         None => match self.missing_section_strategy {
                             MissingSectionStrategy::EmbedFull => (),
                             MissingSectionStrategy::Skip => {
-                                eprintln!(
-                                    "Warning: Unable to find section '{section}' in note '{}'\n\tSource: '{}'\n",
+                                self.warn(format!(
+                                    "Unable to find section '{section}' in note '{}'\n\tSource: '{}'\n",
                                     path.display(),
                                     context.current_file().display(),
-                                );
+                                ));
                                 events = vec![];
                             }
                             MissingSectionStrategy::Fail => {
@@ -849,13 +1028,12 @@ impl<'a> Exporter<'a> {
         );
 
         if target_file.is_none() {
-            // TODO: Extract into configurable function.
             let current_file = context.current_file().to_string_lossy();
-            eprintln!(
-                "Warning: Unable to find referenced note\n\tReference: '{}'\n\tSource: '{}'\n",
+            self.warn(format!(
+                "Unable to find referenced note\n\tReference: '{}'\n\tSource: '{}'\n",
                 reference.file.unwrap_or_else(|| current_file.as_ref()),
                 context.current_file().display(),
-            );
+            ));
             return vec![
                 Event::Start(Tag::Emphasis),
                 Event::Text(CowStr::from(reference.display())),
@@ -970,6 +1148,20 @@ fn format_anchor(section: &str) -> String {
         anchor.pop();
     }
     anchor
+}
+
+/// Render an error and its full source chain as a single string, so event consumers
+/// see the root cause (e.g. "Failed to export 'x.md': Failed to decode YAML frontmatter
+/// in 'x.md': ...") instead of only the outermost message.
+fn error_chain_string(error: &ExportError) -> String {
+    let mut chain = error.to_string();
+    let mut source = std::error::Error::source(error);
+    while let Some(err) = source {
+        chain.push_str(": ");
+        chain.push_str(&err.to_string());
+        source = err.source();
+    }
+    chain
 }
 
 /// Validate that the parent directory of a destination file exists.
