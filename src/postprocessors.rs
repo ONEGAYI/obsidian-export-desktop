@@ -27,6 +27,17 @@ pub fn filter_by_tags(
         match context.frontmatter.get("tags") {
             None => filter_by_tags_(&[], &skip_tags, &only_tags),
             Some(Value::Sequence(tags)) => filter_by_tags_(tags, &skip_tags, &only_tags),
+            // Obsidian also accepts a scalar or comma-separated string (`tags: foo` or
+            // `tags: foo, bar`); normalize those to a list before filtering.
+            Some(Value::String(tags)) => {
+                let tags: Vec<Value> = tags
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|tag| !tag.is_empty())
+                    .map(|tag| Value::String(tag.to_owned()))
+                    .collect();
+                filter_by_tags_(&tags, &skip_tags, &only_tags)
+            }
             _ => PostprocessorResult::Continue,
         }
     }

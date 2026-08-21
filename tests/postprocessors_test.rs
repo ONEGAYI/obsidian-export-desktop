@@ -320,4 +320,13 @@ fn test_filter_by_tags() {
             filename
         );
     }
+
+    // Scalar and comma-separated tag forms are valid in Obsidian and must be filtered
+    // just like sequence-form tags.
+    for skipped in ["scalar-private.md", "comma-tagged.md"] {
+        assert!(
+            !tmp_dir.path().join(PathBuf::from(skipped)).exists(),
+            "{skipped} should have been skipped by tag filter"
+        );
+    }
 }
