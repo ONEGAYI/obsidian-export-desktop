@@ -231,15 +231,27 @@ export default function App() {
         className="flex h-11 shrink-0 items-center justify-between border-b bg-[var(--background-primary)] pr-0 pl-4"
       >
         <div data-tauri-drag-region className="flex items-center gap-2.5">
-          <span className="size-2.5 rounded-full bg-[var(--interactive-accent)]" />
-          <span className="font-semibold">Obsidian Export</span>
+          <span
+            data-tauri-drag-region
+            className="size-2.5 rounded-full bg-[var(--interactive-accent)]"
+          />
+          <span data-tauri-drag-region className="font-semibold">
+            Obsidian Export
+          </span>
           {sidecarBanner && (
-            <span className="font-mono text-xs text-muted-foreground">
+            <span
+              data-tauri-drag-region
+              className="font-mono text-xs text-muted-foreground"
+            >
               {sidecarBanner}
             </span>
           )}
           {sidecarError && (
-            <span className="text-xs text-destructive" title={sidecarError}>
+            <span
+              data-tauri-drag-region
+              className="text-xs text-destructive"
+              title={sidecarError}
+            >
               边车不可用
             </span>
           )}
