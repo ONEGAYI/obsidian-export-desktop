@@ -20,6 +20,8 @@
 - 桌面端**不得**实现任何转换逻辑，一律通过启动边车进程、传递参数并读取输出完成。
 - 边车**保持可独立使用**：在终端单独运行时功能完整，桌面端只是它的一种调用方式。
 
+桌面端调用边车的事件流契约（`--progress json` 的 JSON Lines 协议、终止协议、退出码、路径约定）见 [docs/sidecar-events.md](docs/sidecar-events.md)。
+
 ## 仓库约定
 
 - 本仓库克隆自上游，`origin` 指向 zoni/obsidian-export。面向上游的 issue/commit/PR 使用英文；本地自有提交与文档使用中文。
@@ -30,6 +32,7 @@
 
 - [ ] 桌面端技术栈（候选：Tauri / Electron / WPF 等），确定后更新架构描述与文件树。
 - [ ] 块引用内容提取增强：`![[note#^block]]` 目前不做真正的块定位，匹配不到块 id 时按 `--missing-section` 策略处理（src/lib.rs 中留有 TODO 指引）。
+- [ ] 嵌入展开与 section 切分的顺序重排：嵌入递归发生在解析期，`reduce_to_section` 在展开后的事件流上切分；内层展开引入的同级/更浅标题会提前终止外层段落（embed-full 与内层命中的嵌套场景受影响，tests/export_test.rs 的 test_missing_section_embed_full 有该局限的注释与行为锁定）。正确修法需改为「先切后展」，涉及解析架构重排。
 - [ ] serde_yaml 迁移：当前依赖 0.9.34（上游已归档停维，无安全修复通道），且属公共 API（`pub use serde_yaml`），迁移属破坏性变更，需单独评估社区维护 fork（如 serde_norway）。
 - [ ] 嵌入解析缓存与 walker 并行化：vault 索引已消除引用解析的主要瓶颈（基准 7200 文件 11.2s → 0.65s），剩余耗时以文件 IO/解析/渲染为主；两项优化待有真实大 vault 的 profile 数据支撑后再决定是否实施。
 
@@ -42,17 +45,20 @@
 ```text
 obsidian-export/
 ├── src/                 # Rust 源码（CLI 与库）
-│   ├── main.rs          # CLI 入口（bin）：参数解析与命令行交互
-│   ├── lib.rs           # 库入口：组装导出流程
+│   ├── main.rs          # CLI 入口（bin）：参数解析、JSON 事件流输出与错误报告
+│   ├── lib.rs           # 库入口：导出流程、事件回调、错误聚合与 VaultIndex
 │   ├── context.rs       # 导出上下文与配置
 │   ├── frontmatter.rs   # frontmatter 的解析与剥离
 │   ├── postprocessors.rs# 后处理器：对导出结果再加工
 │   ├── references.rs    # 引用解析：wikilink、嵌入等链接形式
 │   └── walker.rs        # vault 的递归遍历
-├── tests/               # 集成测试（export_test/postprocessors_test 与 cli_test 的 CLI 契约测试）
-├── docs/                # 项目文档
+├── tests/               # 集成测试：export_test（导出行为）、cli_test（CLI 契约）、postprocessors_test
+├── tests/testdata/      # 测试 vault fixtures（section-variants、image-size 等按场景分组）
+├── docs/                # 项目文档（sidecar-events.md 为桌面端事件契约，仅本地）
 ├── changelog.d/         # towncrier 的 changelog 片段
 ├── .github/             # CI 工作流
+├── AGENTS.md            # 本文件：项目规则单一事实源
+├── CLAUDE.md            # Claude 专属补充规则（@AGENTS.md 导入）
 ├── Cargo.toml           # crate 清单
 ├── .gitattributes       # 换行符规范：全库 LF 检出，二进制资源标记
 ├── Justfile             # 常用任务命令（just）

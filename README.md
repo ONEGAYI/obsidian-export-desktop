@@ -136,6 +136,24 @@ In these cases, `--frontmatter=always` can be used to insert an empty frontmatte
 
 To completely remove any frontmatter from exported notes, use `--frontmatter=never`.
 
+## Missing sections
+
+An embed or link pointing at a section (heading) that doesn't exist in the target note — including block references like `![[note#^block-id]]`, which never match a heading — is handled according to `--missing-section`:
+
+* `--missing-section skip` (the default): the embed is replaced with nothing and a warning is emitted. Closest to Obsidian's own "not found" rendering.
+* `--missing-section embed-full`: the entire note is embedded (the historical behavior of this tool).
+* `--missing-section fail`: the export of the note containing the embed fails with an error.
+
+The strategy is applied independently at every level of embedding: a missing section only affects that single embed, never the rest of the parent note.
+
+## Failing files
+
+By default, a note that fails to export (e.g. broken YAML frontmatter) is recorded and the export continues with the remaining notes; at the end, a summary listing every failing note is printed. Use `--fail-fast` to instead stop on the first failing file. Note that with parallel exports, files already being processed when the failure occurs may still complete.
+
+## Progress events
+
+Passing `--progress json` emits machine-readable progress events on stdout as JSON Lines, one JSON object per line. This is intended for programs driving obsidian-export as a child process: the first line declares the schema version, followed by per-file progress, warnings, and a final end event. Without this flag, stdout stays silent.
+
 ## Ignoring files
 
 The following files are not exported by default:

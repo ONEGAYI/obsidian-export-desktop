@@ -1134,8 +1134,10 @@ impl<'a> Exporter<'a> {
 /// both exist), the result is deterministic and independent of traversal order: the candidate
 /// with the fewest path components wins, ties broken lexicographically.
 ///
-/// This is a linear scan kept for direct use and as the reference semantics of
-/// [`VaultIndex`]; the export pipeline resolves references through the prebuilt index.
+/// This is a linear scan kept as the reference semantics for tests to compare
+/// [`VaultIndex`] against; the export pipeline resolves references through the
+/// prebuilt index. The two agree on Windows and on paths free of '\' characters;
+/// on Unix a filename containing '\' can resolve differently between them.
 #[cfg(test)]
 fn lookup_filename_in_vault<'a>(
     filename: &str,
