@@ -31,6 +31,7 @@
 - [ ] 桌面端技术栈（候选：Tauri / Electron / WPF 等），确定后更新架构描述与文件树。
 - [ ] 块引用内容提取增强：`![[note#^block]]` 目前不做真正的块定位，匹配不到块 id 时按 `--missing-section` 策略处理（src/lib.rs 中留有 TODO 指引）。
 - [ ] serde_yaml 迁移：当前依赖 0.9.34（上游已归档停维，无安全修复通道），且属公共 API（`pub use serde_yaml`），迁移属破坏性变更，需单独评估社区维护 fork（如 serde_norway）。
+- [ ] 嵌入解析缓存与 walker 并行化：vault 索引已消除引用解析的主要瓶颈（基准 7200 文件 11.2s → 0.65s），剩余耗时以文件 IO/解析/渲染为主；两项优化待有真实大 vault 的 profile 数据支撑后再决定是否实施。
 
 ## 修复路线（已批准）
 

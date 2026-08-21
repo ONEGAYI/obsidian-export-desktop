@@ -143,15 +143,15 @@ fn progress_json_emits_schema_start_events_and_end() {
     let events = parse_json_lines(&out.stdout);
     assert!(!events.is_empty());
 
-    let schema = &events[0];
+    let schema = events.first().expect("schema event");
     assert_eq!(schema["type"], "schema");
-    assert_eq!(schema["version"], 1, "schema version must be pinned");
+    assert_eq!(schema["version"], 1_i32, "schema version must be pinned");
 
     let types: Vec<&str> = events
         .iter()
         .map(|event| event["type"].as_str().expect("event type"))
         .collect();
-    assert_eq!(types[1], "start");
+    assert_eq!(types.get(1), Some(&"start"));
     assert!(types.contains(&"file-done"), "healthy files report done");
     assert!(
         types.contains(&"file-failed"),
@@ -185,8 +185,8 @@ fn progress_json_all_healthy_export_succeeds() {
         .iter()
         .map(|event| event["type"].as_str().expect("event type"))
         .collect();
-    assert_eq!(types[0], "schema");
-    assert_eq!(types[1], "start");
+    assert_eq!(types.first(), Some(&"schema"));
+    assert_eq!(types.get(1), Some(&"start"));
     assert_eq!(*types.last().expect("at least one event"), "end");
     let end = events.last().expect("end event");
     assert_eq!(end["failed"].as_array().map(Vec::len), Some(0_usize));

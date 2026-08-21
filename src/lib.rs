@@ -6,6 +6,7 @@ pub mod postprocessors;
 mod references;
 mod walker;
 
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::prelude::*;
@@ -326,7 +327,8 @@ pub struct Exporter<'a> {
     destination: PathBuf,
     start_at: PathBuf,
     frontmatter_strategy: FrontmatterStrategy,
-    vault_contents: Option<Vec<PathBuf>>,
+    vault_contents: Option<Arc<[PathBuf]>>,
+    vault_index: Option<VaultIndex>,
     walk_options: WalkOptions<'a>,
     process_embeds_recursively: bool,
     preserve_mtime: bool,
@@ -391,6 +393,7 @@ impl<'a> Exporter<'a> {
             fail_fast: false,
             event_callback: None,
             vault_contents: None,
+            vault_index: None,
             postprocessors: vec![],
             embed_postprocessors: vec![],
         }
@@ -510,10 +513,14 @@ impl<'a> Exporter<'a> {
             }
         }
 
-        self.vault_contents = Some(vault_contents(
+        let contents: Arc<[PathBuf]> = Arc::from(vault_contents(
             self.root.as_path(),
             self.walk_options.clone(),
         )?);
+        // Prebuild the suffix index so wikilink resolution is O(1) per reference instead
+        // of a linear scan over the whole vault.
+        self.vault_index = Some(VaultIndex::build(&contents));
+        self.vault_contents = Some(contents);
 
         // When a single file is specified, just need to export that specific file instead of
         // iterating over all discovered files. This also allows us to accept destination as either
@@ -643,6 +650,14 @@ impl<'a> Exporter<'a> {
         } else {
             Err(ExportError::ExportCompletedWithErrors { errors: failures })
         }
+    }
+
+    /// Resolve a reference string to a vault file via the prebuilt index.
+    fn resolve_reference(&self, file: &str) -> Option<&PathBuf> {
+        self.vault_index
+            .as_ref()
+            .expect("vault_index is always built by run() before exporting")
+            .lookup(file)
     }
 
     fn emit(&self, event: &ExportEvent) {
@@ -894,12 +909,7 @@ impl<'a> Exporter<'a> {
         let note_ref = ObsidianNoteReference::from_str(link_text);
 
         let path = match note_ref.file {
-            Some(file) => lookup_filename_in_vault(
-                file,
-                self.vault_contents
-                    .as_ref()
-                    .expect("vault_contents is always populated by run() before exporting"),
-            ),
+            Some(file) => self.resolve_reference(file),
 
             // If we have None file it is either to a section or id within the same file and thus
             // the current embed logic will fail, recurssing until it reaches it's limit.
@@ -1021,14 +1031,7 @@ impl<'a> Exporter<'a> {
     ) -> MarkdownEvents<'c> {
         let target_file = reference.file.map_or_else(
             || Some(context.current_file()),
-            |file| {
-                lookup_filename_in_vault(
-                    file,
-                    self.vault_contents
-                        .as_ref()
-                        .expect("vault_contents is always populated by run() before exporting"),
-                )
-            },
+            |file| self.resolve_reference(file),
         );
 
         if target_file.is_none() {
@@ -1090,6 +1093,10 @@ impl<'a> Exporter<'a> {
 /// When multiple files match (e.g. a bare-name reference while `Note.md` and `nested/Note.md`
 /// both exist), the result is deterministic and independent of traversal order: the candidate
 /// with the fewest path components wins, ties broken lexicographically.
+///
+/// This is a linear scan kept for direct use and as the reference semantics of
+/// [`VaultIndex`]; the export pipeline resolves references through the prebuilt index.
+#[cfg(test)]
 fn lookup_filename_in_vault<'a>(
     filename: &str,
     vault_contents: &'a [PathBuf],
@@ -1121,6 +1128,94 @@ fn lookup_filename_in_vault<'a>(
                 path.to_string_lossy().to_lowercase(),
             )
         })
+}
+
+/// Tie-break key deciding between multiple candidates for the same reference:
+/// fewest path components first, then lexicographically smallest (case-insensitive).
+fn lookup_tiebreak_key(path: &Path) -> (usize, String) {
+    (
+        path.components().count(),
+        path.to_string_lossy().to_lowercase(),
+    )
+}
+
+/// Prebuilt lookup index over vault contents, resolving reference strings (path
+/// suffix, with or without `.md` extension, NFC-normalized and case-insensitive)
+/// in constant time instead of a linear scan per reference.
+///
+/// For every vault file, every component-suffix of its normalized spelling is
+/// inserted (e.g. `a/b/note.md` also answers `b/note` and `note`), with the
+/// [`lookup_filename_in_vault`] tie-break rules applied deterministically at
+/// build time. Lookups consult all four reference spellings and pick the best
+/// candidate among them, so results are identical to the linear scan.
+#[derive(Clone)]
+struct VaultIndex {
+    map: HashMap<String, PathBuf>,
+}
+
+impl VaultIndex {
+    fn build(vault_contents: &[PathBuf]) -> Self {
+        let mut map: HashMap<String, PathBuf> = HashMap::with_capacity(vault_contents.len().saturating_mul(4));
+
+        for path in vault_contents {
+            let normalized = path.to_string_lossy().nfc().collect::<String>();
+            let normalized = normalized.replace('\\', "/");
+            let lowered = normalized.to_lowercase();
+
+            // Both the exact and lowercase spellings, with and without a `.md`
+            // extension: a reference `[[Note.1]]` may point at `Note.1.md`, so the
+            // extension-less variant of a `.md` file must also be indexed.
+            let mut variants: Vec<String> = Vec::with_capacity(4);
+            variants.push(normalized.clone());
+            variants.push(lowered.clone());
+            if let Some(stripped) = normalized.strip_suffix(".md") {
+                variants.push(stripped.to_owned());
+            }
+            if let Some(stripped) = lowered.strip_suffix(".md") {
+                variants.push(stripped.to_owned());
+            }
+
+            let new_key = lookup_tiebreak_key(path);
+            for variant in variants {
+                let components: Vec<&str> = variant.split('/').collect();
+                for start in 0..components.len() {
+                    let key = components
+                        .iter()
+                        .skip(start)
+                        .copied()
+                        .collect::<Vec<&str>>()
+                        .join("/");
+                    let replace = map.get(key.as_str()).map_or(true, |existing| {
+                        new_key < lookup_tiebreak_key(existing)
+                    });
+                    if replace {
+                        map.insert(key, path.clone());
+                    }
+                }
+            }
+        }
+        Self { map }
+    }
+
+    fn lookup(&self, filename: &str) -> Option<&PathBuf> {
+        let normalized = filename.nfc().collect::<String>().replace('\\', "/");
+        let normalized_md = format!("{normalized}.md");
+        let lowered = normalized.to_lowercase();
+        let lowered_md = format!("{lowered}.md");
+        let spellings = [normalized, normalized_md, lowered, lowered_md];
+        let mut best: Option<&PathBuf> = None;
+        for spelling in spellings {
+            if let Some(candidate) = self.map.get(spelling.as_str()) {
+                let better = best.map_or(true, |current| {
+                    lookup_tiebreak_key(candidate) < lookup_tiebreak_key(current)
+                });
+                if better {
+                    best = Some(candidate);
+                }
+            }
+        }
+        best
+    }
 }
 
 /// Generate a URL fragment for a section reference.
@@ -1615,5 +1710,14 @@ mod tests {
         println!("Expecting: {expected:?}");
         println!("Got: {:?}", result.unwrap_or(&empty_path));
         assert_eq!(result, Some(&PathBuf::from(expected)));
+
+        // The prebuilt index must resolve every reference identically to the
+        // linear scan, including tie-breaks among same-name candidates.
+        let index = VaultIndex::build(&VAULT);
+        assert_eq!(
+            index.lookup(input).map(PathBuf::from),
+            Some(PathBuf::from(expected)),
+            "index lookup diverged from linear scan for input {input:?}"
+        );
     }
 }
