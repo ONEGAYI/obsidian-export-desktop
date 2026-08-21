@@ -23,7 +23,6 @@ use pulldown_cmark::{CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser
 use pulldown_cmark_to_cmark::cmark_with_options;
 use rayon::prelude::*;
 use references::{ObsidianNoteReference, RefParser, RefParserState, RefType};
-use slug::slugify;
 use snafu::{ResultExt, Snafu};
 use unicode_normalization::UnicodeNormalization;
 pub use walker::{vault_contents, WalkOptions};
@@ -133,7 +132,8 @@ pub type Postprocessor<'f> =
     dyn Fn(&mut Context, &mut MarkdownEvents<'_>) -> PostprocessorResult + Send + Sync + 'f;
 type Result<T, E = ExportError> = std::result::Result<T, E>;
 
-const PERCENTENCODE_CHARS: &AsciiSet = &CONTROLS.add(b' ').add(b'(').add(b')').add(b'%').add(b'?');
+const PERCENTENCODE_CHARS: &AsciiSet =
+    &CONTROLS.add(b' ').add(b'(').add(b')').add(b'%').add(b'?').add(b'#');
 const NOTE_RECURSION_LIMIT: usize = 10;
 
 #[non_exhaustive]
@@ -780,7 +780,7 @@ impl<'a> Exporter<'a> {
 
         if let Some(section) = reference.section {
             link.push('#');
-            link.push_str(&slugify(section));
+            link.push_str(&format_anchor(section));
         }
 
         let link_tag = Tag::Link {
@@ -825,6 +825,37 @@ fn lookup_filename_in_vault<'a>(
             || path_normalized_lowered.ends_with(filename_normalized.to_lowercase())
             || path_normalized_lowered.ends_with(filename_normalized.to_lowercase() + ".md")
     })
+}
+
+/// Generate a URL fragment for a section reference.
+///
+/// Unlike the `slug` crate (which transliterates non-ASCII characters, turning e.g. a Chinese
+/// heading into pinyin), this keeps Unicode letters and digits as-is, matching how common
+/// Markdown renderers such as GitHub generate heading anchors. ASCII punctuation is stripped,
+/// whitespace becomes a single hyphen, and leading/trailing hyphens are dropped.
+fn format_anchor(section: &str) -> String {
+    let mut anchor = String::with_capacity(section.len());
+    let mut prev_hyphen = true;
+    for ch in section.chars().flat_map(char::to_lowercase) {
+        if ch.is_ascii_punctuation() {
+            if ch == '-' && !prev_hyphen {
+                anchor.push('-');
+                prev_hyphen = true;
+            }
+        } else if ch.is_whitespace() {
+            if !prev_hyphen {
+                anchor.push('-');
+                prev_hyphen = true;
+            }
+        } else {
+            anchor.push(ch);
+            prev_hyphen = false;
+        }
+    }
+    while anchor.ends_with('-') {
+        anchor.pop();
+    }
+    anchor
 }
 
 fn render_mdevents_to_mdtext(markdown: &MarkdownEvents<'_>) -> String {
@@ -1070,6 +1101,29 @@ mod tests {
 
         // For more examples and a better explanation of this concept, see
         // https://www.w3.org/TR/charmod-norm/#aringExample
+    }
+
+    #[test]
+    fn test_format_anchor_preserves_unicode() {
+        // CJK headings must survive as-is; the previous slug-based implementation
+        // transliterated these into pinyin, producing anchors no renderer matches.
+        assert_eq!(format_anchor("中文标题"), "中文标题");
+        assert_eq!(format_anchor("混合 Heading 标题"), "混合-heading-标题");
+    }
+
+    #[test]
+    fn test_format_anchor_english_compatibility() {
+        // Anchors for plain English headings stay identical to the old slug behavior.
+        assert_eq!(format_anchor("Heading One"), "heading-one");
+        assert_eq!(format_anchor("with heading"), "with-heading");
+        assert_eq!(format_anchor("dda637"), "dda637");
+    }
+
+    #[test]
+    fn test_format_anchor_strips_punctuation() {
+        assert_eq!(format_anchor("C++ and Rust!"), "c-and-rust");
+        assert_eq!(format_anchor("  spaced   out  "), "spaced-out");
+        assert_eq!(format_anchor("-dashed-"), "dashed");
     }
 
     #[rstest]

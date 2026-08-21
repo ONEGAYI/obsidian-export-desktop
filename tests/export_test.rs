@@ -438,6 +438,24 @@ fn test_non_ascii_filenames() {
 }
 
 #[test]
+fn test_chinese_section_anchor() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+
+    Exporter::new(
+        PathBuf::from("tests/testdata/input/chinese-anchor/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .expect("exporter returned error");
+
+    // Anchors for CJK headings must be preserved as-is rather than transliterated,
+    // otherwise section links point nowhere on renderers like GitHub.
+    let expected = "链接到 [target > 中文标题](target.md#中文标题) 的引用。\n\n也链接到 [target > Mixed 混合 Heading](target.md#mixed-混合-heading)。\n";
+    let actual = read_to_string(tmp_dir.path().join(PathBuf::from("note.md"))).unwrap();
+    assert_eq!(expected, actual);
+}
+
+#[test]
 fn test_same_filename_different_directories() {
     let tmp_dir = TempDir::new().expect("failed to make tempdir");
     Exporter::new(
