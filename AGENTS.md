@@ -33,6 +33,7 @@
 - [ ] 桌面端技术栈（候选：Tauri / Electron / WPF 等），确定后更新架构描述与文件树。
 - [ ] 块引用内容提取增强：`![[note#^block]]` 目前不做真正的块定位，匹配不到块 id 时按 `--missing-section` 策略处理（src/lib.rs 中留有 TODO 指引）。
 - [ ] 嵌入展开与 section 切分的顺序重排：嵌入递归发生在解析期，`reduce_to_section` 在展开后的事件流上切分；内层展开引入的同级/更浅标题会提前终止外层段落（embed-full 与内层命中的嵌套场景受影响，tests/export_test.rs 的 test_missing_section_embed_full 有该局限的注释与行为锁定）。正确修法需改为「先切后展」，涉及解析架构重排。
+- [ ] wikilink 格式标记与容器内标题的既有解析边界（上游遗留，非本轮引入）：wikilink 内的强调标记在跨事件拼接时丢失（如 `[[b#__dunder__]]` 的 `__` 被 pulldown-cmark 解析为 strong，锚点与 label 均只剩 `dunder`，src/references.rs 注释已记录单下划线同类问题）；引用块（blockquote）内的标题参与 `reduce_to_section` 时容器 Start/End 事件失衡。
 - [ ] serde_yaml 迁移：当前依赖 0.9.34（上游已归档停维，无安全修复通道），且属公共 API（`pub use serde_yaml`），迁移属破坏性变更，需单独评估社区维护 fork（如 serde_norway）。
 - [ ] 嵌入解析缓存与 walker 并行化：vault 索引已消除引用解析的主要瓶颈（基准 7200 文件 11.2s → 0.65s），剩余耗时以文件 IO/解析/渲染为主；两项优化待有真实大 vault 的 profile 数据支撑后再决定是否实施。
 

@@ -138,7 +138,7 @@ To completely remove any frontmatter from exported notes, use `--frontmatter=nev
 
 ## Missing sections
 
-An embed or link pointing at a section (heading) that doesn't exist in the target note — including block references like `![[note#^block-id]]`, which never match a heading — is handled according to `--missing-section`:
+An embed pointing at a section (heading) that doesn't exist in the target note — including block references like `![[note#^block-id]]`, which never match a heading — is handled according to `--missing-section`:
 
 * `--missing-section skip` (the default): the embed is replaced with nothing and a warning is emitted. Closest to Obsidian's own "not found" rendering.
 * `--missing-section embed-full`: the entire note is embedded (the historical behavior of this tool).

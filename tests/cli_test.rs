@@ -223,6 +223,30 @@ fn progress_json_emits_schema_start_events_and_end() {
         "end event lists the failed file"
     );
 
+    // The message is the GUI's only structured source for error details: it must
+    // carry the full chain (outer context: inner context: root cause), not just
+    // the outermost message.
+    let failure = events
+        .iter()
+        .find(|event| event["type"] == "file-failed")
+        .expect("file-failed event");
+    let message = failure["message"].as_str().expect("message string");
+    assert!(
+        message.contains("Failed to export"),
+        "outer context present, got: {:?}",
+        message
+    );
+    assert!(
+        message.contains("Failed to decode YAML frontmatter"),
+        "inner context present, got: {:?}",
+        message
+    );
+    assert!(
+        message.matches(':').count() >= 2,
+        "chain joined with colons down to the root cause, got: {:?}",
+        message
+    );
+
     // Warnings carry the originating file so consumers can locate them without
     // parsing the human-readable message.
     let warning = events

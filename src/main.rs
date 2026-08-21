@@ -157,7 +157,7 @@ fn main() {
         .first()
         .is_some_and(|arg| arg == "-v" || arg == "--version")
     {
-        println!("obsidian-export {VERSION}");
+        print_line(&format!("obsidian-export {VERSION}"));
         std::process::exit(0);
     }
 
@@ -169,14 +169,14 @@ fn main() {
     // Unlike gumdrop's default behavior of printing usage to stderr, help goes to
     // stdout, which is what virtually every other CLI does.
     if args.help {
-        println!(
+        print_line(&format!(
             "Usage: obsidian-export [OPTIONS] SOURCE DESTINATION\n\n{}",
             Opts::usage()
-        );
+        ));
         std::process::exit(0);
     }
     if args.version {
-        println!("obsidian-export {VERSION}");
+        print_line(&format!("obsidian-export {VERSION}"));
         std::process::exit(0);
     }
 
@@ -214,7 +214,7 @@ fn main() {
     }
 
     if args.progress == ProgressFormat::Json {
-        print_json_line(
+        print_line(
             &json!({
                 "type": "schema",
                 "version": JSON_EVENT_SCHEMA_VERSION,
@@ -223,7 +223,7 @@ fn main() {
         );
         let callback: obsidian_export::ExportEventCallback = Arc::new(|event: &ExportEvent| {
             if let Some(line) = event_to_json(event) {
-                print_json_line(&line);
+                print_line(&line);
             }
         });
         exporter.on_event(callback);
@@ -280,12 +280,14 @@ fn print_run_error(err: ExportError) {
     }
 }
 
-/// Print a single JSON Lines event to stdout.
+/// Print a single line to stdout.
 ///
-/// A closed stdout pipe (e.g. a GUI consumer that stopped reading) must not turn into
-/// a panic with exit code 101; exit quietly with a failure code instead, keeping the
-/// documented 0/1/2 exit code contract intact.
-fn print_json_line(line: &str) {
+/// A closed stdout pipe (e.g. a GUI consumer that stopped reading — of progress events,
+/// but equally of a `--version` handshake) must not turn into a panic with exit code
+/// 101; exit quietly with a failure code instead, keeping the documented 0/1/2 exit
+/// code contract intact. Reliable integration tests for this pipe race are hard to
+/// construct, so this is covered by code review and manual verification only.
+fn print_line(line: &str) {
     use std::io::Write;
     let mut stdout = std::io::stdout().lock();
     if writeln!(stdout, "{line}").is_err() {

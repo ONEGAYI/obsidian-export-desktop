@@ -1266,9 +1266,9 @@ impl VaultIndex {
 /// Unlike the `slug` crate (which transliterates non-ASCII characters, turning e.g. a Chinese
 /// heading into pinyin), this keeps Unicode letters and digits as-is, matching how common
 /// Markdown renderers such as GitHub generate heading anchors. Underscores are kept (they
-/// are word characters, as on GitHub), other ASCII punctuation is stripped, whitespace
-/// becomes hyphens, and leading/trailing hyphens are dropped. Unlike GitHub, runs of
-/// consecutive hyphens are collapsed into one.
+/// are word characters, as on GitHub); other ASCII punctuation is stripped, whitespace
+/// becomes hyphens. Unlike GitHub, runs of consecutive hyphens are collapsed into one and
+/// leading/trailing hyphens are dropped.
 fn format_anchor(section: &str) -> String {
     let mut anchor = String::with_capacity(section.len());
     let mut prev_hyphen = true;
@@ -1631,6 +1631,32 @@ mod tests {
         // once the segment lands in a generated Markdown link.
         let encoded = utf8_percent_encode("a#b.md", PERCENTENCODE_CHARS).to_string();
         assert_eq!(encoded, "a%23b.md");
+    }
+
+    #[test]
+    fn test_error_chain_string_joins_full_chain() {
+        let error = ExportError::FileExportError {
+            path: PathBuf::from("note.md"),
+            source: Box::new(ExportError::PathDoesNotExist {
+                path: PathBuf::from("missing.md"),
+            }),
+        };
+        let chain = error_chain_string(&error);
+        assert!(
+            chain.contains("Failed to export"),
+            "outer context, got: {:?}",
+            chain
+        );
+        assert!(
+            chain.contains("No such file or directory"),
+            "root cause, got: {:?}",
+            chain
+        );
+        assert!(
+            chain.contains(": "),
+            "links joined with colons, got: {:?}",
+            chain
+        );
     }
 
     #[test]
