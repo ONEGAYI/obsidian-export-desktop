@@ -1479,6 +1479,20 @@ fn is_markdown_file(file: &Path) -> bool {
     ext == "md"
 }
 
+/// The matching `TagEnd` for a block-level container `Tag`, or `None` for
+/// non-containers. Used by [`reduce_to_section`] to keep returned event
+/// slices balanced (start/end pairs intact) when cutting around blockquotes
+/// and lists.
+fn block_container_end(tag: &Tag) -> Option<TagEnd> {
+    match tag {
+        Tag::BlockQuote(kind) => Some(TagEnd::BlockQuote(*kind)),
+        Tag::List(start) => Some(TagEnd::List(start.is_some())),
+        Tag::Item => Some(TagEnd::Item),
+        Tag::FootnoteDefinition(_) => Some(TagEnd::FootnoteDefinition),
+        _ => None,
+    }
+}
+
 /// Reduce a given `MarkdownEvents` to just those elements which are children of the given section
 /// (heading name).
 ///
@@ -1492,6 +1506,10 @@ fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<Markdown
     let section_normalized = section.nfc().collect::<String>().to_lowercase();
 
     let mut filtered_events = Vec::with_capacity(events.len());
+    // Block containers (blockquotes, lists, …) that are currently open. The
+    // section cut may drop their Start or End events, so both return points
+    // below re-balance the stream using this stack.
+    let mut open_containers: Vec<Tag<'_>> = vec![];
     let mut target_section_encountered = false;
     let mut currently_in_target_section = false;
     let mut section_level = HeadingLevel::H1;
@@ -1515,6 +1533,20 @@ fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<Markdown
                     currently_in_target_section = false;
                     filtered_events.pop();
                 }
+            }
+            // Track block-level containers so the returned slice can be re-balanced.
+            Event::Start(tag) => {
+                if block_container_end(tag).is_some() {
+                    open_containers.push(tag.clone());
+                }
+            }
+            Event::End(
+                TagEnd::BlockQuote(_)
+                | TagEnd::List(_)
+                | TagEnd::Item
+                | TagEnd::FootnoteDefinition,
+            ) => {
+                open_containers.pop();
             }
             // Inline code and math inside a heading surface as these events instead of
             // Text; their literal text still counts towards the heading name.
@@ -1542,15 +1574,29 @@ fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<Markdown
                         section_level = last_level;
 
                         // Discard everything collected before the target heading; the heading
-                        // itself (which may consist of multiple inline events) is kept.
+                        // itself (which may consist of multiple inline events) is kept. The
+                        // prefix may contain the Start of containers the heading lives in:
+                        // re-open them so the slice stays balanced.
                         let heading_events = filtered_events.split_off(heading_start_idx);
-                        filtered_events = heading_events;
+                        let mut balanced_events: MarkdownEvents<'a> = open_containers
+                            .iter()
+                            .map(|tag| Event::Start(tag.clone()))
+                            .collect();
+                        balanced_events.extend(heading_events);
+                        filtered_events = balanced_events;
                     }
                 }
             }
             _ => {}
         }
         if target_section_encountered && !currently_in_target_section {
+            // The terminating heading was inside one or more containers whose End
+            // events never arrive: close them so the slice stays balanced.
+            for tag in open_containers.iter().rev() {
+                filtered_events.push(Event::End(
+                    block_container_end(tag).expect("tracked tags are block containers"),
+                ));
+            }
             return Some(filtered_events);
         }
     }
@@ -1936,7 +1982,7 @@ mod tests {
 
     #[test]
     fn test_reduce_to_section_matching_is_case_insensitive_and_nfc() {
-        let events = parse_events("# First\n\nfirst.\n\n## Café\n\ncontent.");
+        let events = parse_events("# First\n\nfirst.\n## Café\n\ncontent.");
         // NFD ("e" + combining diaeresis) should still match the NFC heading above.
         let section_nfd = "Cafe\u{301}";
         let reduced = reduce_to_section(&events, section_nfd).expect("NFC/NFD should match");
@@ -1944,6 +1990,66 @@ mod tests {
         assert!(
             reduce_to_section(&events, "café").is_some(),
             "case-insensitive match"
+        );
+    }
+
+    fn assert_block_containers_balanced(events: &[Event<'_>], context: &str) {
+        let mut stack = vec![];
+        for event in events {
+            match event {
+                Event::Start(tag) => {
+                    if let Some(end) = block_container_end(tag) {
+                        stack.push(end);
+                    }
+                }
+                Event::End(
+                    end @ (TagEnd::BlockQuote(_)
+                    | TagEnd::List(_)
+                    | TagEnd::Item
+                    | TagEnd::FootnoteDefinition),
+                ) => {
+                    let top = stack
+                        .pop()
+                        .unwrap_or_else(|| panic!("{context}: End {end:?} without a Start"));
+                    assert_eq!(top, *end, "{context}: mismatched container pair");
+                }
+                _ => {}
+            }
+        }
+        assert!(stack.is_empty(), "{context}: unclosed containers: {stack:?}");
+    }
+
+    #[test]
+    fn test_reduce_to_section_target_heading_inside_blockquote() {
+        // The target heading lives inside a blockquote: dropping the pre-heading
+        // prefix must not discard the blockquote's Start event, or the stray End
+        // unbalances the stream and pulls surrounding output into the quote.
+        let events = parse_events("# Intro\n\nintro.\n\n> ## Target\n> quoted.");
+        let reduced = reduce_to_section(&events, "Target").expect("section should be found");
+        assert_block_containers_balanced(&reduced, "target heading in blockquote");
+        let rendered = render_mdevents_to_mdtext(&reduced);
+        assert!(
+            rendered.contains("> ## Target"),
+            "heading keeps its quote context: {rendered}"
+        );
+        assert!(
+            rendered.contains("quoted."),
+            "quote content kept: {rendered}"
+        );
+    }
+
+    #[test]
+    fn test_reduce_to_section_terminating_heading_inside_blockquote() {
+        // A terminating heading inside a blockquote must not leave the blockquote
+        // Start unclosed in the returned events.
+        let events = parse_events("## Target\n\ntext.\n\n> ## Other\n> other text.");
+        let reduced = reduce_to_section(&events, "Target").expect("section should be found");
+        assert_block_containers_balanced(&reduced, "terminating heading in blockquote");
+        let rendered = render_mdevents_to_mdtext(&reduced);
+        assert!(rendered.contains("text."), "section content kept: {rendered}");
+        assert!(
+            !rendered.contains("other"),
+            "terminating blockquote heading excluded: {rendered}"
         );
     }
 
