@@ -770,18 +770,37 @@ fn test_missing_section_embed_full() {
     let actual = read_to_string(tmp_dir.path().join("note-outer-missing.md")).unwrap();
     assert_eq!(expected, actual);
 
-    // Outer embed hits, inner embed missing. Known limitation (shared with upstream):
-    // embeds are expanded during parsing, before the section is cut. The full note
-    // pulled in by the inner embed starts with a same-level "# Real" heading, which
-    // the outer cut then treats as the end of the requested section, so anything
-    // after it ("内文结尾") is dropped.
-    let expected = "外层命中、内层缺失：\n\n# Real\n\n内文开头。\n\n\n";
+    // Outer embed hits, inner embed missing. The section cut happens on the
+    // embedded note's own events before nested embeds expand, so the outer
+    // note's own content ("内文结尾") survives even though the inner embed
+    // (EmbedFull) pulls in a same-level "# Real" heading.
+    let expected = "外层命中、内层缺失：\n\n# Real\n\n内文开头。\n\n# Real\n\nreal content.\n\n内文结尾。\n";
     let actual = read_to_string(tmp_dir.path().join("note-inner-missing.md")).unwrap();
     assert_eq!(expected, actual);
 
     // Block references embed the full note as well.
     let expected = "块引用嵌入：\n\n# Real\n\nreal content.\n";
     let actual = read_to_string(tmp_dir.path().join("note-block-ref.md")).unwrap();
+    assert_eq!(expected, actual);
+}
+
+#[test]
+fn test_embed_section_cut_before_expansion() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+
+    Exporter::new(
+        PathBuf::from("tests/testdata/input/embed-order/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .expect("exporter returned error");
+
+    // The section cut must happen on the embedded note's own events, before
+    // its nested embeds are expanded: a heading pulled in by the inner embed
+    // (`# Sub`, same level as the outer `# Real`) must not terminate the
+    // outer section, so the outer note's own "after." paragraph survives.
+    let expected = "# Real\n\nbefore.\n\n# Sub\n\nsub content.\n\nafter.\n";
+    let actual = read_to_string(tmp_dir.path().join("root.md")).unwrap();
     assert_eq!(expected, actual);
 }
 

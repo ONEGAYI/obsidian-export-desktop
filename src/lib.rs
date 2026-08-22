@@ -774,9 +774,25 @@ impl<'a> Exporter<'a> {
         Ok(Some(context.destination))
     }
 
-    #[allow(clippy::too_many_lines)]
-    #[allow(clippy::shadow_unrelated)]
     fn parse_obsidian_note<'b>(
+        &self,
+        path: &Path,
+        context: &Context,
+    ) -> Result<(Frontmatter, MarkdownEvents<'b>)> {
+        let (frontmatter, events) = self.parse_raw_note(path, context)?;
+        let events = self.expand_references(events, context)?;
+        Ok((frontmatter, events))
+    }
+
+    /// Parse a note into raw markdown events: frontmatter stripped, references
+    /// (`[[...]]` / `![[...]]`) left as their literal bracket text events for
+    /// [`Exporter::expand_references`] to process in a later pass.
+    ///
+    /// Splitting raw parsing from reference expansion is what allows section
+    /// cuts to run on a note's own events (see [`Exporter::embed_file`]):
+    /// headings pulled in by nested embeds must not terminate an outer
+    /// section cut.
+    fn parse_raw_note<'b>(
         &self,
         path: &Path,
         context: &Context,
@@ -797,16 +813,12 @@ impl<'a> Exporter<'a> {
             | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
             | Options::ENABLE_GFM;
 
-        let mut ref_parser = RefParser::new();
         let mut events = vec![];
-        // Most of the time, a reference triggers 5 events: [ or ![, [, <text>, ], ]
-        let mut buffer = Vec::with_capacity(5);
-
         let mut parser = Parser::new_ext(&content, parser_options);
+        // When encountering a metadata block (frontmatter), collect all events until getting
+        // to the end of the block, at which point the nested loop will break out to the outer
+        // loop again.
         'outer: while let Some(event) = parser.next() {
-            // When encountering a metadata block (frontmatter), collect all events until getting
-            // to the end of the block, at which point the nested loop will break out to the outer
-            // loop again.
             if matches!(event, Event::Start(Tag::MetadataBlock(_kind))) {
                 for event in parser.by_ref() {
                     match event {
@@ -821,29 +833,57 @@ impl<'a> Exporter<'a> {
                     }
                 }
             }
+            events.push(event_to_owned(event));
+        }
+
+        Ok((
+            frontmatter_from_str(&frontmatter).context(FrontMatterDecodeSnafu { path })?,
+            events,
+        ))
+    }
+
+    /// Expand Obsidian references in an owned event stream: wikilinks become
+    /// markdown links, embeds recursively splice in (and section-cut) the
+    /// referenced notes.
+    ///
+    /// Matching compares text contents rather than the specific `CowStr`
+    /// variant because the input events are owned (`event_to_owned` output),
+    /// never `CowStr::Borrowed`.
+    #[allow(clippy::too_many_lines)]
+    fn expand_references<'b>(
+        &self,
+        events: MarkdownEvents<'b>,
+        context: &Context,
+    ) -> Result<MarkdownEvents<'b>> {
+        let mut ref_parser = RefParser::new();
+        let mut events_out = vec![];
+        // Most of the time, a reference triggers 5 events: [ or ![, [, <text>, ], ]
+        let mut buffer = Vec::with_capacity(5);
+
+        for event in events {
             if ref_parser.state == RefParserState::Resetting {
-                events.append(&mut buffer);
+                events_out.append(&mut buffer);
                 buffer.clear();
                 ref_parser.reset();
             }
             buffer.push(event.clone());
             match ref_parser.state {
                 RefParserState::NoState => match event {
-                    Event::Text(CowStr::Borrowed("![")) => {
+                    Event::Text(text) if text.as_ref() == "![" => {
                         ref_parser.ref_type = Some(RefType::Embed);
                         ref_parser.transition(RefParserState::ExpectSecondOpenBracket);
                     }
-                    Event::Text(CowStr::Borrowed("[")) => {
+                    Event::Text(text) if text.as_ref() == "[" => {
                         ref_parser.ref_type = Some(RefType::Link);
                         ref_parser.transition(RefParserState::ExpectSecondOpenBracket);
                     }
                     _ => {
-                        events.push(event);
+                        events_out.push(event);
                         buffer.clear();
                     }
                 },
                 RefParserState::ExpectSecondOpenBracket => match event {
-                    Event::Text(CowStr::Borrowed("[")) => {
+                    Event::Text(text) if text.as_ref() == "[" => {
                         ref_parser.transition(RefParserState::ExpectRefText);
                     }
                     _ => {
@@ -851,7 +891,7 @@ impl<'a> Exporter<'a> {
                     }
                 },
                 RefParserState::ExpectRefText => match event {
-                    Event::Text(CowStr::Borrowed("]")) => {
+                    Event::Text(text) if text.as_ref() == "]" => {
                         ref_parser.transition(RefParserState::Resetting);
                     }
                     Event::Text(text) => {
@@ -875,7 +915,7 @@ impl<'a> Exporter<'a> {
                     }
                 },
                 RefParserState::ExpectRefTextOrCloseBracket => match event {
-                    Event::Text(CowStr::Borrowed("]")) => {
+                    Event::Text(text) if text.as_ref() == "]" => {
                         ref_parser.transition(RefParserState::ExpectFinalCloseBracket);
                     }
                     Event::Text(text) => {
@@ -895,7 +935,7 @@ impl<'a> Exporter<'a> {
                     }
                 },
                 RefParserState::ExpectFinalCloseBracket => match event {
-                    Event::Text(CowStr::Borrowed("]")) => match ref_parser.ref_type {
+                    Event::Text(text) if text.as_ref() == "]" => match ref_parser.ref_type {
                         Some(RefType::Link) => {
                             let mut elements = self.make_link_to_file(
                                 ObsidianNoteReference::from_str(
@@ -903,14 +943,14 @@ impl<'a> Exporter<'a> {
                                 ),
                                 context,
                             );
-                            events.append(&mut elements);
+                            events_out.append(&mut elements);
                             buffer.clear();
                             ref_parser.transition(RefParserState::Resetting);
                         }
                         Some(RefType::Embed) => {
                             let mut elements =
                                 self.embed_file(ref_parser.ref_text.clone().as_ref(), context)?;
-                            events.append(&mut elements);
+                            events_out.append(&mut elements);
                             buffer.clear();
                             ref_parser.transition(RefParserState::Resetting);
                         }
@@ -928,13 +968,10 @@ impl<'a> Exporter<'a> {
             }
         }
         if !buffer.is_empty() {
-            events.append(&mut buffer);
+            events_out.append(&mut buffer);
         }
 
-        Ok((
-            frontmatter_from_str(&frontmatter).context(FrontMatterDecodeSnafu { path })?,
-            events.into_iter().map(event_to_owned).collect(),
-        ))
+        Ok(events_out)
     }
 
     // Generate markdown elements for a file that is embedded within another note.
@@ -986,7 +1023,11 @@ impl<'a> Exporter<'a> {
 
         let events = match path.extension().unwrap_or(&no_ext).to_str() {
             Some("md") => {
-                let (frontmatter, mut events) = self.parse_obsidian_note(path, &child_context)?;
+                // The section cut runs on the note's own raw events, before its
+                // nested embeds expand: a heading injected by an inner embed must
+                // not terminate the outer cut. Postprocessors below still see the
+                // fully expanded content (see the Postprocessor docs).
+                let (frontmatter, mut events) = self.parse_raw_note(path, &child_context)?;
                 child_context.frontmatter = frontmatter;
                 if let Some(section) = note_ref.section {
                     // TODO: block references (`![[note#^block-id]]`) never match a heading and
@@ -1016,6 +1057,7 @@ impl<'a> Exporter<'a> {
                         },
                     }
                 }
+                let mut events = self.expand_references(events, &child_context)?;
                 for func in &self.embed_postprocessors {
                     // Postprocessors running on embeds shouldn't be able to change frontmatter (or
                     // any other metadata), so we give them a clone of the context.
