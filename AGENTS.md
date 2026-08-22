@@ -33,9 +33,9 @@
 - [x] 桌面端技术栈：**Tauri 2 + React/TypeScript**（跨平台、轻量、Obsidian 风格 UI）。UI 主题复刻 Obsidian 变量命名与色板（明暗双主题，默认暗色）；`--missing-section` 放导出前确认选单并持久化选择。
 - [x] 桌面端完整选项面板：独立设置视图（`OptionsView`）暴露全部 CLI 选项，按「转换行为 / 内容过滤 / 文件与过程」分组；选项持久化于 localStorage（`obsidian-export-options`），Rust 侧 `build_args` 仅将非默认值传给边车（默认值语义始终以 CLI 为准）。
 - [ ] 桌面端后续迭代：打包分发流水线（`tauri build`，与 cargo-dist 互不干扰）、自动更新。
-- [ ] 块引用内容提取增强：`![[note#^block]]` 目前不做真正的块定位，匹配不到块 id 时按 `--missing-section` 策略处理（src/lib.rs 中留有 TODO 指引）。
-- [ ] 嵌入展开与 section 切分的顺序重排：嵌入递归发生在解析期，`reduce_to_section` 在展开后的事件流上切分；内层展开引入的同级/更浅标题会提前终止外层段落（embed-full 与内层命中的嵌套场景受影响，tests/export_test.rs 的 test_missing_section_embed_full 有该局限的注释与行为锁定）。正确修法需改为「先切后展」，涉及解析架构重排。
-- [ ] wikilink 格式标记与容器内标题的既有解析边界（上游遗留，非本轮引入）：wikilink 内的强调标记在跨事件拼接时丢失（如 `[[b#__dunder__]]` 的 `__` 被 pulldown-cmark 解析为 strong，锚点与 label 均只剩 `dunder`，src/references.rs 注释已记录单下划线同类问题）；引用块（blockquote）内的标题参与 `reduce_to_section` 时容器 Start/End 事件失衡。
+- [x] 块引用内容提取增强：已完成——`![[note#^block-id]]` 真实定位标记块（reduce_to_block：行尾 id 标记所在段落/列表项/引用块，独立行 id 标记上方紧邻块，嵌入副本剥离 id 标记），未命中回退 `--missing-section` 三策略；同文件嵌入（`![[#Heading]]` / `![[#^id]]`）一并支持，防环靠「嵌入副本剥离 id」天然终止 + 嵌入公共入口的深度限制兜底。
+- [x] 嵌入展开与 section 切分的顺序重排：已完成——parse_raw_note（raw 事件收集 + 引用规范化为五事件形态）与 expand_references（引用展开）两阶段拆分，section 切分在目标文件自己的事件流上进行后再展开内层嵌入；embed_postprocessors「看到合并嵌入后内容」的契约保持。
+- [x] wikilink 格式标记与容器内标题的既有解析边界：已完成——引用文本在 raw 层以 source offset 切片保留原拼写（`__dunder__` 不再突变为 `**dunder**`，锚点/文件查找/section 匹配三处下游一致）；reduce_to_section 维护容器配对栈，blockquote（含 callout）内标题切分后事件流保持平衡。
 - [x] serde_yaml 迁移：已通过 Cargo package rename 迁移至 `yaml_serde` 0.10（YAML 官方组织维护的 0.9.34 直系 fork；serde_norway 等候选已停滞故未采用）。公共路径 `obsidian_export::serde_yaml` 与解析/序列化行为不变（非破坏变更）；MSRV 由 1.80 升至 1.82。
 - [ ] 嵌入解析缓存与 walker 并行化：vault 索引已消除引用解析的主要瓶颈（基准 7200 文件 11.2s → 0.65s），剩余耗时以文件 IO/解析/渲染为主；两项优化待有真实大 vault 的 profile 数据支撑后再决定是否实施。
 
