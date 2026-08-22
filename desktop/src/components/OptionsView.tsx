@@ -178,7 +178,10 @@ export function OptionsView({
                 placeholder=".export-ignore（默认）"
                 onChange={(e) =>
                   patch({
-                    ignoreFile: e.target.value.trim() === "" ? null : e.target.value.trim(),
+                    // No trimming here: spaces must be typeable (file names
+                    // may contain them). Blank handling lives in the Rust
+                    // build_args filter.
+                    ignoreFile: e.target.value === "" ? null : e.target.value,
                   })
                 }
               />
@@ -204,7 +207,7 @@ export function OptionsView({
               placeholder="选择 vault 内的子文件夹，留空导出全部"
               value={options.startAt ?? ""}
               onChange={(v) =>
-                patch({ startAt: v.trim() === "" ? null : v.trim() })
+                patch({ startAt: v === "" ? null : v })
               }
               hint="需位于 vault 根目录之下，越界会在导出时报错"
             />

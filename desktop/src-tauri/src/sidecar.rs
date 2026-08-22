@@ -150,10 +150,14 @@ fn build_args(options: &ExportOptions, source: &str, target: &str) -> Vec<String
         args.extend(["--ignore-file".to_owned(), ignore_file.to_owned()]);
     }
     for tag in &options.skip_tags {
-        args.extend(["--skip-tags".to_owned(), tag.clone()]);
+        if !tag.trim().is_empty() {
+            args.extend(["--skip-tags".to_owned(), tag.clone()]);
+        }
     }
     for tag in &options.only_tags {
-        args.extend(["--only-tags".to_owned(), tag.clone()]);
+        if !tag.trim().is_empty() {
+            args.extend(["--only-tags".to_owned(), tag.clone()]);
+        }
     }
     if options.hidden {
         args.push("--hidden".to_owned());
@@ -491,13 +495,16 @@ mod tests {
     fn empty_string_value_options_are_omitted() {
         // A blank start-at/ignore-file must be treated as unset: the CLI
         // should not receive `--start-at ""` (nonexistent-path error) or an
-        // ignore-file name that can never match anything.
-        let payload = r#"{ "startAt": "", "ignoreFile": "   " }"#;
+        // ignore-file name that can never match anything. Blank tags are
+        // dropped for the same reason.
+        let payload = r#"{ "startAt": "", "ignoreFile": "   ", "skipTags": ["", "  "], "onlyTags": ["\t"] }"#;
         let options: ExportOptions =
             serde_json::from_str(payload).expect("valid frontend payload");
         let args = build_args(&options, "S", "D");
         assert!(!args.iter().any(|a| a == "--start-at"));
         assert!(!args.iter().any(|a| a == "--ignore-file"));
+        assert!(!args.iter().any(|a| a == "--skip-tags"));
+        assert!(!args.iter().any(|a| a == "--only-tags"));
     }
 
     #[test]

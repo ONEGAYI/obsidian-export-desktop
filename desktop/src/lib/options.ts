@@ -92,18 +92,23 @@ function oneOf<T extends string>(
 }
 
 function optionalString(value: unknown): string | null {
-  return typeof value === "string" && value !== "" ? value : null;
+  // Whitespace-only counts as unset, mirroring the Rust build_args filter
+  // so the summary never shows an option the CLI won't receive.
+  return typeof value === "string" && value.trim() !== "" ? value : null;
 }
 
 function tagList(value: unknown): string[] {
-  // Deduplicated so a hand-edited payload can't produce duplicate chips
+  // Whitespace-only entries are dropped (same rule as the Rust side);
+  // deduplicated so a hand-edited payload can't produce duplicate chips
   // (React key collisions, × removing all same-named tags at once).
   if (!Array.isArray(value)) {
     return [];
   }
   return [
     ...new Set(
-      value.filter((tag): tag is string => typeof tag === "string" && tag !== ""),
+      value.filter(
+        (tag): tag is string => typeof tag === "string" && tag.trim() !== "",
+      ),
     ),
   ];
 }
