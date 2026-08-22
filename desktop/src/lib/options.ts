@@ -186,13 +186,15 @@ function missingSectionLabel(value: MissingSectionStrategy): string {
  */
 export function summarizeOptions(options: ExportOptions): string[] {
   const items: string[] = [];
-  if (options.startAt) {
+  // Whitespace-only values are filtered below the same way build_args does,
+  // so the summary never lists an option the CLI won't receive.
+  if (options.startAt?.trim()) {
     items.push(`仅导出 ${baseName(options.startAt) || options.startAt}`);
   }
   if (options.frontmatter !== DEFAULT_OPTIONS.frontmatter) {
     items.push(`Frontmatter：${frontmatterLabel(options.frontmatter)}`);
   }
-  if (options.ignoreFile) {
+  if (options.ignoreFile?.trim()) {
     items.push(`忽略文件：${options.ignoreFile}`);
   }
   if (options.skipTags.length > 0) {
