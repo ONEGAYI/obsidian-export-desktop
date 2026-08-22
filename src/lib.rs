@@ -1,3 +1,8 @@
+// `serde_yaml` is provided by the `yaml_serde` crate via a Cargo package
+// rename: upstream serde_yaml 0.9.34 is archived and unmaintained, and
+// yaml_serde (maintained by the YAML org) is a fork of 0.9.34 with identical
+// parsing/emitting behavior. The rename keeps the public
+// `obsidian_export::serde_yaml` path source-compatible for downstream users.
 pub use {pulldown_cmark, serde_yaml};
 
 mod context;
