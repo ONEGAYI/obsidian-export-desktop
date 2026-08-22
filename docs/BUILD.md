@@ -80,6 +80,16 @@ pnpm -C desktop tauri icon <图标路径.png>
 
 该命令自动生成全套尺寸并覆盖 `desktop/src-tauri/icons/`，下次构建生效。
 
+各产物的图标表现（26.8.2 后的配置）：
+
+- 主程序 exe 与安装后的快捷方式：取 `icons/icon.ico`，正常生效。
+- NSIS 安装包（`*-setup.exe`）：由 `tauri.conf.json` 的
+  `bundle.windows.nsis.installerIcon` 显式指定为 `icons/icon.ico`——Tauri 2
+  该项**无默认值**，不配置时安装包文件显示 NSIS 通用图标。
+- MSI 安装包：资源管理器中 `.msi` 文件一律显示**系统通用 MSI 图标**，
+  这是 Windows 平台行为（文件级图标不随包内嵌），无法通过 Tauri 配置
+  改变；安装后的程序列表与快捷方式图标不受影响，仍为应用图标。
+
 ## Windows 注意事项
 
 - **just 版本**：1.53–1.57 在 Windows 存在 shebang 临时文件路径 bug（丢失反斜杠，
