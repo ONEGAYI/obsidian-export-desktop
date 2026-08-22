@@ -12,13 +12,17 @@ To completely remove any frontmatter from exported notes, use `--frontmatter=nev
 
 ## Missing sections
 
-An embed pointing at a section (heading) that doesn't exist in the target note — including block references like `![[note#^block-id]]`, which never match a heading — is handled according to `--missing-section`:
+An embed pointing at a section (heading) that doesn't exist in the target note is handled according to `--missing-section`:
 
 * `--missing-section skip` (the default): the embed is replaced with nothing and a warning is emitted. Closest to Obsidian's own "not found" rendering.
 * `--missing-section embed-full`: the entire note is embedded (the historical behavior of this tool).
 * `--missing-section fail`: the export of the note containing the embed fails with an error.
 
 The strategy is applied independently at every level of embedding: a missing section only affects that single embed, never the rest of the parent note.
+
+Block references (`![[note#^block-id]]`) locate the block the id marks (a paragraph, a list item, or a whole quote block; an id alone on its own line marks the block above it). The `--missing-section` strategy covers block references whose id doesn't exist in the target note. The id marker is stripped from the embedded copy — Obsidian doesn't display it — while id definitions in source notes are kept as-is.
+
+Same-file section and block embeds (`![[#Heading]]` / `![[#^block-id]]`) are supported too, with two caveats: references inside a same-file embed resolve against the embedded slice only (a section that lives elsewhere in the note won't be found inside the slice and degrades per `--missing-section`), and any same-file embed appearing inside an expansion of the same file degrades to a plain link (the check is file-level, so this includes same-file references to other sections that would be safe to expand).
 
 ## Failing files
 
