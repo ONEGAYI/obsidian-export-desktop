@@ -2,6 +2,23 @@
 
 <!-- towncrier release notes start -->
 
+## [26.8.2](https://github.com/zoni/obsidian-export/tree/26.8.2) - 2026-08-22
+
+This release makes the desktop app bilingual — every UI string moved into i18n dictionaries with an English translation alongside the original Chinese, switched through a title-bar language menu (Chinese / English / follow system) — and restores section references to headings that contain wikilinks: `![[note#mid]]` embeds a `## [[mid]]` heading again.
+
+### New Features
+
+- Desktop: bilingual UI (Chinese / English) with a language menu
+
+  All desktop UI strings moved from hard-coded Chinese into i18n dictionaries, with a full English translation alongside. A language dropdown in the title bar offers Chinese, English, and "follow system" (detected from the OS locale, any `zh*` locale resolves to Chinese); any of the three can be picked freely and the choice persists across sessions.
+
+### Fixes
+
+- Section references resolve headings that contain wikilinks again
+
+  A heading like `## [[mid]]` now aggregates by its display text ("mid") when matching section references, so `![[note#mid]]` embeds that section again — the behavior that existed before the raw-parse/expand split. Inside the embedded slice the wikilink itself still expands into a normal link. Literal single-bracket headings (e.g. `## [WIP] Notes`) keep aggregating verbatim, and mixed headings (`## [WIP] and [[mid]]`) treat both parts correctly. Nested spellings inside a reference (`![[note#[[mid]]]]`) remain unsupported: the wikilink grammar itself forbids `]` inside reference text.
+
+
 ## [26.8.1](https://github.com/zoni/obsidian-export/tree/26.8.1) - 2026-08-22
 
 This release migrates the YAML dependency to the YAML-org-maintained `yaml_serde` (API-compatible; MSRV is now 1.82), adds a full conversion options view to the desktop app, and lands a parsing-layer correctness pass: block references now resolve to the blocks they mark, same-file embeds are supported, section cuts happen before nested embeds expand, blockquote-contained headings no longer corrupt output, and wikilinks keep their original formatting spellings.
