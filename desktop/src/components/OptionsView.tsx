@@ -27,7 +27,11 @@ interface OptionsViewProps {
   onBack: () => void;
 }
 
-/** Radio card group for a string-enum option (same look as the export dialog). */
+/**
+ * Radio list for a string-enum option: one card with one row per choice
+ * (separated by hairlines, selected row highlighted), so the choices read as
+ * a single group clearly distinct from the switch rows below.
+ */
 function EnumChoice<T extends string>({
   value,
   choices,
@@ -41,12 +45,12 @@ function EnumChoice<T extends string>({
     <RadioGroup
       value={value}
       onValueChange={(v) => onChange(v as T)}
-      className="gap-2"
+      className="gap-0 overflow-hidden rounded-md border bg-[var(--background-primary)]"
     >
       {choices.map((choice) => (
         <Label
           key={choice.value}
-          className="flex cursor-pointer items-start gap-2.5 rounded-md border bg-[var(--background-primary)] p-2.5 font-normal transition-colors hover:bg-[var(--background-modifier-hover)] [&:has([data-state=checked])]:border-[var(--interactive-accent)]"
+          className="flex cursor-pointer items-start gap-2.5 border-b border-b-[var(--background-modifier-border)] p-2.5 font-normal transition-colors last:border-b-0 hover:bg-[var(--background-modifier-hover)] [&:has([data-state=checked])]:bg-[var(--background-modifier-hover)]"
         >
           <RadioGroupItem value={choice.value} className="mt-0.5" />
           <span className="flex flex-col gap-0.5">
@@ -119,7 +123,7 @@ export function OptionsView({
         <section className="flex flex-col gap-2.5 rounded-lg border bg-[var(--background-secondary)] p-3">
           <h3 className="text-sm font-semibold">转换行为</h3>
           <div className="flex max-w-lg flex-col gap-2.5">
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5 pb-2.5">
               <FieldLabel>Frontmatter 处理</FieldLabel>
               <EnumChoice
                 value={options.frontmatter}
@@ -127,7 +131,7 @@ export function OptionsView({
                 onChange={(frontmatter) => patch({ frontmatter })}
               />
             </div>
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5 pb-2.5">
               <FieldLabel>缺失章节的处理方式</FieldLabel>
               <EnumChoice
                 value={options.missingSection}
