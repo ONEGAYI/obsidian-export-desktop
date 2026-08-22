@@ -116,7 +116,7 @@ export function OptionsView({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
-        <section className="flex flex-col gap-2.5">
+        <section className="flex flex-col gap-2.5 rounded-lg border p-3">
           <h3 className="text-sm font-semibold">转换行为</h3>
           <div className="flex flex-col gap-2.5">
             <FieldLabel>Frontmatter 处理</FieldLabel>
@@ -148,7 +148,7 @@ export function OptionsView({
           </div>
         </section>
 
-        <section className="flex flex-col gap-2.5">
+        <section className="flex flex-col gap-2.5 rounded-lg border p-3">
           <h3 className="text-sm font-semibold">内容过滤</h3>
           <div className="flex flex-col gap-2.5">
             <SwitchRow
@@ -203,7 +203,7 @@ export function OptionsView({
           </div>
         </section>
 
-        <section className="flex flex-col gap-2.5">
+        <section className="flex flex-col gap-2.5 rounded-lg border p-3">
           <h3 className="text-sm font-semibold">文件与过程</h3>
           <div className="flex flex-col gap-2.5">
             <SwitchRow
