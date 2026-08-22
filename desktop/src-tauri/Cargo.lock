@@ -2263,7 +2263,7 @@ dependencies = [
 
 [[package]]
 name = "obsidian-export-desktop"
-version = "0.1.0"
+version = "26.8.2"
 dependencies = [
  "serde",
  "serde_json",
