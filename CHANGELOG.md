@@ -2,6 +2,56 @@
 
 <!-- towncrier release notes start -->
 
+## [26.8.1](https://github.com/zoni/obsidian-export/tree/26.8.1) - 2026-08-22
+
+This release migrates the YAML dependency to the YAML-org-maintained `yaml_serde` (API-compatible; MSRV is now 1.82), adds a full conversion options view to the desktop app, and lands a parsing-layer correctness pass: block references now resolve to the blocks they mark, same-file embeds are supported, section cuts happen before nested embeds expand, blockquote-contained headings no longer corrupt output, and wikilinks keep their original formatting spellings.
+
+### New Features
+
+- Block references now resolve to the block they mark: `![[note#^block-id]]`
+  embeds the marked paragraph, list item or quote block (an id alone on its
+  own line marks the block above it). The id marker is stripped from the
+  embedded copy; ids that don't resolve fall back to the `--missing-section`
+  strategy. Same-file section and block embeds (`![[#Heading]]` /
+  `![[#^block-id]]`) are now supported as well — previously they degraded
+  to plain links. ([#block-references](https://github.com/zoni/obsidian-export/issues/block-references))
+- Desktop: added a full conversion options view exposing every CLI flag of
+  the sidecar (frontmatter strategy, missing-section handling, hard line
+  breaks, recursive embeds, hidden files, git integration, ignore file name,
+  skip/only tags, start-at sub-path, preserve mtime, fail-fast). Options are
+  persisted across sessions and only non-default values are forwarded to the
+  CLI. The pre-export dialog now summarizes the effective options with a
+  shortcut to edit them, and picked paths are normalized to absolute form
+  per the sidecar contract. ([#desktop-options-panel](https://github.com/zoni/obsidian-export/issues/desktop-options-panel))
+
+### Changes
+
+- Section cuts on embeds now happen on the embedded note's own events,
+  before its nested embeds are expanded. Previously a heading pulled in by
+  a nested embed could terminate the outer section cut early, silently
+  dropping the outer note's own content after it. The embed postprocessor
+  contract (postprocessors see fully expanded content) is unchanged. ([#embed-section-cut-order](https://github.com/zoni/obsidian-export/issues/embed-section-cut-order))
+- Migrated the YAML dependency from the archived `serde_yaml 0.9.34` to
+  `yaml_serde 0.10` (maintained by the YAML organization) via a Cargo package
+  rename. The public `obsidian_export::serde_yaml` path, the `Frontmatter`
+  type alias and all parsing/emitting behavior are unchanged. The minimum
+  supported Rust version was bumped from 1.80 to 1.82 as required by
+  yaml_serde. ([#yaml-serde-migration](https://github.com/zoni/obsidian-export/issues/yaml-serde-migration))
+
+### Fixes
+
+- Section cuts around headings inside block containers (blockquotes, lists)
+  no longer produce unbalanced event streams. Previously the stray
+  Start/End events polluted the renderer's padding stack and could swallow
+  following output into the quote — e.g. an Obsidian callout heading
+  referenced via `![[note#Heading]]`. ([#container-balanced-section-cut](https://github.com/zoni/obsidian-export/issues/container-balanced-section-cut))
+- Wikilink reference text now keeps its original spelling: `[[b#__dunder__]]`
+  no longer mutates into `b#**dunder**`. Anchors keep underscores (matching
+  GitHub-style heading anchors), filenames like `[[__note__]]` resolve
+  again, and section queries with formatting markers (`*Target* Heading`)
+  match the headings they render to. ([#wikilink-spelling-preserved](https://github.com/zoni/obsidian-export/issues/wikilink-spelling-preserved))
+
+
 ## [26.8.0](https://github.com/zoni/obsidian-export/tree/26.8.0) - 2026-08-22
 
 This release ships a Tauri-based desktop GUI on top of the CLI, adds a machine-readable `--progress json` event stream with a `--missing-section` strategy option, and lands a broad correctness pass over wikilink resolution and link generation (relative `../` references, Windows path separators, non-ASCII destinations). The default missing-section behavior is now `skip`; several failure modes now surface as per-file errors instead of aborting or silently misbehaving.

@@ -278,7 +278,8 @@ Features include:
 
 * Obsidian-styled light/dark themes (with a follow-system option) in a frameless window.
 * Folder pickers for the vault and destination, with the last-used paths remembered.
-* A pre-export sheet to pick the missing-section strategy, and an option to export into `<destination>/<vault folder name>` so the vault's first-level entries stay contained.
+* A full conversion options view mirroring every CLI flag: frontmatter strategy, missing-section handling, hard line breaks, recursive embeds, hidden files, git integration, the ignore-file name, skip/only tags, a start-at sub-path, mtime preservation and fail-fast. Options are remembered across sessions, and only non-default values are passed to the sidecar.
+* A pre-export sheet summarizing the effective options (with a shortcut back to the options view), and an option to export into `<destination>/<vault folder name>` so the vault's first-level entries stay contained.
 * Live progress, per-file log lines, failure details with full error chains, and cancellation of a running export.
 
 The CLI remains fully usable on its own; the desktop app is simply another way to invoke it.
