@@ -779,8 +779,8 @@ impl<'a> Exporter<'a> {
         path: &Path,
         context: &Context,
     ) -> Result<(Frontmatter, MarkdownEvents<'b>)> {
-        let (frontmatter, events) = self.parse_raw_note(path, context)?;
-        let events = self.expand_references(events, context)?;
+        let (frontmatter, events) = Self::parse_raw_note(path)?;
+        let events = self.expand_references(&events, context)?;
         Ok((frontmatter, events))
     }
 
@@ -792,16 +792,8 @@ impl<'a> Exporter<'a> {
     /// cuts to run on a note's own events (see [`Exporter::embed_file`]):
     /// headings pulled in by nested embeds must not terminate an outer
     /// section cut.
-    fn parse_raw_note<'b>(
-        &self,
-        path: &Path,
-        context: &Context,
-    ) -> Result<(Frontmatter, MarkdownEvents<'b>)> {
-        if context.note_depth() > NOTE_RECURSION_LIMIT {
-            return Err(ExportError::RecursionLimitExceeded {
-                file_tree: context.file_tree(),
-            });
-        }
+    #[allow(clippy::shadow_unrelated)]
+    fn parse_raw_note<'b>(path: &Path) -> Result<(Frontmatter, MarkdownEvents<'b>)> {
         let content = fs::read_to_string(path).context(ReadSnafu { path })?;
         let mut frontmatter = String::new();
 
@@ -852,7 +844,7 @@ impl<'a> Exporter<'a> {
     #[allow(clippy::too_many_lines)]
     fn expand_references<'b>(
         &self,
-        events: MarkdownEvents<'b>,
+        events: &[Event<'b>],
         context: &Context,
     ) -> Result<MarkdownEvents<'b>> {
         let mut ref_parser = RefParser::new();
@@ -860,6 +852,8 @@ impl<'a> Exporter<'a> {
         // Most of the time, a reference triggers 5 events: [ or ![, [, <text>, ], ]
         let mut buffer = Vec::with_capacity(5);
 
+        // The input is borrowed: same-file embeds below need the full input
+        // stream to locate their target section or block.
         for event in events {
             if ref_parser.state == RefParserState::Resetting {
                 events_out.append(&mut buffer);
@@ -878,7 +872,7 @@ impl<'a> Exporter<'a> {
                         ref_parser.transition(RefParserState::ExpectSecondOpenBracket);
                     }
                     _ => {
-                        events_out.push(event);
+                        events_out.push(event.clone());
                         buffer.clear();
                     }
                 },
@@ -895,7 +889,7 @@ impl<'a> Exporter<'a> {
                         ref_parser.transition(RefParserState::Resetting);
                     }
                     Event::Text(text) => {
-                        ref_parser.ref_text.push_str(&text);
+                        ref_parser.ref_text.push_str(text);
                         ref_parser.transition(RefParserState::ExpectRefTextOrCloseBracket);
                     }
                     Event::Start(Tag::Emphasis) | Event::End(TagEnd::Emphasis) => {
@@ -919,7 +913,7 @@ impl<'a> Exporter<'a> {
                         ref_parser.transition(RefParserState::ExpectFinalCloseBracket);
                     }
                     Event::Text(text) => {
-                        ref_parser.ref_text.push_str(&text);
+                        ref_parser.ref_text.push_str(text);
                     }
                     Event::Start(Tag::Emphasis) | Event::End(TagEnd::Emphasis) => {
                         ref_parser.ref_text.push('*');
@@ -948,8 +942,14 @@ impl<'a> Exporter<'a> {
                             ref_parser.transition(RefParserState::Resetting);
                         }
                         Some(RefType::Embed) => {
-                            let mut elements =
-                                self.embed_file(ref_parser.ref_text.clone().as_ref(), context)?;
+                            let ref_text = ref_parser.ref_text.clone();
+                            let note_ref = ObsidianNoteReference::from_str(ref_text.as_str());
+                            let mut elements = match note_ref.file {
+                                // A section or block of the note currently being
+                                // expanded (`![[#Heading]]` / `![[#^block-id]]`).
+                                None => self.embed_same_file(events, note_ref, context)?,
+                                Some(_) => self.embed_file(ref_text.as_str(), context)?,
+                            };
                             events_out.append(&mut elements);
                             buffer.clear();
                             ref_parser.transition(RefParserState::Resetting);
@@ -1011,6 +1011,14 @@ impl<'a> Exporter<'a> {
 
         let path = path.unwrap();
         let mut child_context = Context::from_parent(context, path);
+        // Recursion guard at the common embed entry point: every embed level
+        // (cross-file or same-file) grows the file tree, so cyclic references
+        // bottom out here instead of looping forever.
+        if child_context.note_depth() > NOTE_RECURSION_LIMIT {
+            return Err(ExportError::RecursionLimitExceeded {
+                file_tree: child_context.file_tree(),
+            });
+        }
         let no_ext = OsString::new();
 
         if !self.process_embeds_recursively && context.file_tree().contains(path) {
@@ -1027,13 +1035,17 @@ impl<'a> Exporter<'a> {
                 // nested embeds expand: a heading injected by an inner embed must
                 // not terminate the outer cut. Postprocessors below still see the
                 // fully expanded content (see the Postprocessor docs).
-                let (frontmatter, mut events) = self.parse_raw_note(path, &child_context)?;
+                let (frontmatter, mut events) = Self::parse_raw_note(path)?;
                 child_context.frontmatter = frontmatter;
                 if let Some(section) = note_ref.section {
-                    // TODO: block references (`![[note#^block-id]]`) never match a heading and
-                    // therefore always take the missing-section path below. Extracting the
-                    // actual block contents is a future enhancement (tracked in AGENTS.md).
-                    match reduce_to_section(&events, section) {
+                    // Block references (`#^block-id`) locate the marked block;
+                    // heading references cut the section. Both fall back to the
+                    // missing-section strategy when they can't resolve.
+                    let located = section.strip_prefix('^').map_or_else(
+                        || reduce_to_section(&events, section),
+                        |block_id| reduce_to_block(&events, block_id),
+                    );
+                    match located {
                         Some(reduced) => events = reduced,
                         None => match self.missing_section_strategy {
                             MissingSectionStrategy::EmbedFull => (),
@@ -1057,7 +1069,7 @@ impl<'a> Exporter<'a> {
                         },
                     }
                 }
-                let mut events = self.expand_references(events, &child_context)?;
+                let mut events = self.expand_references(&events, &child_context)?;
                 for func in &self.embed_postprocessors {
                     // Postprocessors running on embeds shouldn't be able to change frontmatter (or
                     // any other metadata), so we give them a clone of the context.
@@ -1111,6 +1123,75 @@ impl<'a> Exporter<'a> {
             }
             _ => self.make_link_to_file(note_ref, &child_context),
         };
+        Ok(events)
+    }
+
+    /// Embed a section or block of the note currently being expanded
+    /// (`![[#Heading]]` / `![[#^block-id]]`).
+    ///
+    /// The current note's raw events are sliced directly. Every same-file
+    /// embed level pushes the current file onto the file tree, so nesting
+    /// (including a block embedding itself) is bounded by
+    /// `NOTE_RECURSION_LIMIT` at this common embed entry point.
+    fn embed_same_file<'b>(
+        &self,
+        events: &[Event<'b>],
+        note_ref: ObsidianNoteReference<'_>,
+        context: &Context,
+    ) -> Result<MarkdownEvents<'b>> {
+        let Some(section) = note_ref.section else {
+            // Degenerate `![[#]]`-style refs carry no target; render as a link.
+            return Ok(self.make_link_to_file(note_ref, context));
+        };
+        // A same-file embed always refers to the current file, which is
+        // already on the file tree: under --no-recursive-embeds it degrades to
+        // a link just like any other cyclic reference.
+        if !self.process_embeds_recursively {
+            return Ok(self.make_link_to_file(note_ref, context));
+        }
+        let mut child_context = Context::from_parent(context, context.current_file());
+        if child_context.note_depth() > NOTE_RECURSION_LIMIT {
+            return Err(ExportError::RecursionLimitExceeded {
+                file_tree: child_context.file_tree(),
+            });
+        }
+        let located = section.strip_prefix('^').map_or_else(
+            || reduce_to_section(events, section),
+            |block_id| reduce_to_block(events, block_id),
+        );
+        let mut events = match located {
+            Some(reduced) => reduced,
+            None => match self.missing_section_strategy {
+                MissingSectionStrategy::EmbedFull => events.to_vec(),
+                MissingSectionStrategy::Skip => {
+                    self.warn(
+                        Some(context.current_file()),
+                        format!(
+                            "Unable to find section '{section}' in note '{}'\n\tSource: '{}'\n",
+                            context.current_file().display(),
+                            context.current_file().display(),
+                        ),
+                    );
+                    vec![]
+                }
+                MissingSectionStrategy::Fail => {
+                    return Err(ExportError::SectionNotFound {
+                        section: section.to_owned(),
+                        path: context.current_file().clone(),
+                    });
+                }
+            },
+        };
+        events = self.expand_references(&events, &child_context)?;
+        for func in &self.embed_postprocessors {
+            match func(&mut child_context, &mut events) {
+                PostprocessorResult::StopHere => break,
+                PostprocessorResult::StopAndSkipNote => {
+                    events = vec![];
+                }
+                PostprocessorResult::Continue => (),
+            }
+        }
         Ok(events)
     }
 
@@ -1483,7 +1564,7 @@ fn is_markdown_file(file: &Path) -> bool {
 /// non-containers. Used by [`reduce_to_section`] to keep returned event
 /// slices balanced (start/end pairs intact) when cutting around blockquotes
 /// and lists.
-fn block_container_end(tag: &Tag) -> Option<TagEnd> {
+const fn block_container_end(tag: &Tag<'_>) -> Option<TagEnd> {
     match tag {
         Tag::BlockQuote(kind) => Some(TagEnd::BlockQuote(*kind)),
         Tag::List(start) => Some(TagEnd::List(start.is_some())),
@@ -1601,6 +1682,204 @@ fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<Markdown
         }
     }
     target_section_encountered.then_some(filtered_events)
+}
+
+fn is_valid_block_id(id: &str) -> bool {
+    !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// The trailing block-id marker of an Obsidian block reference: content
+/// ending in ` ^block-id` marks the block it ends.
+fn trailing_block_id(text: &str) -> Option<&str> {
+    let (_, id) = text.rsplit_once(" ^")?;
+    is_valid_block_id(id).then_some(id)
+}
+
+/// Strip the ` ^block-id` marker: embedded blocks don't show their id.
+fn strip_trailing_block_id_marker(text: &str) -> CowStr<'static> {
+    let (stripped, _) = text
+        .rsplit_once(" ^")
+        .expect("candidate text matched a trailing block id");
+    CowStr::from(stripped.to_owned())
+}
+
+/// A standalone id line (`^block-id` alone on its own paragraph) marking the
+/// block above it.
+fn standalone_block_id(text: &str) -> Option<&str> {
+    let id = text.strip_prefix('^')?;
+    is_valid_block_id(id).then_some(id)
+}
+
+/// Whether a `Tag` opens a block-level element (as opposed to inline
+/// formatting).
+const fn is_block_tag(tag: &Tag<'_>) -> bool {
+    !matches!(
+        tag,
+        Tag::Emphasis
+            | Tag::Strong
+            | Tag::Strikethrough
+            | Tag::Superscript
+            | Tag::Subscript
+            | Tag::Link { .. }
+            | Tag::Image { .. }
+    )
+}
+
+/// Whether a `TagEnd` closes a block-level element; counterpart of
+/// [`is_block_tag`].
+const fn is_block_end(tag_end: TagEnd) -> bool {
+    !matches!(
+        tag_end,
+        TagEnd::Emphasis
+            | TagEnd::Strong
+            | TagEnd::Strikethrough
+            | TagEnd::Superscript
+            | TagEnd::Subscript
+            | TagEnd::Link
+            | TagEnd::Image
+    )
+}
+
+/// Reduce a `MarkdownEvents` stream to the single block marked by an Obsidian
+/// block id (`![[note#^block-id]]`).
+///
+/// Mirrors Obsidian's block semantics: an id at the end of a paragraph marks
+/// that paragraph (or, inside a list, the list item it belongs to; at the end
+/// of a quote block, the whole quote); an id alone on a line of its own marks
+/// the block directly above it. The id marker itself is stripped from the
+/// returned events. Returns `None` when no block carries the id, letting the
+/// caller fall back to [`MissingSectionStrategy`].
+#[allow(clippy::too_many_lines)]
+fn reduce_to_block<'a>(events: &[Event<'a>], block_id: &str) -> Option<MarkdownEvents<'a>> {
+    use std::collections::HashMap;
+
+    // Pass 1: pair up block-level Start/End events, record top-level block
+    // ranges and collect id candidates.
+    let mut block_stack: Vec<usize> = vec![]; // indexes of Start events
+    let mut block_end: HashMap<usize, usize> = HashMap::new();
+    let mut toplevel_blocks: Vec<(usize, usize)> = vec![]; // (Start idx, End idx)
+    let mut trailing: Vec<(usize, String, Vec<usize>)> = vec![]; // (Text idx, id, stack)
+    let mut standalone: Vec<(usize, String)> = vec![]; // (Text idx, id) of `^id`-only paragraphs
+
+    for (idx, event) in events.iter().enumerate() {
+        match event {
+            Event::Start(tag) if is_block_tag(tag) => {
+                block_stack.push(idx);
+            }
+            Event::End(tag_end) if is_block_end(*tag_end) => {
+                if let Some(start_idx) = block_stack.pop() {
+                    block_end.insert(start_idx, idx);
+                    if block_stack.is_empty() {
+                        toplevel_blocks.push((start_idx, idx));
+                    }
+                }
+            }
+            Event::Text(text) => {
+                match trailing_block_id(text) {
+                    Some(id) => trailing.push((idx, id.to_owned(), block_stack.clone())),
+                    None => {
+                        if block_stack.len() == 1 {
+                            if let Some(id) = standalone_block_id(text) {
+                                // Standalone ids only mark blocks when alone
+                                // in a top-level paragraph.
+                                standalone.push((idx, id.to_owned()));
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Pass 2: resolve the requested id. A trailing id wins over a standalone
+    // id with the same text.
+    if let Some((text_idx, _, snapshot)) = trailing.iter().find(|(_, id, _)| id == block_id) {
+        let text_idx = *text_idx;
+        // Prefer the nearest enclosing list item (ids on a list bullet resolve
+        // to that item); otherwise the whole enclosing top-level block (a
+        // paragraph, or an entire quote when the id ends the quote).
+        let item_pos = snapshot
+            .iter()
+            .rposition(|&start| matches!(events.get(start), Some(Event::Start(Tag::Item))));
+        if let Some(item_pos) = item_pos {
+            let item_start = snapshot.get(item_pos).copied()?;
+            let end_idx = block_end.get(&item_start).copied()?;
+            let slice = events.get(item_start..=end_idx)?;
+            // Strip the ` ^block-id` marker from the item's trailing text.
+            let stripped: MarkdownEvents<'a> = (item_start..)
+                .zip(slice.iter())
+                .map(|(idx, event)| {
+                    if idx == text_idx {
+                        match event {
+                            Event::Text(text) => {
+                                Event::Text(strip_trailing_block_id_marker(text))
+                            }
+                            other => other.clone(),
+                        }
+                    } else {
+                        event.clone()
+                    }
+                })
+                .collect();
+            // Re-wrap the item in its list: a bare Item renders without its
+            // bullet/number. The parent list's tag is right below the item on
+            // the block stack; fall back to an unordered list defensively.
+            let list_start = item_pos
+                .checked_sub(1)
+                .and_then(|pos| snapshot.get(pos).copied());
+            let (list_start_event, list_end_event) =
+                match list_start.and_then(|start| events.get(start)) {
+                    Some(Event::Start(tag @ Tag::List(_))) => (
+                        tag.clone(),
+                        TagEnd::List(matches!(tag, Tag::List(Some(_)))),
+                    ),
+                    _ => (Tag::List(None), TagEnd::List(false)),
+                };
+            let mut wrapped: MarkdownEvents<'a> = vec![Event::Start(list_start_event)];
+            wrapped.extend(stripped);
+            wrapped.push(Event::End(list_end_event));
+            return Some(wrapped);
+        }
+        let start_idx = toplevel_blocks
+            .iter()
+            .find(|(s, e)| *s <= text_idx && text_idx <= *e)
+            .map(|(s, _)| *s)?;
+        let end_idx = block_end.get(&start_idx).copied()?;
+        let slice = events.get(start_idx..=end_idx)?;
+        return Some(
+            (start_idx..)
+                .zip(slice.iter())
+                .map(|(idx, event)| {
+                    if idx == text_idx {
+                        match event {
+                            Event::Text(text) => {
+                                Event::Text(strip_trailing_block_id_marker(text))
+                            }
+                            other => other.clone(),
+                        }
+                    } else {
+                        event.clone()
+                    }
+                })
+                .collect(),
+        );
+    }
+
+    if let Some((text_idx, _)) = standalone.iter().find(|(_, id)| id == block_id) {
+        // The standalone id line marks the closest top-level block *entirely
+        // above* it — not the id paragraph itself.
+        if let Some((start_idx, end_idx)) = toplevel_blocks
+            .iter()
+            .filter(|(_, e)| e < text_idx)
+            .max_by_key(|(s, _)| *s)
+        {
+            return events
+                .get(*start_idx..=*end_idx)
+                .map(<[Event<'_>]>::to_vec);
+        }
+    }
+    None
 }
 
 fn event_to_owned<'a>(event: Event<'_>) -> Event<'a> {
@@ -2010,13 +2289,13 @@ mod tests {
                 ) => {
                     let top = stack
                         .pop()
-                        .unwrap_or_else(|| panic!("{context}: End {end:?} without a Start"));
-                    assert_eq!(top, *end, "{context}: mismatched container pair");
+                        .unwrap_or_else(|| panic!("{}: End {:?} without a Start", context, end));
+                    assert_eq!(top, *end, "{}: mismatched container pair", context);
                 }
                 _ => {}
             }
         }
-        assert!(stack.is_empty(), "{context}: unclosed containers: {stack:?}");
+        assert!(stack.is_empty(), "{}: unclosed containers: {:?}", context, stack);
     }
 
     #[test]
@@ -2030,11 +2309,11 @@ mod tests {
         let rendered = render_mdevents_to_mdtext(&reduced);
         assert!(
             rendered.contains("> ## Target"),
-            "heading keeps its quote context: {rendered}"
+            "heading keeps its quote context: {}", rendered
         );
         assert!(
             rendered.contains("quoted."),
-            "quote content kept: {rendered}"
+            "quote content kept: {}", rendered
         );
     }
 
@@ -2046,10 +2325,10 @@ mod tests {
         let reduced = reduce_to_section(&events, "Target").expect("section should be found");
         assert_block_containers_balanced(&reduced, "terminating heading in blockquote");
         let rendered = render_mdevents_to_mdtext(&reduced);
-        assert!(rendered.contains("text."), "section content kept: {rendered}");
+        assert!(rendered.contains("text."), "section content kept: {}", rendered);
         assert!(
             !rendered.contains("other"),
-            "terminating blockquote heading excluded: {rendered}"
+            "terminating blockquote heading excluded: {}", rendered
         );
     }
 

@@ -805,6 +805,126 @@ fn test_embed_section_cut_before_expansion() {
 }
 
 #[test]
+fn test_block_refs_embed_located_block() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+
+    Exporter::new(
+        PathBuf::from("tests/testdata/input/block-refs/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .expect("exporter returned error");
+
+    let actual = read_to_string(tmp_dir.path().join("embeds.md")).unwrap();
+    // Trailing-id paragraph block; the id itself is stripped from the output.
+    assert!(
+        actual.contains("行尾块：First paragraph block"),
+        "paragraph block located: {}", actual
+    );
+    assert!(
+        !actual.contains(" ^para1"),
+        "trailing block id stripped: {}", actual
+    );
+    // Standalone id line marks the block above it.
+    assert!(
+        actual.contains("独立行块：Standalone-id block above."),
+        "standalone id marks preceding block: {}", actual
+    );
+    assert!(
+        !actual.contains("standalone1"),
+        "standalone id not leaked: {}", actual
+    );
+    // Id on a list bullet resolves to that item only (the bullet glyph and
+    // spacing are renderer details, so match the text).
+    assert!(
+        actual.contains("list item two"),
+        "list item block located: {}",
+        actual
+    );
+    assert!(
+        !actual.contains("list item one"),
+        "sibling item excluded: {}", actual
+    );
+    // Id at the end of a quote block resolves to the whole quote (the quote
+    // starts on its own rendered line after the inline label).
+    assert!(
+        actual.contains("> quoted block line"),
+        "quote block located with its quote context: {}",
+        actual
+    );
+    assert!(
+        actual.contains("> quoted end"),
+        "quote second line kept: {}", actual
+    );
+    assert!(
+        !actual.contains("^quote1"),
+        "quote block id stripped: {}", actual
+    );
+    // Unknown id falls back to the missing-section strategy (Skip by default).
+    assert!(
+        !actual.contains("nope"),
+        "unmatched block id collapses: {}", actual
+    );
+}
+
+#[test]
+fn test_same_file_section_and_block_embeds() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+
+    Exporter::new(
+        PathBuf::from("tests/testdata/input/block-refs/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .expect("exporter returned error");
+
+    let actual = read_to_string(tmp_dir.path().join("self.md")).unwrap();
+    assert!(
+        actual.contains("beta 引用 alpha 块：alpha 内容段"),
+        "same-file block embed splices the block: {}", actual
+    );
+    // The id definition in the source note itself is kept (upstream
+    // behavior); only the embedded copy must have it stripped.
+    assert!(
+        !actual.contains("beta 引用 alpha 块：alpha 内容段 ^"),
+        "same-file block id stripped from the embedded copy: {}",
+        actual
+    );
+    assert!(
+        actual.contains("beta 引用 section：## Alpha"),
+        "same-file section embed splices the section: {}", actual
+    );
+    assert!(
+        actual.contains("alpha 内容段"),
+        "section content present: {}", actual
+    );
+}
+
+#[test]
+fn test_same_file_self_referencing_block_terminates() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+
+    // A block embedding itself expands exactly once: the embedded copy has
+    // its id marker stripped, so the inner reference can't resolve anymore
+    // and degrades per the missing-section strategy (Skip: collapses to
+    // empty). The cycle terminates without hitting the recursion limit.
+    Exporter::new(
+        PathBuf::from("tests/testdata/input/block-refs-self-loop/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .expect("exporter returned error");
+
+    let actual = read_to_string(tmp_dir.path().join("self-loop.md")).unwrap();
+    let occurrences = actual.matches("这一段含自引用").count();
+    assert_eq!(
+        occurrences, 2,
+        "label appears once in the source text plus once from the single expansion: {}",
+        actual
+    );
+}
+
+#[test]
 fn test_missing_section_fail() {
     let tmp_dir = TempDir::new().expect("failed to make tempdir");
     let mut exporter = Exporter::new(
