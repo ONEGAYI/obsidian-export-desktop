@@ -146,7 +146,9 @@ An embed pointing at a section (heading) that doesn't exist in the target note i
 
 The strategy is applied independently at every level of embedding: a missing section only affects that single embed, never the rest of the parent note.
 
-Block references (`![[note#^block-id]]`) locate the block the id marks (a paragraph, a list item, or a whole quote block; an id alone on its own line marks the block above it). The `--missing-section` strategy covers block references whose id doesn't exist in the target note. The id marker is stripped from the embedded copy — Obsidian doesn't display it — while id definitions in source notes are kept as-is. Same-file section and block embeds (`![[#Heading]]` / `![[#^block-id]]`) are supported too.
+Block references (`![[note#^block-id]]`) locate the block the id marks (a paragraph, a list item, or a whole quote block; an id alone on its own line marks the block above it). The `--missing-section` strategy covers block references whose id doesn't exist in the target note. The id marker is stripped from the embedded copy — Obsidian doesn't display it — while id definitions in source notes are kept as-is.
+
+Same-file section and block embeds (`![[#Heading]]` / `![[#^block-id]]`) are supported too, with two caveats: references inside a same-file embed resolve against the embedded slice only (a section that lives elsewhere in the note won't be found inside the slice and degrades per `--missing-section`), and a same-file embed that would recurse into itself degrades to a plain link.
 
 ## Failing files
 

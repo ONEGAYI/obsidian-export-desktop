@@ -1265,9 +1265,23 @@ impl<'a> Exporter<'a> {
         };
         // A same-file embed always refers to the current file, which is
         // already on the file tree: under --no-recursive-embeds it degrades to
-        // a link just like any other cyclic reference.
-        if !self.process_embeds_recursively {
-            return Ok(self.make_link_to_file(note_ref, context));
+        // a link just like any other cyclic reference. So does an embed that
+        // appears inside an expansion of the same file (e.g. a section whose
+        // content embeds itself): expanding again would recurse into the same
+        // target forever and bottom out with a misleading recursion error.
+        if !self.process_embeds_recursively
+            || context
+                .file_tree()
+                .iter()
+                .filter(|p| *p == context.current_file())
+                .count()
+                > 1
+        {
+            return Ok([
+                vec![Event::Text(CowStr::Borrowed("→ "))],
+                self.make_link_to_file(note_ref, context),
+            ]
+            .concat());
         }
         let mut child_context = Context::from_parent(context, context.current_file());
         if child_context.note_depth() > NOTE_RECURSION_LIMIT {
@@ -1915,14 +1929,21 @@ fn reduce_to_block<'a>(events: &[Event<'a>], block_id: &str) -> Option<MarkdownE
                 }
             }
             Event::Text(text) => {
-                match trailing_block_id(text) {
-                    Some(id) => trailing.push((idx, id.to_owned(), block_stack.clone())),
-                    None => {
-                        if block_stack.len() == 1 {
-                            if let Some(id) = standalone_block_id(text) {
-                                // Standalone ids only mark blocks when alone
-                                // in a top-level paragraph.
-                                standalone.push((idx, id.to_owned()));
+                let in_code_block = block_stack.iter().any(|&start| {
+                    matches!(events.get(start), Some(Event::Start(Tag::CodeBlock(_))))
+                });
+                if !in_code_block {
+                    // Text inside a code block is literal content, never a
+                    // block marker.
+                    match trailing_block_id(text) {
+                        Some(id) => trailing.push((idx, id.to_owned(), block_stack.clone())),
+                        None => {
+                            if block_stack.len() == 1 {
+                                if let Some(id) = standalone_block_id(text) {
+                                    // Standalone ids only mark blocks when
+                                    // alone in a top-level paragraph.
+                                    standalone.push((idx, id.to_owned()));
+                                }
                             }
                         }
                     }
@@ -1937,8 +1958,9 @@ fn reduce_to_block<'a>(events: &[Event<'a>], block_id: &str) -> Option<MarkdownE
     if let Some((text_idx, _, snapshot)) = trailing.iter().find(|(_, id, _)| id == block_id) {
         let text_idx = *text_idx;
         // Prefer the nearest enclosing list item (ids on a list bullet resolve
-        // to that item); otherwise the whole enclosing top-level block (a
-        // paragraph, or an entire quote when the id ends the quote).
+        // to that item); then the innermost enclosing quote block (an id in a
+        // nested quote marks the innermost quote, not the whole outer one);
+        // otherwise the whole enclosing top-level block (a paragraph).
         let item_pos = snapshot
             .iter()
             .rposition(|&start| matches!(events.get(start), Some(Event::Start(Tag::Item))));
@@ -1976,15 +1998,45 @@ fn reduce_to_block<'a>(events: &[Event<'a>], block_id: &str) -> Option<MarkdownE
                     ),
                     _ => (Tag::List(None), TagEnd::List(false)),
                 };
-            let mut wrapped: MarkdownEvents<'a> = vec![Event::Start(list_start_event)];
+            let mut wrapped: MarkdownEvents<'a> = vec![];
+            // An item inside a quote keeps its quote context.
+            let outer_snapshot = snapshot.get(..item_pos)?;
+            let quote_start = outer_snapshot
+                .iter()
+                .copied()
+                .rev()
+                .find(|&start| matches!(events.get(start), Some(Event::Start(Tag::BlockQuote(_)))));
+            let quote_end = quote_start.and_then(|start| {
+                let tag = match events.get(start) {
+                    Some(Event::Start(tag @ Tag::BlockQuote(_))) => tag.clone(),
+                    _ => return None,
+                };
+                let kind = match &tag {
+                    Tag::BlockQuote(kind) => *kind,
+                    _ => None,
+                };
+                wrapped.push(Event::Start(tag));
+                Some(Event::End(TagEnd::BlockQuote(kind)))
+            });
+            wrapped.push(Event::Start(list_start_event));
             wrapped.extend(stripped);
             wrapped.push(Event::End(list_end_event));
+            if let Some(quote_end) = quote_end {
+                wrapped.push(quote_end);
+            }
             return Some(wrapped);
         }
-        let start_idx = toplevel_blocks
-            .iter()
-            .find(|(s, e)| *s <= text_idx && text_idx <= *e)
-            .map(|(s, _)| *s)?;
+        // Innermost enclosing quote block: a quote-ending id marks that quote.
+        let quote_start = snapshot.iter().copied().rev().find(|&start| {
+            matches!(events.get(start), Some(Event::Start(Tag::BlockQuote(_))))
+        });
+        let start_idx = match quote_start {
+            Some(start_idx) => start_idx,
+            None => toplevel_blocks
+                .iter()
+                .find(|(s, e)| *s <= text_idx && text_idx <= *e)
+                .map(|(s, _)| *s)?,
+        };
         let end_idx = block_end.get(&start_idx).copied()?;
         let slice = events.get(start_idx..=end_idx)?;
         return Some(

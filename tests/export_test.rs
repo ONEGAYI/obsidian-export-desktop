@@ -963,6 +963,59 @@ fn test_wikilink_formatting_markers_preserved() {
 }
 
 #[test]
+fn test_block_refs_edge_cases() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+
+    Exporter::new(
+        PathBuf::from("tests/testdata/input/block-refs-edge/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .expect("exporter returned error");
+
+    let actual = read_to_string(tmp_dir.path().join("note-edge.md")).unwrap();
+    // An id inside a code block (EOF block without trailing newline) must not
+    // become a candidate: code content is never spliced or rewritten.
+    assert!(
+        !actual.contains("plain"),
+        "code block id not treated as a block marker: {}",
+        actual
+    );
+    // An id on a paragraph inside a *nested* quote resolves to the innermost
+    // quote block, not the whole outer quote.
+    assert!(
+        actual.contains("inner"),
+        "nested quote block located: {}",
+        actual
+    );
+    assert!(
+        !actual.contains("outer line"),
+        "outer quote excluded: {}",
+        actual
+    );
+    // An id on a list item inside a quote keeps its quote context.
+    assert!(
+        actual.contains("quoted item"),
+        "quoted list item located: {}",
+        actual
+    );
+    assert!(
+        actual.contains('>'),
+        "quote prefix kept for embedded list item: {}",
+        actual
+    );
+
+    // A same-file section embed whose target contains itself must degrade to
+    // a link instead of failing the whole file with RecursionLimitExceeded.
+    let actual = read_to_string(tmp_dir.path().join("self-section-loop.md")).unwrap();
+    assert!(
+        actual.contains("内含自环：→"),
+        "self-referencing section degrades to a link: {}",
+        actual
+    );
+}
+
+#[test]
 fn test_missing_section_fail() {
     let tmp_dir = TempDir::new().expect("failed to make tempdir");
     let mut exporter = Exporter::new(
