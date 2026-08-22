@@ -21,6 +21,7 @@ pub struct ObsidianNoteReference<'a> {
 
 #[derive(PartialEq, Eq)]
 /// `RefParserState` enumerates all the possible parsing states [`RefParser`] may enter.
+#[derive(Debug)]
 pub enum RefParserState {
     NoState,
     ExpectSecondOpenBracket,

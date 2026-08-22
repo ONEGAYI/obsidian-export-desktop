@@ -792,7 +792,19 @@ impl<'a> Exporter<'a> {
     /// cuts to run on a note's own events (see [`Exporter::embed_file`]):
     /// headings pulled in by nested embeds must not terminate an outer
     /// section cut.
+    /// Parse a note into raw markdown events: frontmatter stripped, references
+    /// (`[[...]]` / `![[...]]`) normalized to a canonical five-event form
+    /// (`![`/`[`, `[`, single text event, `]`, `]`) with the reference text
+    /// taken verbatim from the source. The verbatim slice is what preserves
+    /// spellings like `__bold__` that pulldown-cmark would otherwise consume
+    /// as formatting events.
+    ///
+    /// Splitting raw parsing from reference expansion is what allows section
+    /// cuts to run on a note's own events (see [`Exporter::embed_file`]):
+    /// headings pulled in by nested embeds must not terminate an outer
+    /// section cut.
     #[allow(clippy::shadow_unrelated)]
+    #[allow(clippy::too_many_lines)]
     fn parse_raw_note<'b>(path: &Path) -> Result<(Frontmatter, MarkdownEvents<'b>)> {
         let content = fs::read_to_string(path).context(ReadSnafu { path })?;
         let mut frontmatter = String::new();
@@ -805,14 +817,23 @@ impl<'a> Exporter<'a> {
             | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
             | Options::ENABLE_GFM;
 
-        let mut events = vec![];
-        let mut parser = Parser::new_ext(&content, parser_options);
+        let mut events: MarkdownEvents<'b> = vec![];
+        let mut ref_parser = RefParser::new();
+        // Events of the reference currently being scanned, flushed verbatim
+        // when the scan resets, or collapsed into the canonical form once the
+        // reference completes.
+        let mut buffer: Vec<Event<'_>> = vec![];
+        // Source offsets of the reference text: end of the second `[`, start
+        // of the first `]`.
+        let (mut ref_start, mut ref_end): (Option<usize>, Option<usize>) = (None, None);
+
+        let mut parser = Parser::new_ext(&content, parser_options).into_offset_iter();
         // When encountering a metadata block (frontmatter), collect all events until getting
         // to the end of the block, at which point the nested loop will break out to the outer
         // loop again.
-        'outer: while let Some(event) = parser.next() {
+        'outer: while let Some((event, range)) = parser.next() {
             if matches!(event, Event::Start(Tag::MetadataBlock(_kind))) {
-                for event in parser.by_ref() {
+                for (event, _range) in parser.by_ref() {
                     match event {
                         Event::Text(cowstr) => frontmatter.push_str(&cowstr),
                         Event::End(TagEnd::MetadataBlock(_kind)) => {
@@ -825,7 +846,106 @@ impl<'a> Exporter<'a> {
                     }
                 }
             }
-            events.push(event_to_owned(event));
+            if ref_parser.state == RefParserState::Resetting {
+                events.extend(std::mem::take(&mut buffer).into_iter().map(event_to_owned));
+                ref_parser.reset();
+                ref_start = None;
+                ref_end = None;
+            }
+            let text_is = |literal: &str| {
+                matches!(&event, Event::Text(text) if text.as_ref() == literal)
+            };
+            if ref_parser.state == RefParserState::ExpectSecondOpenBracket && text_is("[") {
+                ref_start = Some(range.end);
+            }
+            if ref_parser.state == RefParserState::ExpectRefTextOrCloseBracket && text_is("]") {
+                ref_end = Some(range.start);
+            }
+            buffer.push(event.clone());
+            match ref_parser.state {
+                RefParserState::NoState => {
+                    if text_is("![") {
+                        ref_parser.ref_type = Some(RefType::Embed);
+                        ref_parser.transition(RefParserState::ExpectSecondOpenBracket);
+                    } else if text_is("[") {
+                        ref_parser.ref_type = Some(RefType::Link);
+                        ref_parser.transition(RefParserState::ExpectSecondOpenBracket);
+                    } else {
+                        events.push(event_to_owned(event));
+                        buffer.clear();
+                    }
+                }
+                RefParserState::ExpectSecondOpenBracket => {
+                    if text_is("[") {
+                        ref_parser.transition(RefParserState::ExpectRefText);
+                    } else {
+                        ref_parser.transition(RefParserState::Resetting);
+                    }
+                }
+                RefParserState::ExpectRefText => match &event {
+                    Event::Text(text) if text.as_ref() == "]" => {
+                        ref_parser.transition(RefParserState::Resetting);
+                    }
+                    // Formatting events (Strong/Emphasis/Strikethrough) carry
+                    // no literal text of their own; the verbatim source slice
+                    // below recovers their original spelling.
+                    Event::Text(_)
+                    | Event::Start(Tag::Emphasis | Tag::Strong | Tag::Strikethrough)
+                    | Event::End(
+                        TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough,
+                    ) => {
+                        ref_parser.transition(RefParserState::ExpectRefTextOrCloseBracket);
+                    }
+                    _ => {
+                        ref_parser.transition(RefParserState::Resetting);
+                    }
+                },
+                RefParserState::ExpectRefTextOrCloseBracket => match &event {
+                    Event::Text(text) if text.as_ref() == "]" => {
+                        ref_parser.transition(RefParserState::ExpectFinalCloseBracket);
+                    }
+                    Event::Text(_)
+                    | Event::Start(Tag::Emphasis | Tag::Strong | Tag::Strikethrough)
+                    | Event::End(
+                        TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough,
+                    ) => (),
+                    _ => {
+                        ref_parser.transition(RefParserState::Resetting);
+                    }
+                },
+                RefParserState::ExpectFinalCloseBracket => {
+                    if text_is("]") {
+                        // Collapse the scanned events into the canonical form
+                        // with the reference text sliced verbatim from the
+                        // source.
+                        let opener = match ref_parser.ref_type {
+                            Some(RefType::Embed) => "![",
+                            _ => "[",
+                        };
+                        let literal = match (ref_start, ref_end) {
+                            (Some(start), Some(end)) => content
+                                .get(start..end)
+                                .expect("reference offsets are inside the source"),
+                            _ => "",
+                        };
+                        for text in [opener, "[", literal, "]", "]"] {
+                            events.push(Event::Text(CowStr::from(text.to_owned())));
+                        }
+                        buffer.clear();
+                        ref_start = None;
+                        ref_end = None;
+                    }
+                    // Both the collapsed reference and an invalid terminator
+                    // reset the scanner.
+                    ref_parser.transition(RefParserState::Resetting);
+                }
+                // Resetting is handled at the top of the loop; recovering by
+                // resetting is safer than panicking.
+                RefParserState::Resetting => ref_parser.reset(),
+            }
+        }
+        if !buffer.is_empty() {
+            events.extend(std::mem::take(&mut buffer).into_iter().map(event_to_owned));
         }
 
         Ok((
@@ -1574,6 +1694,23 @@ const fn block_container_end(tag: &Tag<'_>) -> Option<TagEnd> {
     }
 }
 
+/// Aggregate the inline text of a section query the same way heading
+/// aggregation does inside [] (formatting events dropped,
+/// Text/Code/InlineMath kept). Re-parsing the query as markdown makes a
+/// reference like `![[note#*Target* Heading]]` match the heading it renders
+/// to, while word-internal underscores (`my_note`) stay untouched.
+fn aggregate_inline_text(text: &str) -> String {
+    let mut result = String::new();
+    for event in Parser::new(text) {
+        match event {
+            Event::Text(t) | Event::Code(t) | Event::InlineMath(t) => result.push_str(&t),
+            Event::SoftBreak | Event::HardBreak => result.push(' '),
+            _ => {}
+        }
+    }
+    result
+}
+
 /// Reduce a given `MarkdownEvents` to just those elements which are children of the given section
 /// (heading name).
 ///
@@ -1584,7 +1721,10 @@ const fn block_container_end(tag: &Tag<'_>) -> Option<TagEnd> {
 /// several headings share the name, the first match wins and same-named headings nested
 /// deeper are treated as regular content of that section.
 fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<MarkdownEvents<'a>> {
-    let section_normalized = section.nfc().collect::<String>().to_lowercase();
+    let section_normalized = aggregate_inline_text(section)
+        .nfc()
+        .collect::<String>()
+        .to_lowercase();
 
     let mut filtered_events = Vec::with_capacity(events.len());
     // Block containers (blockquotes, lists, …) that are currently open. The
@@ -2299,6 +2439,30 @@ mod tests {
     }
 
     #[test]
+    fn test_reduce_to_section_strips_emphasis_markers_from_query() {
+        // A reference like ![[note#*Target* Heading]] carries the section name
+        // with its literal markers; matching must strip them just like it
+        // strips them from the heading's inline events.
+        let events = parse_events("# First
+
+first.
+
+## *Target* Heading
+
+content.");
+        let reduced = reduce_to_section(&events, "*Target* Heading")
+            .expect("query with markers should match");
+        assert!(render_mdevents_to_mdtext(&reduced).contains("content."));
+        let dunder_events = parse_events("## __dunder__
+
+content.");
+        assert!(
+            reduce_to_section(&dunder_events, "__dunder__").is_some(),
+            "underscore spellings match their own headings"
+        );
+    }
+
+    #[test]
     fn test_reduce_to_section_target_heading_inside_blockquote() {
         // The target heading lives inside a blockquote: dropping the pre-heading
         // prefix must not discard the blockquote's Start event, or the stray End
@@ -2381,3 +2545,5 @@ mod tests {
         );
     }
 }
+
+

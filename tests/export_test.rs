@@ -925,6 +925,44 @@ fn test_same_file_self_referencing_block_terminates() {
 }
 
 #[test]
+fn test_wikilink_formatting_markers_preserved() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+
+    Exporter::new(
+        PathBuf::from("tests/testdata/input/formatting-refs/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .expect("exporter returned error");
+
+    let actual = read_to_string(tmp_dir.path().join("note.md")).unwrap();
+    // The `__dunder__` spelling survives into file lookup, section matching
+    // and the generated anchor (matching GitHub-style heading anchors). The
+    // embedded heading renders as `## **dunder**` — that's just how
+    // pulldown-cmark-to-cmark renders the Strong event of `## __dunder__`.
+    assert!(
+        actual.contains("## **dunder**"),
+        "section with underscore formatting matched: {}",
+        actual
+    );
+    assert!(
+        actual.contains("dunder section content"),
+        "section content spliced: {}",
+        actual
+    );
+    assert!(
+        actual.contains("target.md#__dunder__"),
+        "anchor keeps the underscores: {}",
+        actual
+    );
+    assert!(
+        actual.contains("__file__.md"),
+        "filename with underscores resolves: {}",
+        actual
+    );
+}
+
+#[test]
 fn test_missing_section_fail() {
     let tmp_dir = TempDir::new().expect("failed to make tempdir");
     let mut exporter = Exporter::new(
