@@ -11,11 +11,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use obsidian_export::{
-    ExportError,
-    ExportEvent,
-    Exporter,
-    FrontmatterStrategy,
-    MissingSectionStrategy,
+    ExportError, ExportEvent, Exporter, FrontmatterStrategy, MissingSectionStrategy,
 };
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
@@ -174,8 +170,7 @@ fn test_start_at_subdir() {
     exporter.start_at(PathBuf::from("tests/testdata/input/start-at/subdir"));
     exporter.run().unwrap();
 
-    let expected =
-        read_to_string("tests/testdata/expected/start-at/subdir/Note B.md").unwrap();
+    let expected = read_to_string("tests/testdata/expected/start-at/subdir/Note B.md").unwrap();
 
     assert_eq!(
         expected,
@@ -646,6 +641,60 @@ fn test_section_matching_variants() {
 }
 
 #[test]
+fn test_heading_wikilink_section_embeds() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+
+    Exporter::new(
+        PathBuf::from("tests/testdata/input/heading-wikilink/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .expect("exporter returned error");
+
+    // A heading containing a wikilink (`## [[mid]]`) aggregates by its display
+    // text, so `![[target#mid]]` resolves it (as it did before the raw/expand
+    // split); inside the embedded slice the wikilink still expands normally.
+    // Section references cannot contain `]` (the wikilink grammar forbids it),
+    // so literal-bracket headings are exercised as content: the mixed heading
+    // `### [WIP] and [[mid]]` must keep its literal prefix while its wikilink
+    // expands, and must not disturb the section boundaries.
+    let actual = read_to_string(tmp_dir.path().join("note.md")).unwrap();
+    assert!(
+        actual.contains("[mid](mid.md)"),
+        "wikilink heading embeds and expands its link, got: {:?}",
+        actual
+    );
+    assert!(
+        actual.contains("wikilink heading content."),
+        "wikilink-heading section content kept, got: {:?}",
+        actual
+    );
+    assert!(
+        actual.contains("mixed heading content."),
+        "mixed literal-bracket heading kept as section content, got: {:?}",
+        actual
+    );
+    assert!(
+        actual.contains("WIP"),
+        "literal bracket prefix preserved, got: {:?}",
+        actual
+    );
+    assert!(
+        !actual.contains("after content."),
+        "same-level heading after the section terminates the embed, got: {:?}",
+        actual
+    );
+
+    // The source note itself renders the heading wikilink as a plain link.
+    let target = read_to_string(tmp_dir.path().join("target.md")).unwrap();
+    assert!(
+        target.contains("## [mid](mid.md)"),
+        "heading wikilink expands in the source note, got: {:?}",
+        target
+    );
+}
+
+#[test]
 fn test_numeric_image_size_label_falls_back_to_filename() {
     let tmp_dir = TempDir::new().expect("failed to make tempdir");
 
@@ -774,7 +823,8 @@ fn test_missing_section_embed_full() {
     // embedded note's own events before nested embeds expand, so the outer
     // note's own content ("内文结尾") survives even though the inner embed
     // (EmbedFull) pulls in a same-level "# Real" heading.
-    let expected = "外层命中、内层缺失：\n\n# Real\n\n内文开头。\n\n# Real\n\nreal content.\n\n内文结尾。\n";
+    let expected =
+        "外层命中、内层缺失：\n\n# Real\n\n内文开头。\n\n# Real\n\nreal content.\n\n内文结尾。\n";
     let actual = read_to_string(tmp_dir.path().join("note-inner-missing.md")).unwrap();
     assert_eq!(expected, actual);
 
@@ -819,20 +869,24 @@ fn test_block_refs_embed_located_block() {
     // Trailing-id paragraph block; the id itself is stripped from the output.
     assert!(
         actual.contains("行尾块：First paragraph block"),
-        "paragraph block located: {}", actual
+        "paragraph block located: {}",
+        actual
     );
     assert!(
         !actual.contains(" ^para1"),
-        "trailing block id stripped: {}", actual
+        "trailing block id stripped: {}",
+        actual
     );
     // Standalone id line marks the block above it.
     assert!(
         actual.contains("独立行块：Standalone-id block above."),
-        "standalone id marks preceding block: {}", actual
+        "standalone id marks preceding block: {}",
+        actual
     );
     assert!(
         !actual.contains("standalone1"),
-        "standalone id not leaked: {}", actual
+        "standalone id not leaked: {}",
+        actual
     );
     // Id on a list bullet resolves to that item only (the bullet glyph and
     // spacing are renderer details, so match the text).
@@ -843,7 +897,8 @@ fn test_block_refs_embed_located_block() {
     );
     assert!(
         !actual.contains("list item one"),
-        "sibling item excluded: {}", actual
+        "sibling item excluded: {}",
+        actual
     );
     // Id at the end of a quote block resolves to the whole quote (the quote
     // starts on its own rendered line after the inline label).
@@ -854,16 +909,19 @@ fn test_block_refs_embed_located_block() {
     );
     assert!(
         actual.contains("> quoted end"),
-        "quote second line kept: {}", actual
+        "quote second line kept: {}",
+        actual
     );
     assert!(
         !actual.contains("^quote1"),
-        "quote block id stripped: {}", actual
+        "quote block id stripped: {}",
+        actual
     );
     // Unknown id falls back to the missing-section strategy (Skip by default).
     assert!(
         !actual.contains("nope"),
-        "unmatched block id collapses: {}", actual
+        "unmatched block id collapses: {}",
+        actual
     );
 }
 
@@ -881,7 +939,8 @@ fn test_same_file_section_and_block_embeds() {
     let actual = read_to_string(tmp_dir.path().join("self.md")).unwrap();
     assert!(
         actual.contains("beta 引用 alpha 块：alpha 内容段"),
-        "same-file block embed splices the block: {}", actual
+        "same-file block embed splices the block: {}",
+        actual
     );
     // The id definition in the source note itself is kept (upstream
     // behavior); only the embedded copy must have it stripped.
@@ -892,11 +951,13 @@ fn test_same_file_section_and_block_embeds() {
     );
     assert!(
         actual.contains("beta 引用 section：## Alpha"),
-        "same-file section embed splices the section: {}", actual
+        "same-file section embed splices the section: {}",
+        actual
     );
     assert!(
         actual.contains("alpha 内容段"),
-        "section content present: {}", actual
+        "section content present: {}",
+        actual
     );
 }
 

@@ -1,0 +1,3 @@
+Section references resolve headings that contain wikilinks again
+
+A heading like `## [[mid]]` now aggregates by its display text ("mid") when matching section references, so `![[note#mid]]` embeds that section again — the behavior that existed before the raw-parse/expand split. Inside the embedded slice the wikilink itself still expands into a normal link. Literal single-bracket headings (e.g. `## [WIP] Notes`) keep aggregating verbatim, and mixed headings (`## [WIP] and [[mid]]`) treat both parts correctly. Nested spellings inside a reference (`![[note#[[mid]]]]`) remain unsupported: the wikilink grammar itself forbids `]` inside reference text.

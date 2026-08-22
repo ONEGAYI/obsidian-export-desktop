@@ -852,9 +852,8 @@ impl<'a> Exporter<'a> {
                 ref_start = None;
                 ref_end = None;
             }
-            let text_is = |literal: &str| {
-                matches!(&event, Event::Text(text) if text.as_ref() == literal)
-            };
+            let text_is =
+                |literal: &str| matches!(&event, Event::Text(text) if text.as_ref() == literal);
             if ref_parser.state == RefParserState::ExpectSecondOpenBracket && text_is("[") {
                 ref_start = Some(range.end);
             }
@@ -891,9 +890,7 @@ impl<'a> Exporter<'a> {
                     // below recovers their original spelling.
                     Event::Text(_)
                     | Event::Start(Tag::Emphasis | Tag::Strong | Tag::Strikethrough)
-                    | Event::End(
-                        TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough,
-                    ) => {
+                    | Event::End(TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough) => {
                         ref_parser.transition(RefParserState::ExpectRefTextOrCloseBracket);
                     }
                     _ => {
@@ -906,9 +903,7 @@ impl<'a> Exporter<'a> {
                     }
                     Event::Text(_)
                     | Event::Start(Tag::Emphasis | Tag::Strong | Tag::Strikethrough)
-                    | Event::End(
-                        TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough,
-                    ) => (),
+                    | Event::End(TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough) => (),
                     _ => {
                         ref_parser.transition(RefParserState::Resetting);
                     }
@@ -1563,7 +1558,10 @@ fn normalize_lexically(path: &Path) -> PathBuf {
         match component {
             Component::CurDir => (),
             Component::ParentDir => {
-                if matches!(normalized.components().next_back(), Some(Component::Normal(_))) {
+                if matches!(
+                    normalized.components().next_back(),
+                    Some(Component::Normal(_))
+                ) {
                     normalized.pop();
                 } else {
                     normalized.push("..");
@@ -1725,15 +1723,40 @@ fn aggregate_inline_text(text: &str) -> String {
     result
 }
 
+/// When `events[i]` opens a collapsed wikilink/embed — the canonical five
+/// consecutive Text events emitted by `parse_raw_note` — return the text the
+/// reference displays; otherwise `None`. The collapsed shape is unambiguous:
+/// literal `[WIP]`-style brackets are replayed verbatim by the scanner and so
+/// never contain a second opening bracket.
+fn collapsed_ref_display(events: &[Event<'_>], i: usize, opener: &str) -> Option<String> {
+    if opener != "[" && opener != "![" {
+        return None;
+    }
+    let slice = events.get(i..i + 5)?;
+    // The collapsed shape is `[`/`![`, `[`, <literal>, `]`, `]`.
+    let (second, literal, close, end) = match (&slice[1], &slice[2], &slice[3], &slice[4]) {
+        (Event::Text(second), Event::Text(literal), Event::Text(close), Event::Text(end)) => {
+            (second, literal, close, end)
+        }
+        _ => return None,
+    };
+    if second.as_ref() != "[" || close.as_ref() != "]" || end.as_ref() != "]" {
+        return None;
+    }
+    Some(ObsidianNoteReference::from_str(literal.as_ref()).display())
+}
+
 /// Reduce a given `MarkdownEvents` to just those elements which are children of the given section
 /// (heading name).
 ///
 /// Returns `None` when no heading matches `section`, letting the caller decide how to handle
 /// the missing section (see [`MissingSectionStrategy`]). Heading comparison aggregates all
 /// inline content of the heading, including emphasis, inline code and math (so `## *Foo* Bar`
-/// matches "Foo Bar"), and is case-insensitive as well as Unicode-normalized (NFC). When
-/// several headings share the name, the first match wins and same-named headings nested
-/// deeper are treated as regular content of that section.
+/// matches "Foo Bar"), and is case-insensitive as well as Unicode-normalized (NFC). A
+/// wikilink/embed inside the heading aggregates by its display text (so `## [[mid]]` matches
+/// "mid", the way the expanded link text did before the raw/expand split). When several
+/// headings share the name, the first match wins and same-named headings nested deeper
+/// are treated as regular content of that section.
 fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<MarkdownEvents<'a>> {
     let section_normalized = aggregate_inline_text(section)
         .nfc()
@@ -1753,11 +1776,48 @@ fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<Markdown
     let mut heading_text = String::new();
     let mut in_heading = false;
 
-    for event in events {
+    let mut i = 0;
+    while i < events.len() {
+        let event = &events[i];
         if matches!(event, Event::Start(Tag::Heading { .. })) {
             heading_start_idx = filtered_events.len();
         }
         filtered_events.push(event.clone());
+        // Aggregate the inline text that names the heading. A wikilink/embed
+        // collapsed by parse_raw_note arrives as five consecutive Text events;
+        // it aggregates by its display text so a section query matches what
+        // the heading renders to. Literal single-layer brackets never form
+        // that shape, so headings like "[WIP] Notes" keep aggregating
+        // literally.
+        if in_heading {
+            match event {
+                Event::Text(cowstr) => {
+                    if let Some(display) = collapsed_ref_display(events, i, cowstr) {
+                        heading_text.push_str(&display);
+                        // The other four Text events join the stream verbatim
+                        // and are skipped below; they are neither container
+                        // nor heading events, so the loop bookkeeping is
+                        // unaffected.
+                        for ev in &events[i + 1..=i + 4] {
+                            filtered_events.push(ev.clone());
+                        }
+                        i += 4;
+                    } else {
+                        heading_text.push_str(cowstr);
+                    }
+                }
+                // Inline code and math inside a heading surface as these
+                // events instead of Text; their literal text still counts
+                // towards the heading name.
+                Event::Code(cowstr) | Event::InlineMath(cowstr) => {
+                    heading_text.push_str(cowstr);
+                }
+                Event::SoftBreak | Event::HardBreak => {
+                    heading_text.push(' ');
+                }
+                _ => {}
+            }
+        }
         match event {
             Event::Start(Tag::Heading { level, .. }) => {
                 let level = *level;
@@ -1776,24 +1836,9 @@ fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<Markdown
                 }
             }
             Event::End(
-                TagEnd::BlockQuote(_)
-                | TagEnd::List(_)
-                | TagEnd::Item
-                | TagEnd::FootnoteDefinition,
+                TagEnd::BlockQuote(_) | TagEnd::List(_) | TagEnd::Item | TagEnd::FootnoteDefinition,
             ) => {
                 open_containers.pop();
-            }
-            // Inline code and math inside a heading surface as these events instead of
-            // Text; their literal text still counts towards the heading name.
-            Event::Text(cowstr) | Event::Code(cowstr) | Event::InlineMath(cowstr) => {
-                if in_heading {
-                    heading_text.push_str(cowstr);
-                }
-            }
-            Event::SoftBreak | Event::HardBreak => {
-                if in_heading {
-                    heading_text.push(' ');
-                }
             }
             Event::End(TagEnd::Heading(_)) => {
                 if in_heading {
@@ -1834,6 +1879,7 @@ fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<Markdown
             }
             return Some(filtered_events);
         }
+        i += 1;
     }
     target_section_encountered.then_some(filtered_events)
 }
@@ -1974,9 +2020,7 @@ fn reduce_to_block<'a>(events: &[Event<'a>], block_id: &str) -> Option<MarkdownE
                 .map(|(idx, event)| {
                     if idx == text_idx {
                         match event {
-                            Event::Text(text) => {
-                                Event::Text(strip_trailing_block_id_marker(text))
-                            }
+                            Event::Text(text) => Event::Text(strip_trailing_block_id_marker(text)),
                             other => other.clone(),
                         }
                     } else {
@@ -1992,20 +2036,18 @@ fn reduce_to_block<'a>(events: &[Event<'a>], block_id: &str) -> Option<MarkdownE
                 .and_then(|pos| snapshot.get(pos).copied());
             let (list_start_event, list_end_event) =
                 match list_start.and_then(|start| events.get(start)) {
-                    Some(Event::Start(tag @ Tag::List(_))) => (
-                        tag.clone(),
-                        TagEnd::List(matches!(tag, Tag::List(Some(_)))),
-                    ),
+                    Some(Event::Start(tag @ Tag::List(_))) => {
+                        (tag.clone(), TagEnd::List(matches!(tag, Tag::List(Some(_)))))
+                    }
                     _ => (Tag::List(None), TagEnd::List(false)),
                 };
             let mut wrapped: MarkdownEvents<'a> = vec![];
             // An item inside a quote keeps its quote context.
             let outer_snapshot = snapshot.get(..item_pos)?;
-            let quote_start = outer_snapshot
-                .iter()
-                .copied()
-                .rev()
-                .find(|&start| matches!(events.get(start), Some(Event::Start(Tag::BlockQuote(_)))));
+            let quote_start =
+                outer_snapshot.iter().copied().rev().find(|&start| {
+                    matches!(events.get(start), Some(Event::Start(Tag::BlockQuote(_))))
+                });
             let quote_end = quote_start.and_then(|start| {
                 let tag = match events.get(start) {
                     Some(Event::Start(tag @ Tag::BlockQuote(_))) => tag.clone(),
@@ -2027,9 +2069,11 @@ fn reduce_to_block<'a>(events: &[Event<'a>], block_id: &str) -> Option<MarkdownE
             return Some(wrapped);
         }
         // Innermost enclosing quote block: a quote-ending id marks that quote.
-        let quote_start = snapshot.iter().copied().rev().find(|&start| {
-            matches!(events.get(start), Some(Event::Start(Tag::BlockQuote(_))))
-        });
+        let quote_start = snapshot
+            .iter()
+            .copied()
+            .rev()
+            .find(|&start| matches!(events.get(start), Some(Event::Start(Tag::BlockQuote(_)))));
         let start_idx = match quote_start {
             Some(start_idx) => start_idx,
             None => toplevel_blocks
@@ -2045,9 +2089,7 @@ fn reduce_to_block<'a>(events: &[Event<'a>], block_id: &str) -> Option<MarkdownE
                 .map(|(idx, event)| {
                     if idx == text_idx {
                         match event {
-                            Event::Text(text) => {
-                                Event::Text(strip_trailing_block_id_marker(text))
-                            }
+                            Event::Text(text) => Event::Text(strip_trailing_block_id_marker(text)),
                             other => other.clone(),
                         }
                     } else {
@@ -2066,9 +2108,7 @@ fn reduce_to_block<'a>(events: &[Event<'a>], block_id: &str) -> Option<MarkdownE
             .filter(|(_, e)| e < text_idx)
             .max_by_key(|(s, _)| *s)
         {
-            return events
-                .get(*start_idx..=*end_idx)
-                .map(<[Event<'_>]>::to_vec);
+            return events.get(*start_idx..=*end_idx).map(<[Event<'_>]>::to_vec);
         }
     }
     None
@@ -2487,7 +2527,12 @@ mod tests {
                 _ => {}
             }
         }
-        assert!(stack.is_empty(), "{}: unclosed containers: {:?}", context, stack);
+        assert!(
+            stack.is_empty(),
+            "{}: unclosed containers: {:?}",
+            context,
+            stack
+        );
     }
 
     #[test]
@@ -2495,19 +2540,23 @@ mod tests {
         // A reference like ![[note#*Target* Heading]] carries the section name
         // with its literal markers; matching must strip them just like it
         // strips them from the heading's inline events.
-        let events = parse_events("# First
+        let events = parse_events(
+            "# First
 
 first.
 
 ## *Target* Heading
 
-content.");
+content.",
+        );
         let reduced = reduce_to_section(&events, "*Target* Heading")
             .expect("query with markers should match");
         assert!(render_mdevents_to_mdtext(&reduced).contains("content."));
-        let dunder_events = parse_events("## __dunder__
+        let dunder_events = parse_events(
+            "## __dunder__
 
-content.");
+content.",
+        );
         assert!(
             reduce_to_section(&dunder_events, "__dunder__").is_some(),
             "underscore spellings match their own headings"
@@ -2525,11 +2574,13 @@ content.");
         let rendered = render_mdevents_to_mdtext(&reduced);
         assert!(
             rendered.contains("> ## Target"),
-            "heading keeps its quote context: {}", rendered
+            "heading keeps its quote context: {}",
+            rendered
         );
         assert!(
             rendered.contains("quoted."),
-            "quote content kept: {}", rendered
+            "quote content kept: {}",
+            rendered
         );
     }
 
@@ -2541,11 +2592,104 @@ content.");
         let reduced = reduce_to_section(&events, "Target").expect("section should be found");
         assert_block_containers_balanced(&reduced, "terminating heading in blockquote");
         let rendered = render_mdevents_to_mdtext(&reduced);
-        assert!(rendered.contains("text."), "section content kept: {}", rendered);
+        assert!(
+            rendered.contains("text."),
+            "section content kept: {}",
+            rendered
+        );
         assert!(
             !rendered.contains("other"),
-            "terminating blockquote heading excluded: {}", rendered
+            "terminating blockquote heading excluded: {}",
+            rendered
         );
+    }
+
+    /// The canonical five Text events `parse_raw_note` collapses a
+    /// wikilink/embed into: `[`/`![`, `[`, <reference text>, `]`, `]`.
+    fn collapsed_ref_events(opener: &str, literal: &str) -> Vec<Event<'static>> {
+        [
+            opener.to_owned(),
+            "[".to_owned(),
+            literal.to_owned(),
+            "]".to_owned(),
+            "]".to_owned(),
+        ]
+        .into_iter()
+        .map(|text| Event::Text(CowStr::from(text.clone())))
+        .collect()
+    }
+
+    fn h2_heading() -> Event<'static> {
+        Event::Start(Tag::Heading {
+            level: HeadingLevel::H2,
+            id: None,
+            classes: Vec::new(),
+            attrs: Vec::new(),
+        })
+    }
+
+    fn section_note_with_heading_inline(inline: Vec<Event<'static>>) -> MarkdownEvents<'static> {
+        let mut events = vec![h2_heading()];
+        events.extend(inline);
+        events.push(Event::End(TagEnd::Heading(HeadingLevel::H2)));
+        events.push(Event::Start(Tag::Paragraph));
+        events.push(Event::Text(CowStr::from("content.")));
+        events.push(Event::End(TagEnd::Paragraph));
+        events
+    }
+
+    #[test]
+    fn test_reduce_to_section_heading_with_collapsed_wikilink() {
+        // A wikilink inside a heading arrives from parse_raw_note as the five
+        // collapsed Text events; aggregation must use the display text ("mid")
+        // instead of the literal brackets, so `![[note#mid]]` resolves such a
+        // heading again (as it did before the raw/expand split).
+        let events = section_note_with_heading_inline(collapsed_ref_events("[", "mid"));
+        let reduced = reduce_to_section(&events, "mid").expect("display text should match");
+        // The returned stream keeps the collapsed events verbatim; expanding
+        // them into a real link is expand_references' job.
+        assert!(
+            reduced.contains(&Event::Text(CowStr::from("["))),
+            "collapsed events kept verbatim: {:?}",
+            reduced
+        );
+        assert!(
+            render_mdevents_to_mdtext(&reduced).contains("content."),
+            "section content kept"
+        );
+    }
+
+    #[test]
+    fn test_reduce_to_section_collapsed_wikilink_uses_display_name() {
+        // `mid|alias` displays as the label; the file part alone must not match.
+        let events = section_note_with_heading_inline(collapsed_ref_events("[", "mid|alias"));
+        assert!(reduce_to_section(&events, "alias").is_some());
+        assert!(reduce_to_section(&events, "mid").is_none());
+    }
+
+    #[test]
+    fn test_reduce_to_section_collapsed_embed_heading() {
+        // Embeds collapse with the "![" opener; `![[note#sec]]` in a heading
+        // aggregates as its display text "note > sec".
+        let events = section_note_with_heading_inline(collapsed_ref_events("![", "note#sec"));
+        assert!(reduce_to_section(&events, "note > sec").is_some());
+        assert!(reduce_to_section(&events, "note#sec").is_none());
+    }
+
+    #[test]
+    fn test_reduce_to_section_literal_brackets_in_heading_stay_literal() {
+        // Single-layer brackets (e.g. "[WIP]") are plain text the scanner
+        // replayed verbatim; they must keep aggregating literally so the query
+        // "[WIP] Notes" matches while the unwrapped "WIP Notes" does not.
+        let inline = vec![
+            Event::Text(CowStr::from("[")),
+            Event::Text(CowStr::from("WIP")),
+            Event::Text(CowStr::from("]")),
+            Event::Text(CowStr::from(" Notes")),
+        ];
+        let events = section_note_with_heading_inline(inline);
+        assert!(reduce_to_section(&events, "[WIP] Notes").is_some());
+        assert!(reduce_to_section(&events, "WIP Notes").is_none());
     }
 
     #[rstest]
@@ -2597,5 +2741,3 @@ content.");
         );
     }
 }
-
-

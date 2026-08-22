@@ -36,12 +36,12 @@
 - [x] 块引用内容提取增强：已完成——`![[note#^block-id]]` 真实定位标记块（reduce_to_block：行尾 id 标记所在段落/列表项/引用块，独立行 id 标记上方紧邻块，嵌入副本剥离 id 标记），未命中回退 `--missing-section` 三策略；同文件嵌入（`![[#Heading]]` / `![[#^id]]`）一并支持，防环靠「嵌入副本剥离 id」天然终止 + 嵌入公共入口的深度限制兜底。
 - [x] 嵌入展开与 section 切分的顺序重排：已完成——parse_raw_note（raw 事件收集 + 引用规范化为五事件形态）与 expand_references（引用展开）两阶段拆分，section 切分在目标文件自己的事件流上进行后再展开内层嵌入；embed_postprocessors「看到合并嵌入后内容」的契约保持。
 - [x] wikilink 格式标记与容器内标题的既有解析边界：已完成——引用文本在 raw 层以 source offset 切片保留原拼写（`__dunder__` 不再突变为 `**dunder**`，锚点/文件查找/section 匹配三处下游一致）；reduce_to_section 维护容器配对栈，blockquote（含 callout）内标题切分后事件流保持平衡。
+- [x] 标题含 wikilink 的 section 引用：已完成——reduce_to_section 标题聚合识别坍缩五事件形态并按显示名聚合（label 优先，否则 `file > section` 拼接，复用 `ObsidianNoteReference::display`），`## [[mid]]` 重新可被 `![[t#mid]]` 命中，嵌入切片内 wikilink 照常展开为链接；字面单层方括号标题（`[WIP]` 类）因状态机回吐永不构成 `Text("[")+Text("[")` 相邻对而天然免疫误伤；引用文本含 `]` 的嵌套写法（`![[t#[[mid]]]]`）受 wikilink 语法限制（坍缩状态机遇 `]` 重置）仍按 missing-section 处理。
 - [x] serde_yaml 迁移：已通过 Cargo package rename 迁移至 `yaml_serde` 0.10（YAML 官方组织维护的 0.9.34 直系 fork；serde_norway 等候选已停滞故未采用）。公共路径 `obsidian_export::serde_yaml` 与解析/序列化行为不变（非破坏变更）；MSRV 由 1.80 升至 1.82。
 - [ ] 嵌入解析缓存与 walker 并行化：vault 索引已消除引用解析的主要瓶颈（基准 7200 文件 11.2s → 0.65s），剩余耗时以文件 IO/解析/渲染为主；两项优化待有真实大 vault 的 profile 数据支撑后再决定是否实施。
 
 已知限制（审查登记，后续迭代评估）：
 
-- [ ] 标题含 wikilink 的 section 引用（如 `![[t#[[mid]]]]` 场景的等价形态）：先切后展后标题聚合发生在 raw 层，`## [[mid]]` 聚合为 `[[mid]]` 字样而非显示名 `mid`，旧版可命中的此类引用现按 missing-section 处理；修复需在标题聚合时识别坍缩五事件形态并去括号，须避免误伤字面 `[WIP]` 类标题。
 - [ ] 同文件嵌入的嵌套解析是切片局部的：嵌入片段内的 `![[#Other]]` 只在切片内查找（Obsidian 从全文件解析），跨 section 引用在切片中查不到时按 missing-section 塌缩；块的优雅自引用终止正依赖此局部性，改为全文件解析需重新设计防环。
 
 ## 修复路线（已批准）
@@ -54,6 +54,7 @@
 - 完整构建说明（含 Windows 坑与图标替换）见 [docs/BUILD.md](docs/BUILD.md)（中文，面向人类读者）。
 - `desktop/src-tauri` 是独立 cargo workspace（自持 `[workspace]`），不影响根 crate 与 cargo-dist；`.cargo/config.toml` 启用 MSRV 感知解析（工具链锁 1.87）。
 - 前端：Tailwind v4 + 手搭 shadcn 层（shadcn CLI 与当前 Node 生态冲突，组件手写在 `src/components/ui/`；CLI 修复后可迁移）。主题三态（light/dark/system，`src/lib/theme.ts`）；用户偏好存 localStorage：路径记忆、「保留根文件夹」（`obsidian-export-*` 逐项键）与转换选项（`obsidian-export-options` 单键 JSON，见 `src/lib/options.ts`）。
+- i18n：界面文案抽离为字典（`src/i18n/`，zh 为结构基准、`Widen` 宽化出 `Dict` 类型锁两份字典键一致），运行时经项目首个 React Context（`I18nProvider`）分发；语言三态 zh/en/system（跟随系统按 `navigator.languages` 是否含 zh 前缀判定），偏好存 `obsidian-export-language`，生效语言同步 `document.documentElement.lang`；标题栏下拉（`LanguageMenu`，radix dropdown-menu）三态互转。Rust/CLI 侧英文技术错误原文透传，不进字典。
 - 事件流消费遵守 `docs/sidecar-events.md` 契约；schema 版本常量在 `desktop/src-tauri/src/events.rs` 与 CLI 的 `main.rs` 各有一份，升级时同步改。
 
 ## 文件树

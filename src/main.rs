@@ -6,12 +6,7 @@ use eyre::{eyre, Result};
 use gumdrop::Options;
 use obsidian_export::postprocessors::{filter_by_tags, softbreaks_to_hardbreaks};
 use obsidian_export::{
-    ExportError,
-    ExportEvent,
-    Exporter,
-    FrontmatterStrategy,
-    MissingSectionStrategy,
-    WalkOptions,
+    ExportError, ExportEvent, Exporter, FrontmatterStrategy, MissingSectionStrategy, WalkOptions,
 };
 use serde_json::json;
 
