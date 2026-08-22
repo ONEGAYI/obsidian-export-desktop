@@ -54,6 +54,19 @@ just desktop-test    # 运行桌面端 Rust 单元测试（events 解析、路�
 just desktop-build   # 同步边车并打包正式版安装包（输出见 desktop/src-tauri/target）
 ```
 
+### 清理
+
+`just clean <范围>` 快捷清理中间产物与依赖，范围可选：
+
+| 范围 | 清理内容 |
+|------|----------|
+| `target` | 根目录 `target/`（CLI 与库的构建缓存） |
+| `desktop` | `desktop/src-tauri/target`、`node_modules`、`dist`、`gen` |
+| `sidecar` | `desktop/src-tauri/binaries`（重跑 `desktop-sync-sidecar` 即恢复） |
+| `all` | 以上全部 |
+
+清理 `sidecar` 或 `desktop` 后，下次 `just desktop-dev` 会自动重建所需产物。
+
 `desktop/src-tauri` 是独立的 cargo workspace（自持 `[workspace]`），与根
 crate 的构建、cargo-dist 发布流水线互不影响。
 

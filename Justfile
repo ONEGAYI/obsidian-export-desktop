@@ -23,6 +23,14 @@ desktop-build: desktop-sync-sidecar
 desktop-test:
     cargo test --manifest-path desktop/src-tauri/Cargo.toml
 
+# Clean build artifacts and dependencies.
+# Scope: target (root cargo build) | desktop (desktop build + node_modules + dist) | sidecar (synced binaries) | all
+clean scope:
+    @if ("{{scope}}" -notin @("target", "desktop", "sidecar", "all")) { Write-Error "unknown scope '{{scope}}' - expected target | desktop | sidecar | all" }
+    @if ("{{scope}}" -in @("target", "all")) { if (Test-Path target) { Remove-Item -Recurse -Force target; "removed target/" } }
+    @if ("{{scope}}" -in @("desktop", "all")) { foreach ($p in @("desktop/src-tauri/target", "desktop/node_modules", "desktop/dist", "desktop/src-tauri/gen")) { if (Test-Path $p) { Remove-Item -Recurse -Force $p; "removed $p" } } }
+    @if ("{{scope}}" -in @("sidecar", "all")) { if (Test-Path desktop/src-tauri/binaries) { Remove-Item -Recurse -Force desktop/src-tauri/binaries; "removed desktop/src-tauri/binaries" } }
+
 # -----------------------------------------------------------------------------
 
 _default:
