@@ -5,6 +5,7 @@ A graphical desktop app is available alongside the CLI. It wraps the exact same 
 Features include:
 
 * Obsidian-styled light/dark themes (with a follow-system option) in a frameless window.
+* Bilingual UI (Chinese / English) with a language menu: pick either language explicitly or follow the system locale; the choice is remembered across sessions.
 * Folder pickers for the vault and destination, with the last-used paths remembered.
 * A full conversion options view mirroring every CLI flag: frontmatter strategy, missing-section handling, hard line breaks, recursive embeds, hidden files, git integration, the ignore-file name, skip/only tags, a start-at sub-path, mtime preservation and fail-fast. Options are remembered across sessions, and only non-default values are passed to the sidecar.
 * A pre-export sheet summarizing the effective options (with a shortcut back to the options view), and an option to export into `<destination>/<vault folder name>` so the vault's first-level entries stay contained.
