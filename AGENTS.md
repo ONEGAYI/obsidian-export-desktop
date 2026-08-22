@@ -24,8 +24,8 @@
 
 ## 仓库约定
 
-- 本仓库克隆自上游，`origin` 指向 zoni/obsidian-export。面向上游的 issue/commit/PR 使用英文；本地自有提交与文档使用中文。
-- 推送前需先决定远端策略（fork 或新建仓库），届时更新此处说明。
+- 远端策略已定：fork 上游 zoni/obsidian-export 并改名为 [ONEGAYI/obsidian-export-desktop](https://github.com/ONEGAYI/obsidian-export-desktop)。`origin` 指向 fork（SSH，桌面端开发主远端），`upstream` 指向上游（同步用）。
+- `desktop` 分支直接推送 fork；面向上游的 issue/commit/PR 使用英文（贡献上游时走 PR），本地自有提交与文档使用中文。
 - 通用行为准则、提交与发布规范以用户级 AGENTS.md 为准，此处不重复。
 
 ## 待定事项
