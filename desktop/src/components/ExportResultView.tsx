@@ -8,6 +8,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { fmt, useI18n } from "@/i18n";
 import type { SidecarExit } from "@/lib/sidecar";
 import { baseName } from "@/lib/sidecar";
 
@@ -31,6 +32,7 @@ export function ExportResultView({
   cancelled: boolean;
   onRestart: () => void;
 }) {
+  const { t } = useI18n();
   // No end event means the run never finished cleanly: killed, crashed, or
   // failed before processing (see the sidecar contract).
   const aborted = !progress.endSeen;
@@ -40,17 +42,22 @@ export function ExportResultView({
       <CardHeader>
         <CardTitle>
           {cancelled
-            ? "导出已取消"
+            ? t.result.cancelled
             : aborted
-              ? "导出异常终止"
+              ? t.result.aborted
               : progress.failures.length > 0
-                ? "导出完成（部分失败）"
-                : "导出完成"}
+                ? t.result.partial
+                : t.result.completed}
         </CardTitle>
         <CardDescription>
           {aborted
-            ? "事件流未正常终结，以下为已处理的部分。"
-            : `共 ${progress.total} 篇：${progress.done} 成功 · ${progress.skipped} 跳过 · ${progress.failures.length} 失败`}
+            ? t.result.abortedDetail
+            : fmt(t.result.summary, {
+                total: progress.total,
+                done: progress.done,
+                skipped: progress.skipped,
+                failures: progress.failures.length,
+              })}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -70,7 +77,7 @@ export function ExportResultView({
           {progress.warnings.length > 0 && (
             <span className="flex items-center gap-1 text-yellow-500">
               <CircleAlertIcon className="size-3.5" />
-              {progress.warnings.length} 警告
+              {fmt(t.result.warnings, { n: progress.warnings.length })}
             </span>
           )}
         </div>
@@ -100,7 +107,7 @@ export function ExportResultView({
         )}
 
         <div className="flex justify-end">
-          <Button onClick={onRestart}>返回</Button>
+          <Button onClick={onRestart}>{t.result.back}</Button>
         </div>
       </CardContent>
     </Card>

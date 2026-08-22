@@ -9,6 +9,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { fmt, useI18n } from "@/i18n";
 import { summarizeOptions, type ExportOptions } from "@/lib/options";
 import { baseName } from "@/lib/sidecar";
 
@@ -42,16 +43,18 @@ export function ExportDialog({
   onEditOptions,
   onStart,
 }: ExportDialogProps) {
+  const { t } = useI18n();
   const effectiveDestination = keepRootFolder
     ? `${destination.replace(/[\\/]+$/, "")}/${baseName(source)}`
     : destination;
-  const summary = summarizeOptions(options);
+  const summary = summarizeOptions(options, t);
+  const rootName = baseName(source) || t.dialog.keepRootFallbackName;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>导出确认</DialogTitle>
+          <DialogTitle>{t.dialog.title}</DialogTitle>
           <DialogDescription className="font-mono text-[11px] leading-relaxed break-all">
             {source}
             <br />
@@ -61,17 +64,21 @@ export function ExportDialog({
 
         <div className="flex flex-col gap-1.5 rounded-md border p-2.5">
           <div className="flex items-center justify-between">
-            <span className="text-sm leading-none font-medium">生效选项</span>
+            <span className="text-sm leading-none font-medium">
+              {t.dialog.activeOptions}
+            </span>
             <button
               type="button"
               className="text-xs text-muted-foreground underline underline-offset-2 transition-colors hover:text-[var(--text-normal)]"
               onClick={onEditOptions}
             >
-              修改
+              {t.dialog.modify}
             </button>
           </div>
           {summary.length === 0 ? (
-            <span className="text-muted-foreground text-xs">全部保持默认</span>
+            <span className="text-muted-foreground text-xs">
+              {t.dialog.allDefault}
+            </span>
           ) : (
             <span className="text-xs leading-relaxed break-words">
               {summary.join(" · ")}
@@ -89,20 +96,19 @@ export function ExportDialog({
           />
           <span className="flex flex-col gap-0.5">
             <span className="text-sm leading-none font-medium">
-              在目标下保留根文件夹
+              {t.dialog.keepRootTitle}
             </span>
             <span className="text-muted-foreground text-xs">
-              导出文件夹时写入「目标/{baseName(source) || "来源文件夹名"}」，
-              避免内部第一层文件散落在目标位置（仅文件夹来源生效）。
+              {fmt(t.dialog.keepRootDescription, { name: rootName })}
             </span>
           </span>
         </Label>
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            取消
+            {t.dialog.cancel}
           </Button>
-          <Button onClick={onStart}>开始导出</Button>
+          <Button onClick={onStart}>{t.dialog.start}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

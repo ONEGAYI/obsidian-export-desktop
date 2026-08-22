@@ -14,11 +14,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
+import { useI18n } from "@/i18n";
 import {
   DEFAULT_OPTIONS,
-  FRONTMATTER_OPTIONS,
-  MISSING_SECTION_OPTIONS,
+  FRONTMATTER_VALUES,
+  MISSING_SECTION_VALUES,
   type ExportOptions,
+  type FrontmatterStrategy,
+  type MissingSectionStrategy,
 } from "@/lib/options";
 
 interface OptionsViewProps {
@@ -103,51 +106,66 @@ export function OptionsView({
   onOptionsChange,
   onBack,
 }: OptionsViewProps) {
+  const { t } = useI18n();
   const patch = (partial: Partial<ExportOptions>) =>
     onOptionsChange({ ...options, ...partial });
+
+  // Choice labels live in the i18n dictionaries; the legal values come from
+  // the options module (also used to sanitize the persisted payload).
+  const frontmatterChoices = FRONTMATTER_VALUES.map((value) => ({
+    value,
+    ...t.options.frontmatterChoices[value],
+  })) satisfies { value: FrontmatterStrategy; label: string; description: string }[];
+  const missingSectionChoices = MISSING_SECTION_VALUES.map((value) => ({
+    value,
+    ...t.options.missingSectionChoices[value],
+  })) satisfies { value: MissingSectionStrategy; label: string; description: string }[];
 
   return (
     <Card>
       <CardHeader>
         <div className="flex items-center gap-1.5">
-          <Button variant="ghost" size="icon" onClick={onBack} aria-label="返回">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onBack}
+            aria-label={t.options.back}
+          >
             <ArrowLeftIcon className="size-4" />
           </Button>
-          <CardTitle>转换选项</CardTitle>
+          <CardTitle>{t.options.title}</CardTitle>
         </div>
-        <CardDescription>
-          与 obsidian-export CLI 选项一一对应，改动即时保存；保持默认的选项不会传给边车。
-        </CardDescription>
+        <CardDescription>{t.options.description}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
         <section className="flex flex-col gap-2.5 rounded-lg border bg-[var(--background-secondary)] p-3">
-          <h3 className="text-sm font-semibold">转换行为</h3>
+          <h3 className="text-sm font-semibold">{t.options.sectionConversion}</h3>
           <div className="flex max-w-lg flex-col gap-2.5">
             <div className="flex flex-col gap-1.5 pb-2.5">
-              <FieldLabel>Frontmatter 处理</FieldLabel>
+              <FieldLabel>{t.options.frontmatterLabel}</FieldLabel>
               <EnumChoice
                 value={options.frontmatter}
-                choices={FRONTMATTER_OPTIONS}
+                choices={frontmatterChoices}
                 onChange={(frontmatter) => patch({ frontmatter })}
               />
             </div>
             <div className="flex flex-col gap-1.5 pb-2.5">
-              <FieldLabel>缺失章节的处理方式</FieldLabel>
+              <FieldLabel>{t.options.missingSectionLabel}</FieldLabel>
               <EnumChoice
                 value={options.missingSection}
-                choices={MISSING_SECTION_OPTIONS}
+                choices={missingSectionChoices}
                 onChange={(missingSection) => patch({ missingSection })}
               />
             </div>
             <SwitchRow
-              title="硬换行"
-              description="软换行转为硬换行，贴近 Obsidian「严格换行」设置"
+              title={t.options.hardLinebreaks.title}
+              description={t.options.hardLinebreaks.description}
               checked={options.hardLinebreaks}
               onCheckedChange={(hardLinebreaks) => patch({ hardLinebreaks })}
             />
             <SwitchRow
-              title="非递归嵌入"
-              description="不展开嵌入中的嵌套嵌入，可打断笔记间的循环引用"
+              title={t.options.noRecursiveEmbeds.title}
+              description={t.options.noRecursiveEmbeds.description}
               checked={options.noRecursiveEmbeds}
               onCheckedChange={(noRecursiveEmbeds) =>
                 patch({ noRecursiveEmbeds })
@@ -157,25 +175,25 @@ export function OptionsView({
         </section>
 
         <section className="flex flex-col gap-2.5 rounded-lg border bg-[var(--background-secondary)] p-3">
-          <h3 className="text-sm font-semibold">内容过滤</h3>
+          <h3 className="text-sm font-semibold">{t.options.sectionFiltering}</h3>
           <div className="flex max-w-lg flex-col gap-2.5">
             <SwitchRow
-              title="包含隐藏文件"
-              description="导出以 . 开头的隐藏文件（默认跳过）"
+              title={t.options.hidden.title}
+              description={t.options.hidden.description}
               checked={options.hidden}
               onCheckedChange={(hidden) => patch({ hidden })}
             />
             <SwitchRow
-              title="禁用 git 集成"
-              description="不读取 .gitignore 忽略规则（默认读取）"
+              title={t.options.noGit.title}
+              description={t.options.noGit.description}
               checked={options.noGit}
               onCheckedChange={(noGit) => patch({ noGit })}
             />
             <div className="flex flex-col gap-1.5">
-              <FieldLabel>忽略规则文件名</FieldLabel>
+              <FieldLabel>{t.options.ignoreFileLabel}</FieldLabel>
               <Input
                 value={options.ignoreFile ?? ""}
-                placeholder=".export-ignore（默认）"
+                placeholder={t.options.ignoreFilePlaceholder}
                 onChange={(e) =>
                   patch({
                     // No trimming here: spaces must be typeable (file names
@@ -187,45 +205,45 @@ export function OptionsView({
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <FieldLabel>跳过标签</FieldLabel>
+              <FieldLabel>{t.options.skipTagsLabel}</FieldLabel>
               <TagInput
                 value={options.skipTags}
                 onChange={(skipTags) => patch({ skipTags })}
-                placeholder="含任一标签的笔记不导出"
+                placeholder={t.options.skipTagsPlaceholder}
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <FieldLabel>仅导出标签</FieldLabel>
+              <FieldLabel>{t.options.onlyTagsLabel}</FieldLabel>
               <TagInput
                 value={options.onlyTags}
                 onChange={(onlyTags) => patch({ onlyTags })}
-                placeholder="只导出含任一标签的笔记"
+                placeholder={t.options.onlyTagsPlaceholder}
               />
             </div>
             <PathPicker
-              label="仅导出子路径（可选）"
-              placeholder="选择 vault 内的子文件夹，留空导出全部"
+              label={t.options.startAtLabel}
+              placeholder={t.options.startAtPlaceholder}
               value={options.startAt ?? ""}
               onChange={(v) =>
                 patch({ startAt: v === "" ? null : v })
               }
-              hint="需位于 vault 根目录之下，越界会在导出时报错"
+              hint={t.options.startAtHint}
             />
           </div>
         </section>
 
         <section className="flex flex-col gap-2.5 rounded-lg border bg-[var(--background-secondary)] p-3">
-          <h3 className="text-sm font-semibold">文件与过程</h3>
+          <h3 className="text-sm font-semibold">{t.options.sectionProcess}</h3>
           <div className="flex max-w-lg flex-col gap-2.5">
             <SwitchRow
-              title="保留修改时间"
-              description="导出文件保持与源笔记相同的修改时间"
+              title={t.options.preserveMtime.title}
+              description={t.options.preserveMtime.description}
               checked={options.preserveMtime}
               onCheckedChange={(preserveMtime) => patch({ preserveMtime })}
             />
             <SwitchRow
-              title="快速失败"
-              description="遇到第一个失败文件立即停止，而非继续并在末尾汇总"
+              title={t.options.failFast.title}
+              description={t.options.failFast.description}
               checked={options.failFast}
               onCheckedChange={(failFast) => patch({ failFast })}
             />
@@ -234,7 +252,7 @@ export function OptionsView({
 
         <div className="flex items-center justify-between border-t pt-3">
           <span className="text-[var(--text-faint)] text-xs">
-            全部选项均已记住，下次启动自动沿用。
+            {t.options.footer}
           </span>
           <Button
             variant="outline"
@@ -242,7 +260,7 @@ export function OptionsView({
             onClick={() => onOptionsChange(DEFAULT_OPTIONS)}
           >
             <RotateCcwIcon className="size-3.5" />
-            恢复默认
+            {t.options.resetDefaults}
           </Button>
         </div>
       </CardContent>

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
+  CheckIcon,
   FolderOpenIcon,
+  LanguagesIcon,
   MinusIcon,
   MonitorIcon,
   MoonIcon,
@@ -15,6 +17,12 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -26,6 +34,8 @@ import { ExportRunView } from "@/components/ExportRunView";
 import { ExportResultView } from "@/components/ExportResultView";
 import { OptionsView } from "@/components/OptionsView";
 import { PathPicker } from "@/components/PathPicker";
+import { fmt, LANGUAGE_ORDER, useI18n } from "@/i18n";
+import type { LanguagePreference } from "@/i18n";
 import {
   loadOptions,
   saveOptions,
@@ -42,7 +52,7 @@ import {
   onSidecarExit,
   startExport,
 } from "@/lib/sidecar";
-import { THEME_ORDER, useTheme } from "@/lib/theme";
+import { THEME_ORDER, useTheme, type ThemePreference } from "@/lib/theme";
 
 type Phase = "setup" | "running" | "result";
 
@@ -83,7 +93,11 @@ function loadBool(key: string, fallback: boolean): boolean {
   return stored === null ? fallback : stored === "true";
 }
 
-function foldEvent(progress: ExportProgress, event: SidecarEvent): ExportProgress {
+function foldEvent(
+  progress: ExportProgress,
+  event: SidecarEvent,
+  warningLabel: string,
+): ExportProgress {
   switch (event.type) {
     case "schema":
       return progress;
@@ -121,7 +135,7 @@ function foldEvent(progress: ExportProgress, event: SidecarEvent): ExportProgres
           ...progress.lines,
           {
             kind: "warning",
-            text: event.path ? baseName(event.path) : "警告",
+            text: event.path ? baseName(event.path) : warningLabel,
             detail: event.message,
           },
         ],
@@ -134,10 +148,11 @@ function foldEvent(progress: ExportProgress, event: SidecarEvent): ExportProgres
 /** Theme button cycles light → dark → system; icon shows the current mode. */
 function ThemeToggle() {
   const [theme, , setTheme] = useTheme();
-  const labels: Record<string, string> = {
-    light: "浅色",
-    dark: "深色",
-    system: "跟随系统",
+  const { t } = useI18n();
+  const labels: Record<ThemePreference, string> = {
+    light: t.theme.light,
+    dark: t.theme.dark,
+    system: t.theme.system,
   };
   const next =
     THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % THEME_ORDER.length];
@@ -146,8 +161,14 @@ function ThemeToggle() {
       variant="ghost"
       size="icon"
       onClick={() => setTheme(next)}
-      aria-label={`主题：${labels[theme]}，点击切换为${labels[next]}`}
-      title={`主题：${labels[theme]}（点击切换为${labels[next]}）`}
+      aria-label={fmt(t.theme.toggleLabel, {
+        current: labels[theme],
+        next: labels[next],
+      })}
+      title={fmt(t.theme.toggleTitle, {
+        current: labels[theme],
+        next: labels[next],
+      })}
     >
       {theme === "light" && <SunIcon className="size-4" />}
       {theme === "dark" && <MoonIcon className="size-4" />}
@@ -156,9 +177,46 @@ function ThemeToggle() {
   );
 }
 
+/** Language dropdown: any of zh / en / follow-system can be picked freely. */
+function LanguageMenu() {
+  const { preference, setPreference, t } = useI18n();
+  const labels: Record<LanguagePreference, string> = {
+    zh: t.language.zh,
+    en: t.language.en,
+    system: t.language.system,
+  };
+  const current = labels[preference];
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={fmt(t.language.menuLabel, { current })}
+          title={fmt(t.language.menuLabel, { current })}
+        >
+          <LanguagesIcon className="size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {LANGUAGE_ORDER.map((lang) => (
+          <DropdownMenuItem key={lang} onClick={() => setPreference(lang)}>
+            {/* Fixed-width slot keeps labels aligned with and without the check. */}
+            <span className="flex w-4 shrink-0 justify-center">
+              {lang === preference && <CheckIcon className="size-4" />}
+            </span>
+            {labels[lang]}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 /** Windows-style window controls for the frameless title bar. */
 function WindowControls() {
   const win = getCurrentWindow();
+  const { t } = useI18n();
   const control =
     "flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-[var(--background-modifier-hover)]";
   return (
@@ -166,21 +224,21 @@ function WindowControls() {
       <button
         className={control}
         onClick={() => win.minimize()}
-        aria-label="最小化"
+        aria-label={t.window.minimize}
       >
         <MinusIcon className="size-3.5" />
       </button>
       <button
         className={control}
         onClick={() => win.toggleMaximize()}
-        aria-label="最大化"
+        aria-label={t.window.maximize}
       >
         <SquareIcon className="size-3" />
       </button>
       <button
         className="flex h-full w-11 items-center justify-center text-muted-foreground transition-colors hover:bg-[#e81123] hover:text-white"
         onClick={() => win.close()}
-        aria-label="关闭"
+        aria-label={t.window.close}
       >
         <XIcon className="size-4" />
       </button>
@@ -189,6 +247,7 @@ function WindowControls() {
 }
 
 export default function App() {
+  const { t } = useI18n();
   const [phase, setPhase] = useState<Phase>("setup");
   const [source, setSource] = useState(
     () => localStorage.getItem(SOURCE_KEY) ?? "",
@@ -217,9 +276,13 @@ export default function App() {
       .catch((err) => setSidecarError(String(err)));
   }, []);
 
+  // Re-subscribed when the language changes so log placeholders follow the
+  // active dictionary.
   useEffect(() => {
     const unlisteners: Promise<() => void>[] = [
-      onSidecarEvent((event) => setProgress((p) => foldEvent(p, event))),
+      onSidecarEvent((event) =>
+        setProgress((p) => foldEvent(p, event, t.app.warningLog)),
+      ),
       onSidecarExit((payload) => {
         setExit(payload);
         setPhase("result");
@@ -236,7 +299,7 @@ export default function App() {
         p.then((unlisten) => unlisten());
       }
     };
-  }, []);
+  }, [t]);
 
   /** Persist a picked path immediately so it survives a restart. */
   const rememberPath = useCallback(
@@ -351,11 +414,12 @@ export default function App() {
               className="text-xs text-destructive"
               title={sidecarError}
             >
-              边车不可用
+              {t.app.sidecarUnavailable}
             </span>
           )}
         </div>
         <div className="flex h-full items-center">
+          <LanguageMenu />
           <ThemeToggle />
           <WindowControls />
         </div>
@@ -366,9 +430,13 @@ export default function App() {
             {sidecarError && (
             <Card className="border-destructive">
               <CardHeader>
-                <CardTitle className="text-destructive">边车进程不可用</CardTitle>
+                <CardTitle className="text-destructive">
+                  {t.app.sidecarErrorTitle}
+                </CardTitle>
                 <CardDescription>
-                  运行 <code>just desktop-sync-sidecar</code> 后重启应用。
+                  {t.app.sidecarErrorHint.pre}{" "}
+                  <code>{t.app.sidecarErrorHint.code}</code>{" "}
+                  {t.app.sidecarErrorHint.post}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -390,22 +458,19 @@ export default function App() {
           {phase === "setup" && view === "main" && (
             <Card>
               <CardHeader>
-                <CardTitle>导出 Obsidian Vault</CardTitle>
-                <CardDescription>
-                  将 Obsidian 方言 Markdown 转换为通用 Markdown，转换由内置的
-                  obsidian-export 边车进程完成。
-                </CardDescription>
+                <CardTitle>{t.app.exportTitle}</CardTitle>
+                <CardDescription>{t.app.exportDescription}</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
                 <PathPicker
-                  label="Vault 来源"
-                  placeholder="选择 Obsidian vault 文件夹或单篇笔记"
+                  label={t.app.sourceLabel}
+                  placeholder={t.app.sourcePlaceholder}
                   value={source}
                   onChange={handleSourceChange}
                 />
                 <PathPicker
-                  label="导出目标"
-                  placeholder="选择输出文件夹"
+                  label={t.app.destinationLabel}
+                  placeholder={t.app.destinationPlaceholder}
                   value={destination}
                   onChange={handleDestinationChange}
                 />
@@ -415,16 +480,16 @@ export default function App() {
                       checked={rememberPaths}
                       onCheckedChange={handleRememberPathsChange}
                     />
-                    记住上次路径
+                    {t.app.rememberPaths}
                   </Label>
                   <div className="flex items-center gap-2">
                     <Button variant="secondary" onClick={() => setView("options")}>
                       <SettingsIcon className="size-4" />
-                      选项
+                      {t.app.options}
                     </Button>
                     <Button disabled={!canExport} onClick={() => setConfirmOpen(true)}>
                       <FolderOpenIcon className="size-4" />
-                      导出
+                      {t.app.export}
                     </Button>
                   </div>
                 </div>

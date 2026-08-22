@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import { XIcon } from "lucide-react";
 
+import { fmt, useI18n } from "@/i18n";
+
 interface TagInputProps {
   value: string[];
   onChange: (tags: string[]) => void;
@@ -14,6 +16,7 @@ interface TagInputProps {
  * chip, and each chip has an × button.
  */
 export function TagInput({ value, onChange, placeholder }: TagInputProps) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState("");
   // True between compositionstart/compositionend. If focus is lost while an
   // IME composition is still open (blur fires before compositionend on some
@@ -45,7 +48,7 @@ export function TagInput({ value, onChange, placeholder }: TagInputProps) {
             type="button"
             className="text-[var(--text-muted)] transition-colors hover:text-[var(--text-normal)]"
             onClick={() => onChange(value.filter((t) => t !== tag))}
-            aria-label={`移除标签 ${tag}`}
+            aria-label={fmt(t.tagInput.removeTag, { tag })}
           >
             <XIcon className="size-3" />
           </button>
@@ -54,7 +57,7 @@ export function TagInput({ value, onChange, placeholder }: TagInputProps) {
       <input
         className="min-w-24 flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--text-faint)]"
         value={draft}
-        placeholder={placeholder ?? "输入后回车添加"}
+        placeholder={placeholder ?? t.tagInput.placeholder}
         spellCheck={false}
         onChange={(e) => setDraft(e.target.value)}
         onCompositionStart={() => {

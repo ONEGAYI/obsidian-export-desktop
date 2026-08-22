@@ -2,6 +2,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { FolderOpenIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/i18n";
 
 interface PathPickerProps {
   label: string;
@@ -13,6 +14,7 @@ interface PathPickerProps {
 }
 
 export function PathPicker({ label, placeholder, value, onChange, hint }: PathPickerProps) {
+  const { t } = useI18n();
   const pick = async () => {
     const picked = await open({
       directory: true,
@@ -37,7 +39,7 @@ export function PathPicker({ label, placeholder, value, onChange, hint }: PathPi
         />
         <Button variant="secondary" onClick={pick}>
           <FolderOpenIcon className="size-4" />
-          浏览
+          {t.common.browse}
         </Button>
       </div>
       {hint && <span className="text-[var(--text-faint)] text-[11px]">{hint}</span>}
