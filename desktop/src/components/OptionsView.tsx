@@ -46,7 +46,7 @@ function EnumChoice<T extends string>({
       {choices.map((choice) => (
         <Label
           key={choice.value}
-          className="flex cursor-pointer items-start gap-2.5 rounded-md border p-2.5 font-normal transition-colors hover:bg-[var(--background-modifier-hover)] [&:has([data-state=checked])]:border-[var(--interactive-accent)]"
+          className="flex cursor-pointer items-start gap-2.5 rounded-md border bg-[var(--background-primary)] p-2.5 font-normal transition-colors hover:bg-[var(--background-modifier-hover)] [&:has([data-state=checked])]:border-[var(--interactive-accent)]"
         >
           <RadioGroupItem value={choice.value} className="mt-0.5" />
           <span className="flex flex-col gap-0.5">
@@ -75,7 +75,7 @@ function SwitchRow({
   onCheckedChange: (checked: boolean) => void;
 }) {
   return (
-    <div className="flex items-start justify-between gap-3 rounded-md border p-2.5">
+    <div className="flex items-start justify-between gap-3 rounded-md border bg-[var(--background-primary)] p-2.5">
       <span className="flex flex-col gap-0.5">
         <span className="text-sm leading-none font-medium">{title}</span>
         <span className="text-muted-foreground text-xs">{description}</span>
@@ -116,21 +116,25 @@ export function OptionsView({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
-        <section className="flex flex-col gap-2.5 rounded-lg border p-3">
+        <section className="flex flex-col gap-2.5 rounded-lg border bg-[var(--background-secondary)] p-3">
           <h3 className="text-sm font-semibold">转换行为</h3>
-          <div className="flex flex-col gap-2.5">
-            <FieldLabel>Frontmatter 处理</FieldLabel>
-            <EnumChoice
-              value={options.frontmatter}
-              choices={FRONTMATTER_OPTIONS}
-              onChange={(frontmatter) => patch({ frontmatter })}
-            />
-            <FieldLabel>缺失章节的处理方式</FieldLabel>
-            <EnumChoice
-              value={options.missingSection}
-              choices={MISSING_SECTION_OPTIONS}
-              onChange={(missingSection) => patch({ missingSection })}
-            />
+          <div className="flex max-w-lg flex-col gap-2.5">
+            <div className="flex flex-col gap-1.5">
+              <FieldLabel>Frontmatter 处理</FieldLabel>
+              <EnumChoice
+                value={options.frontmatter}
+                choices={FRONTMATTER_OPTIONS}
+                onChange={(frontmatter) => patch({ frontmatter })}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <FieldLabel>缺失章节的处理方式</FieldLabel>
+              <EnumChoice
+                value={options.missingSection}
+                choices={MISSING_SECTION_OPTIONS}
+                onChange={(missingSection) => patch({ missingSection })}
+              />
+            </div>
             <SwitchRow
               title="硬换行"
               description="软换行转为硬换行，贴近 Obsidian「严格换行」设置"
@@ -148,9 +152,9 @@ export function OptionsView({
           </div>
         </section>
 
-        <section className="flex flex-col gap-2.5 rounded-lg border p-3">
+        <section className="flex flex-col gap-2.5 rounded-lg border bg-[var(--background-secondary)] p-3">
           <h3 className="text-sm font-semibold">内容过滤</h3>
-          <div className="flex flex-col gap-2.5">
+          <div className="flex max-w-lg flex-col gap-2.5">
             <SwitchRow
               title="包含隐藏文件"
               description="导出以 . 开头的隐藏文件（默认跳过）"
@@ -203,9 +207,9 @@ export function OptionsView({
           </div>
         </section>
 
-        <section className="flex flex-col gap-2.5 rounded-lg border p-3">
+        <section className="flex flex-col gap-2.5 rounded-lg border bg-[var(--background-secondary)] p-3">
           <h3 className="text-sm font-semibold">文件与过程</h3>
-          <div className="flex flex-col gap-2.5">
+          <div className="flex max-w-lg flex-col gap-2.5">
             <SwitchRow
               title="保留修改时间"
               description="导出文件保持与源笔记相同的修改时间"
