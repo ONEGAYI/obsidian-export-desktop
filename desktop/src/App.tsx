@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   FolderOpenIcon,
   MinusIcon,
+  MonitorIcon,
   MoonIcon,
   SquareIcon,
   SunIcon,
@@ -34,7 +35,7 @@ import {
   onSidecarExit,
   startExport,
 } from "@/lib/sidecar";
-import { useTheme } from "@/lib/theme";
+import { THEME_ORDER, useTheme } from "@/lib/theme";
 
 type Phase = "setup" | "running" | "result";
 
@@ -121,6 +122,31 @@ function foldEvent(progress: ExportProgress, event: SidecarEvent): ExportProgres
   }
 }
 
+/** Theme button cycles light → dark → system; icon shows the current mode. */
+function ThemeToggle() {
+  const [theme, , setTheme] = useTheme();
+  const labels: Record<string, string> = {
+    light: "浅色",
+    dark: "深色",
+    system: "跟随系统",
+  };
+  const next =
+    THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % THEME_ORDER.length];
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={() => setTheme(next)}
+      aria-label={`主题：${labels[theme]}，点击切换为${labels[next]}`}
+      title={`主题：${labels[theme]}（点击切换为${labels[next]}）`}
+    >
+      {theme === "light" && <SunIcon className="size-4" />}
+      {theme === "dark" && <MoonIcon className="size-4" />}
+      {theme === "system" && <MonitorIcon className="size-4" />}
+    </Button>
+  );
+}
+
 /** Windows-style window controls for the frameless title bar. */
 function WindowControls() {
   const win = getCurrentWindow();
@@ -154,7 +180,6 @@ function WindowControls() {
 }
 
 export default function App() {
-  const [theme, setTheme] = useTheme();
   const [phase, setPhase] = useState<Phase>("setup");
   const [source, setSource] = useState("");
   const [destination, setDestination] = useState("");
@@ -257,85 +282,80 @@ export default function App() {
           )}
         </div>
         <div className="flex h-full items-center">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            aria-label="切换主题"
-          >
-            {theme === "dark" ? <SunIcon className="size-4" /> : <MoonIcon className="size-4" />}
-          </Button>
+          <ThemeToggle />
           <WindowControls />
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-4 overflow-y-auto p-4">
-        {sidecarError && (
-          <Card className="border-destructive">
-            <CardHeader>
-              <CardTitle className="text-destructive">边车进程不可用</CardTitle>
-              <CardDescription>
-                运行 <code>just desktop-sync-sidecar</code> 后重启应用。
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <pre className="max-h-24 overflow-auto rounded-md bg-[var(--background-secondary)] p-2 font-mono text-xs whitespace-pre-wrap">
-                {sidecarError}
-              </pre>
-            </CardContent>
-          </Card>
-        )}
+      <main className="mx-auto flex w-full max-w-xl flex-1 flex-col overflow-y-auto p-4">
+        <div className="m-auto flex w-full flex-col gap-4">
+            {sidecarError && (
+            <Card className="border-destructive">
+              <CardHeader>
+                <CardTitle className="text-destructive">边车进程不可用</CardTitle>
+                <CardDescription>
+                  运行 <code>just desktop-sync-sidecar</code> 后重启应用。
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <pre className="max-h-24 overflow-auto rounded-md bg-[var(--background-secondary)] p-2 font-mono text-xs whitespace-pre-wrap">
+                  {sidecarError}
+                </pre>
+              </CardContent>
+            </Card>
+          )}
 
-        {phase === "setup" && (
-          <Card>
-            <CardHeader>
-              <CardTitle>导出 Obsidian Vault</CardTitle>
-              <CardDescription>
-                将 Obsidian 方言 Markdown 转换为通用 Markdown，转换由内置的
-                obsidian-export 边车进程完成。
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-4">
-              <PathPicker
-                label="Vault 来源"
-                placeholder="选择 Obsidian vault 文件夹或单篇笔记"
-                value={source}
-                onChange={setSource}
-              />
-              <PathPicker
-                label="导出目标"
-                placeholder="选择输出文件夹"
-                value={destination}
-                onChange={setDestination}
-              />
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">
-                  更多选项将在后续版本提供
-                </span>
-                <Button disabled={!canExport} onClick={() => setConfirmOpen(true)}>
-                  <FolderOpenIcon className="size-4" />
-                  导出
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+          {phase === "setup" && (
+            <Card>
+              <CardHeader>
+                <CardTitle>导出 Obsidian Vault</CardTitle>
+                <CardDescription>
+                  将 Obsidian 方言 Markdown 转换为通用 Markdown，转换由内置的
+                  obsidian-export 边车进程完成。
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <PathPicker
+                  label="Vault 来源"
+                  placeholder="选择 Obsidian vault 文件夹或单篇笔记"
+                  value={source}
+                  onChange={setSource}
+                />
+                <PathPicker
+                  label="导出目标"
+                  placeholder="选择输出文件夹"
+                  value={destination}
+                  onChange={setDestination}
+                />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">
+                    更多选项将在后续版本提供
+                  </span>
+                  <Button disabled={!canExport} onClick={() => setConfirmOpen(true)}>
+                    <FolderOpenIcon className="size-4" />
+                    导出
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-        {phase === "running" && (
-          <ExportRunView
-            progress={progress}
-            onCancel={handleCancel}
-          />
-        )}
+          {phase === "running" && (
+            <ExportRunView
+              progress={progress}
+              onCancel={handleCancel}
+            />
+          )}
 
-        {phase === "result" && (
-          <ExportResultView
-            progress={progress}
-            exit={exit}
-            cancelled={cancelled}
-            onRestart={handleReset}
-          />
-        )}
+          {phase === "result" && (
+            <ExportResultView
+              progress={progress}
+              exit={exit}
+              cancelled={cancelled}
+              onRestart={handleReset}
+            />
+          )}
+        </div>
       </main>
 
       <ExportDialog
