@@ -50,7 +50,10 @@ export function TagInput({ value, onChange, placeholder }: TagInputProps) {
         spellCheck={false}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === ",") {
+          // While an IME is composing (e.g. pinyin candidates), Enter
+          // confirms the candidate — it must not commit the raw draft.
+          if (e.nativeEvent.isComposing) return;
+          if (e.key === "Enter" || e.key === "," || e.key === "，") {
             e.preventDefault();
             commitDraft();
           } else if (

@@ -96,9 +96,16 @@ function optionalString(value: unknown): string | null {
 }
 
 function tagList(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((tag): tag is string => typeof tag === "string" && tag !== "")
-    : [];
+  // Deduplicated so a hand-edited payload can't produce duplicate chips
+  // (React key collisions, × removing all same-named tags at once).
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return [
+    ...new Set(
+      value.filter((tag): tag is string => typeof tag === "string" && tag !== ""),
+    ),
+  ];
 }
 
 function bool(value: unknown): boolean {

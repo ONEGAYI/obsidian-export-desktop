@@ -103,7 +103,7 @@ impl MissingSectionChoice {
 /// behavior and the options summary shown in the UI can be derived from the
 /// same comparison.
 #[derive(Debug, Default, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct ExportOptions {
     /// Only export notes under this absolute sub-path of the vault.
     pub start_at: Option<String>,
@@ -127,8 +127,14 @@ pub struct ExportOptions {
 /// when they deviate from the CLI defaults.
 fn build_args(options: &ExportOptions, source: &str, target: &str) -> Vec<String> {
     let mut args = vec!["--progress".to_owned(), "json".to_owned()];
-    if let Some(start_at) = &options.start_at {
-        args.extend(["--start-at".to_owned(), start_at.clone()]);
+    // Blank strings count as unset: the frontend already maps them to null,
+    // but the invoke boundary must not rely on that.
+    if let Some(start_at) = options
+        .start_at
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        args.extend(["--start-at".to_owned(), start_at.to_owned()]);
     }
     if options.frontmatter != FrontmatterChoice::Auto {
         args.extend([
@@ -136,8 +142,12 @@ fn build_args(options: &ExportOptions, source: &str, target: &str) -> Vec<String
             options.frontmatter.as_flag().to_owned(),
         ]);
     }
-    if let Some(ignore_file) = &options.ignore_file {
-        args.extend(["--ignore-file".to_owned(), ignore_file.clone()]);
+    if let Some(ignore_file) = options
+        .ignore_file
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        args.extend(["--ignore-file".to_owned(), ignore_file.to_owned()]);
     }
     for tag in &options.skip_tags {
         args.extend(["--skip-tags".to_owned(), tag.clone()]);
@@ -226,10 +236,10 @@ pub async fn start_export(
         return Err("an export is already running".to_string());
     }
 
-    // Normalize picked paths to absolute form per the sidecar contract: the
-    // events echo `path` back in the same shape they were given
-    // (docs/sidecar-events.md), and a manually typed relative path must not
-    // be resolved against the GUI's working directory.
+    // Resolve picked paths against the GUI process's working directory up
+    // front, so the sidecar contract holds even for manually typed relative
+    // paths: the events echo `path` back in the same absolute shape they
+    // were given (docs/sidecar-events.md).
     let source_path = std::path::absolute(&source)
         .map_err(|err| format!("invalid source path '{source}': {err}"))?;
     let destination_path = std::path::absolute(&destination)
@@ -475,5 +485,32 @@ mod tests {
         assert!(options.no_git);
         assert_eq!(options.missing_section, MissingSectionChoice::EmbedFull);
         assert!(options.hard_linebreaks);
+    }
+
+    #[test]
+    fn empty_string_value_options_are_omitted() {
+        // A blank start-at/ignore-file must be treated as unset: the CLI
+        // should not receive `--start-at ""` (nonexistent-path error) or an
+        // ignore-file name that can never match anything.
+        let payload = r#"{ "startAt": "", "ignoreFile": "   " }"#;
+        let options: ExportOptions =
+            serde_json::from_str(payload).expect("valid frontend payload");
+        let args = build_args(&options, "S", "D");
+        assert!(!args.iter().any(|a| a == "--start-at"));
+        assert!(!args.iter().any(|a| a == "--ignore-file"));
+    }
+
+    #[test]
+    fn unknown_enum_value_fails_deserialization() {
+        // Rejects at the invoke boundary instead of silently exporting with
+        // defaults; the error is surfaced by the frontend's start catch.
+        let payload = r#"{ "frontmatter": "sometimes" }"#;
+        assert!(serde_json::from_str::<ExportOptions>(payload).is_err());
+    }
+
+    #[test]
+    fn wrong_type_fails_deserialization() {
+        let payload = r#"{ "hidden": "yes" }"#;
+        assert!(serde_json::from_str::<ExportOptions>(payload).is_err());
     }
 }
