@@ -42,7 +42,11 @@ on:
   pull_request:
   push:
     tags:
-      - '**[0-9]+.[0-9]+.[0-9]+*'
+      # Plain glob: GitHub's filter has no `+` quantifier, so the
+      # cargo-dist-generated '**[0-9]+.[0-9]+.[0-9]+*' never matched this
+      # repository's `v26.8.x`-style tags.
+      - 'v*.*.*'
+  workflow_dispatch:
 
 jobs:
   # Run 'dist plan' (or host) to determine what tasks we need to do
