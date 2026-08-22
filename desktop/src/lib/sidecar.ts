@@ -48,11 +48,13 @@ export function startExport(
   source: string,
   destination: string,
   missingSection: MissingSectionStrategy,
+  keepRootFolder: boolean,
 ): Promise<void> {
   return invoke("start_export", {
     source,
     destination,
     missingSection,
+    keepRootFolder,
   });
 }
 

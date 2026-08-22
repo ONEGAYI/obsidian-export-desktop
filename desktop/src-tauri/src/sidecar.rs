@@ -4,6 +4,7 @@
 //! bundled CLI with `--progress json`, forwards the parsed event stream to the
 //! frontend, and maps process exit onto UI state (see docs/sidecar-events.md).
 
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -30,6 +31,27 @@ fn take_child(app: &AppHandle) -> Option<CommandChild> {
         .lock()
         .expect("export state mutex poisoned");
     guard.take()
+}
+
+/// Compute the effective export destination.
+///
+/// With `keep_root_folder`, exporting a directory source lands in
+/// `<destination>/<source folder name>` instead of scattering the vault's
+/// first-level entries directly into `destination`. File sources and root
+/// paths without a file name are passed through unchanged.
+pub fn resolve_destination(
+    source: &Path,
+    destination: &Path,
+    keep_root_folder: bool,
+    source_is_dir: bool,
+) -> PathBuf {
+    match keep_root_folder && source_is_dir {
+        true => match source.file_name() {
+            Some(name) => destination.join(name),
+            None => destination.to_path_buf(),
+        },
+        false => destination.to_path_buf(),
+    }
 }
 
 /// Handshake: run `--version` and return the banner (e.g. "obsidian-export 25.9.0").
@@ -64,6 +86,10 @@ pub async fn check_sidecar(app: AppHandle) -> Result<String, String> {
 
 /// Start an export. Emits `sidecar-event` per parsed JSON Lines event and a
 /// final `sidecar-exit` with the process exit code (0/1/2 per the contract).
+///
+/// `keep_root_folder` routes a directory source into
+/// `<destination>/<source folder name>` (created if missing) so the vault's
+/// first-level entries don't scatter directly in the destination.
 #[tauri::command]
 pub async fn start_export(
     app: AppHandle,
@@ -71,11 +97,30 @@ pub async fn start_export(
     source: String,
     destination: String,
     missing_section: String,
+    keep_root_folder: Option<bool>,
 ) -> Result<(), String> {
     let mut slot = state.child.lock().map_err(|_| "export state poisoned")?;
     if slot.is_some() {
         return Err("an export is already running".to_string());
     }
+
+    let source_path = PathBuf::from(&source);
+    let destination_path = PathBuf::from(&destination);
+    let target = resolve_destination(
+        &source_path,
+        &destination_path,
+        keep_root_folder.unwrap_or(false),
+        source_path.is_dir(),
+    );
+    // The user-picked destination always exists; only the appended subfolder
+    // needs creating. A mistyped manual destination is left for the CLI to
+    // report rather than being silently created here.
+    if target != destination_path {
+        std::fs::create_dir_all(&target).map_err(|err| {
+            format!("failed to create destination '{}': {err}", target.display())
+        })?;
+    }
+    let target = target.to_string_lossy().into_owned();
 
     let (mut rx, child) = app
         .shell()
@@ -87,7 +132,7 @@ pub async fn start_export(
             "--missing-section",
             &missing_section,
             &source,
-            &destination,
+            &target,
         ])
         .spawn()
         .map_err(|err| format!("failed to spawn sidecar: {err}"))?;
@@ -162,4 +207,43 @@ pub fn export_running(app: AppHandle) -> Result<bool, String> {
     let state = app.state::<ExportState>();
     let guard = state.child.lock().map_err(|_| "export state poisoned")?;
     Ok(guard.is_some())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keep_root_appends_source_folder_name() {
+        let source = Path::new(r"D:\vaults\我的库");
+        let destination = Path::new(r"E:\out");
+        let resolved = resolve_destination(source, destination, true, true);
+        assert_eq!(resolved, PathBuf::from(r"E:\out\我的库"));
+    }
+
+    #[test]
+    fn keep_root_off_passes_destination_through() {
+        let source = Path::new(r"D:\vaults\我的库");
+        let destination = Path::new(r"E:\out");
+        let resolved = resolve_destination(source, destination, false, true);
+        assert_eq!(resolved, PathBuf::from(r"E:\out"));
+    }
+
+    #[test]
+    fn file_sources_are_never_wrapped() {
+        let source = Path::new(r"D:\vaults\note.md");
+        let destination = Path::new(r"E:\out");
+        let resolved = resolve_destination(source, destination, true, false);
+        assert_eq!(resolved, PathBuf::from(r"E:\out"));
+    }
+
+    #[test]
+    fn rootless_source_falls_back_to_destination() {
+        // A drive root has no file name; wrapping must not panic or produce
+        // a degenerate path.
+        let source = Path::new(r"D:\");
+        let destination = Path::new(r"E:\out");
+        let resolved = resolve_destination(source, destination, true, true);
+        assert_eq!(resolved, PathBuf::from(r"E:\out"));
+    }
 }

@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
@@ -66,12 +68,22 @@ const EMPTY_PROGRESS: ExportProgress = {
 };
 
 const MISSING_SECTION_KEY = "obsidian-export-missing-section";
+const REMEMBER_PATHS_KEY = "obsidian-export-remember-paths";
+const SOURCE_KEY = "obsidian-export-source";
+const DESTINATION_KEY = "obsidian-export-destination";
+const KEEP_ROOT_KEY = "obsidian-export-keep-root";
 
 function loadMissingSection(): MissingSectionStrategy {
   const stored = localStorage.getItem(MISSING_SECTION_KEY);
   return MISSING_SECTION_OPTIONS.some((o) => o.value === stored)
     ? (stored as MissingSectionStrategy)
     : "skip";
+}
+
+/** Stored booleans default to `fallback` when the key is absent. */
+function loadBool(key: string, fallback: boolean): boolean {
+  const stored = localStorage.getItem(key);
+  return stored === null ? fallback : stored === "true";
 }
 
 function foldEvent(progress: ExportProgress, event: SidecarEvent): ExportProgress {
@@ -181,8 +193,18 @@ function WindowControls() {
 
 export default function App() {
   const [phase, setPhase] = useState<Phase>("setup");
-  const [source, setSource] = useState("");
-  const [destination, setDestination] = useState("");
+  const [source, setSource] = useState(
+    () => localStorage.getItem(SOURCE_KEY) ?? "",
+  );
+  const [destination, setDestination] = useState(
+    () => localStorage.getItem(DESTINATION_KEY) ?? "",
+  );
+  const [rememberPaths, setRememberPaths] = useState(() =>
+    loadBool(REMEMBER_PATHS_KEY, true),
+  );
+  const [keepRootFolder, setKeepRootFolder] = useState(() =>
+    loadBool(KEEP_ROOT_KEY, true),
+  );
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [missingSection, setMissingSection] = useState<MissingSectionStrategy>(
     loadMissingSection,
@@ -220,6 +242,52 @@ export default function App() {
     };
   }, []);
 
+  /** Persist a picked path immediately so it survives a restart. */
+  const rememberPath = useCallback(
+    (key: string, value: string) => {
+      if (rememberPaths && value) {
+        localStorage.setItem(key, value);
+      }
+    },
+    [rememberPaths],
+  );
+
+  const handleSourceChange = useCallback(
+    (value: string) => {
+      setSource(value);
+      rememberPath(SOURCE_KEY, value);
+    },
+    [rememberPath],
+  );
+
+  const handleDestinationChange = useCallback(
+    (value: string) => {
+      setDestination(value);
+      rememberPath(DESTINATION_KEY, value);
+    },
+    [rememberPath],
+  );
+
+  const handleRememberPathsChange = useCallback(
+    (value: boolean) => {
+      setRememberPaths(value);
+      localStorage.setItem(REMEMBER_PATHS_KEY, String(value));
+      if (value) {
+        if (source) localStorage.setItem(SOURCE_KEY, source);
+        if (destination) localStorage.setItem(DESTINATION_KEY, destination);
+      } else {
+        localStorage.removeItem(SOURCE_KEY);
+        localStorage.removeItem(DESTINATION_KEY);
+      }
+    },
+    [source, destination],
+  );
+
+  const handleKeepRootChange = useCallback((value: boolean) => {
+    setKeepRootFolder(value);
+    localStorage.setItem(KEEP_ROOT_KEY, String(value));
+  }, []);
+
   const handleStart = useCallback(async () => {
     setConfirmOpen(false);
     localStorage.setItem(MISSING_SECTION_KEY, missingSection);
@@ -228,12 +296,12 @@ export default function App() {
     setCancelled(false);
     setPhase("running");
     try {
-      await startExport(source, destination, missingSection);
+      await startExport(source, destination, missingSection, keepRootFolder);
     } catch (err) {
       setExit({ code: null, stderr: String(err) });
       setPhase("result");
     }
-  }, [source, destination, missingSection]);
+  }, [source, destination, missingSection, keepRootFolder]);
 
   const handleCancel = useCallback(async () => {
     setCancelled(true);
@@ -319,18 +387,22 @@ export default function App() {
                   label="Vault 来源"
                   placeholder="选择 Obsidian vault 文件夹或单篇笔记"
                   value={source}
-                  onChange={setSource}
+                  onChange={handleSourceChange}
                 />
                 <PathPicker
                   label="导出目标"
                   placeholder="选择输出文件夹"
                   value={destination}
-                  onChange={setDestination}
+                  onChange={handleDestinationChange}
                 />
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">
-                    更多选项将在后续版本提供
-                  </span>
+                  <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal text-muted-foreground">
+                    <Checkbox
+                      checked={rememberPaths}
+                      onCheckedChange={handleRememberPathsChange}
+                    />
+                    记住上次路径
+                  </Label>
                   <Button disabled={!canExport} onClick={() => setConfirmOpen(true)}>
                     <FolderOpenIcon className="size-4" />
                     导出
@@ -363,6 +435,8 @@ export default function App() {
         onOpenChange={setConfirmOpen}
         missingSection={missingSection}
         onMissingSectionChange={setMissingSection}
+        keepRootFolder={keepRootFolder}
+        onKeepRootFolderChange={handleKeepRootChange}
         source={source}
         destination={destination}
         onStart={handleStart}
