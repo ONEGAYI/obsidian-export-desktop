@@ -2,6 +2,78 @@
 
 <!-- towncrier release notes start -->
 
+## [26.8.0](https://github.com/zoni/obsidian-export/tree/26.8.0) - 2026-08-22
+
+This release ships a Tauri-based desktop GUI on top of the CLI, adds a machine-readable `--progress json` event stream with a `--missing-section` strategy option, and lands a broad correctness pass over wikilink resolution and link generation (relative `../` references, Windows path separators, non-ASCII destinations). The default missing-section behavior is now `skip`; several failure modes now surface as per-file errors instead of aborting or silently misbehaving.
+
+### New Features
+
+- Add a desktop GUI (Tauri 2 sidecar app)
+
+  A graphical desktop app now ships alongside the CLI, turning the export flow into pick-paths → confirm → watch progress. The GUI never implements conversion itself: it bundles the CLI as a sidecar process and consumes its `--progress json` event stream (contract in `docs/sidecar-events.md`).
+
+  Highlights:
+
+  - Obsidian-styled interface (light/dark/follow-system themes), frameless window with a custom title bar.
+  - Path pickers with remembered last-used locations.
+  - A pre-export confirmation sheet for the missing-section strategy and an option to export into `<destination>/<vault folder name>` so first-level files don't scatter.
+  - Live progress, colored per-file log lines, failure details with full error chains, and cancellation.
+
+  The CLI remains fully usable standalone; the desktop app is just another way to invoke it. See `docs/BUILD.md` for building and running the desktop app.
+- Machine-readable progress events with `--progress json`
+
+  Passing `--progress json` emits progress events on stdout as JSON Lines (one JSON object per line), intended for programs driving obsidian-export as a child process. The stream starts with a schema-version line, followed by per-file progress, warnings (with the originating file), and a terminating end event listing failed files. Without the flag, stdout stays silent as before.
+
+### Fixes
+
+- Support markdown formatting in wikilinks
+
+  Previously, links with formatting such as bold or italics (like `[[Note|Example **bold** and *italic* link text]]`) were not accounted for correctly, resulting in such links being rendered as literal text instead.
+  Now these will parse correctly and render actual links as intended. ([#329](https://github.com/zoni/obsidian-export/issues/329))
+- Fix `--preserve-mtime` error when files are skipped by postprocessors
+
+  When `--preserve-mtime` is enabled and files are skipped by postprocessors (e.g., due to `--skip-tags`), the exporter would attempt to set the modification time on non-existent destination files, causing an error.
+
+  Now this no longer happens because the exporter won't attempt to set an mtime when postprocessors caused files to be skipped. ([#348](https://github.com/zoni/obsidian-export/issues/348))
+- Fix CLI error handling and argument edge cases
+
+  - `--help` output now goes to stdout (exit code 0) instead of stderr; argument errors exit with code 2 while runtime errors exit with code 1.
+  - Non-UTF-8 command-line arguments no longer panic the process.
+  - A `--start-at` path outside the export root now fails with a clear error instead of silently exporting zero files.
+  - Unicode heading anchors are preserved as-is instead of being transliterated (e.g. Chinese headings used to become pinyin, producing anchors no renderer matches), and underscores in anchors are now kept, matching GitHub's slug rules.
+  - Degenerate wikilinks like `[[note|]]` or `[[#]]` no longer panic the export.
+  - Resolution of bare-name references to same-named files is now deterministic (fewest path components, then lexicographic order) instead of depending on directory traversal order.
+  - `filter_by_tags` now also accepts scalar and comma-separated string values for `tags` in frontmatter.
+  - Closing the stdout pipe (e.g. a consumer that stopped reading `--progress json` output) exits quietly with code 1 instead of panicking with code 101.
+- Fix section matching for headings with inline code and nested same-named headings
+
+  Headings containing inline code or math (e.g. `## \`code\` heading`) failed to match section references, since only plain text events were aggregated into the heading name. Their literal text now counts towards the heading name.
+
+  Additionally, a same-named heading nested deeper than the target no longer restarts the section: `![[note#Target]]` now embeds from the first matching heading to the end of that section, instead of just the innermost part.
+- Keep non-ASCII characters verbatim in link destinations
+
+  Link destinations percent-encoded every non-ASCII character (e.g. `图.svg` became `%E5%9B%BE.svg`), making exported notes hard to read and diff. Only characters that would break a Markdown inline link destination or URL semantics (controls, spaces, parentheses, `%`, `?`, `#`) are escaped now; filenames in Chinese or other non-ASCII scripts stay readable, matching what Obsidian itself writes.
+- Resolve wikilinks with explicit relative components (`./`, `../`)
+
+  Wikilinks such as `![[../assets/diagram.svg]]` were silently dropped (with a warning) because vault lookup only matches path suffixes, which can never contain `.` or `..` components. Obsidian resolves such references against the containing note's directory, and so does the exporter now: the reference is normalized against the note's location before lookup. References that would escape the vault root remain unresolved.
+- Use forward slashes in generated link destinations on Windows
+
+  Relative link destinations generated on Windows contained backslashes (e.g. `![img](..\assets\img.png)`), which most Markdown renderers cannot resolve. Destinations now always use forward slashes, matching the output on Unix platforms.
+
+### Backwards-incompatible Changes
+
+- Failing notes no longer abort the export by default
+
+  Previously the first note that failed to export (e.g. broken YAML frontmatter) aborted the whole run. Now failures are collected per note, the export continues with the remaining notes, and a summary listing every failing note is printed at the end.
+
+  Pass `--fail-fast` to restore the old stop-on-first-failure behavior.
+- Missing sections in embeds no longer silently embed the full note
+
+  When an embed pointed at a section (heading) that doesn't exist in the target note — including block references like `![[note#^block-id]]` — the entire note used to be embedded silently, containing more content than the reference asked for.
+
+  By default such an embed now collapses to nothing and a warning is emitted, matching Obsidian's own "not found" rendering. The previous behavior remains available as `--missing-section embed-full`; `--missing-section fail` turns it into an error instead.
+
+
 ## [25.3.0](https://github.com/zoni/obsidian-export/tree/25.3.0) - 2025-03-25
 
 ### Changes

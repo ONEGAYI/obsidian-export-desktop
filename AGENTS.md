@@ -45,8 +45,9 @@
 ## 桌面端开发（Tauri）
 
 - 常用命令：`just desktop-sync-sidecar`（构建 CLI 并复制到 `desktop/src-tauri/binaries/`，**改动 CLI 后必须重跑**）、`just desktop-dev`、`just desktop-build`、`just desktop-test`。
+- 完整构建说明（含 Windows 坑与图标替换）见 [docs/BUILD.md](docs/BUILD.md)（中文，面向人类读者）。
 - `desktop/src-tauri` 是独立 cargo workspace（自持 `[workspace]`），不影响根 crate 与 cargo-dist；`.cargo/config.toml` 启用 MSRV 感知解析（工具链锁 1.87）。
-- 前端：Tailwind v4 + 手搭 shadcn 层（shadcn CLI 与当前 Node 生态冲突，组件手写在 `src/components/ui/`；CLI 修复后可迁移）。
+- 前端：Tailwind v4 + 手搭 shadcn 层（shadcn CLI 与当前 Node 生态冲突，组件手写在 `src/components/ui/`；CLI 修复后可迁移）。主题三态（light/dark/system，`src/lib/theme.ts`）；路径记忆与「保留根文件夹」等用户偏好存 localStorage。
 - 事件流消费遵守 `docs/sidecar-events.md` 契约；schema 版本常量在 `desktop/src-tauri/src/events.rs` 与 CLI 的 `main.rs` 各有一份，升级时同步改。
 
 ## 文件树
@@ -66,10 +67,11 @@ obsidian-export/
 ├── desktop/             # Tauri 2 桌面端（前端 React/TS + src-tauri Rust 后端，独立 workspace）
 │   └── src-tauri/
 │       ├── src/events.rs  # sidecar JSON Lines 事件解析（schema v1，单元测试锁定）
-│       ├── src/sidecar.rs # 边车编排：版本握手 / spawn / 事件转发 / 取消
+│       ├── src/sidecar.rs # 边车编排：版本握手 / spawn / 事件转发 / 取消 / 导出落点解析
+│       ├── icons/         # Tauri 全平台应用图标及 1024px 透明主图
 │       └── binaries/      # sidecar 二进制（just 同步，不入库）
-├── docs/                # 项目文档（sidecar-events.md 为桌面端事件契约，仅本地）
-├── changelog.d/         # towncrier 的 changelog 片段
+├── docs/                # 项目文档：sidecar-events.md（事件契约）、BUILD.md（构建指南）、desktop.md（README 的桌面端章节）
+├── changelog.d/         # towncrier 的 changelog 片段（发布时收集进 CHANGELOG.md）
 ├── .github/             # CI 工作流
 ├── AGENTS.md            # 本文件：项目规则单一事实源
 ├── CLAUDE.md            # Claude 专属补充规则（@AGENTS.md 导入）

@@ -4,6 +4,7 @@
 ![[usage-basic]]
 ![[usage-advanced]]
 ![[usage-library]]
+![[desktop]]
 ![[contribute]]
 ![[license]]
 ![[changes]]
