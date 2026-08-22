@@ -5,6 +5,7 @@ import {
   MinusIcon,
   MonitorIcon,
   MoonIcon,
+  SettingsIcon,
   SquareIcon,
   SunIcon,
   XIcon,
@@ -23,10 +24,14 @@ import {
 import { ExportDialog } from "@/components/ExportDialog";
 import { ExportRunView } from "@/components/ExportRunView";
 import { ExportResultView } from "@/components/ExportResultView";
+import { OptionsView } from "@/components/OptionsView";
 import { PathPicker } from "@/components/PathPicker";
 import {
-  MISSING_SECTION_OPTIONS,
-  type MissingSectionStrategy,
+  loadOptions,
+  saveOptions,
+  type ExportOptions,
+} from "@/lib/options";
+import {
   type SidecarEvent,
   type SidecarExit,
   baseName,
@@ -67,18 +72,10 @@ const EMPTY_PROGRESS: ExportProgress = {
   lines: [],
 };
 
-const MISSING_SECTION_KEY = "obsidian-export-missing-section";
 const REMEMBER_PATHS_KEY = "obsidian-export-remember-paths";
 const SOURCE_KEY = "obsidian-export-source";
 const DESTINATION_KEY = "obsidian-export-destination";
 const KEEP_ROOT_KEY = "obsidian-export-keep-root";
-
-function loadMissingSection(): MissingSectionStrategy {
-  const stored = localStorage.getItem(MISSING_SECTION_KEY);
-  return MISSING_SECTION_OPTIONS.some((o) => o.value === stored)
-    ? (stored as MissingSectionStrategy)
-    : "skip";
-}
 
 /** Stored booleans default to `fallback` when the key is absent. */
 function loadBool(key: string, fallback: boolean): boolean {
@@ -206,9 +203,8 @@ export default function App() {
     loadBool(KEEP_ROOT_KEY, true),
   );
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [missingSection, setMissingSection] = useState<MissingSectionStrategy>(
-    loadMissingSection,
-  );
+  const [view, setView] = useState<"main" | "options">("main");
+  const [options, setOptions] = useState<ExportOptions>(loadOptions);
   const [progress, setProgress] = useState<ExportProgress>(EMPTY_PROGRESS);
   const [exit, setExit] = useState<SidecarExit | null>(null);
   const [cancelled, setCancelled] = useState(false);
@@ -288,20 +284,30 @@ export default function App() {
     localStorage.setItem(KEEP_ROOT_KEY, String(value));
   }, []);
 
+  /** Options are persisted as they are made; no separate save step. */
+  const handleOptionsChange = useCallback((next: ExportOptions) => {
+    setOptions(next);
+    saveOptions(next);
+  }, []);
+
+  const handleEditOptions = useCallback(() => {
+    setConfirmOpen(false);
+    setView("options");
+  }, []);
+
   const handleStart = useCallback(async () => {
     setConfirmOpen(false);
-    localStorage.setItem(MISSING_SECTION_KEY, missingSection);
     setProgress(EMPTY_PROGRESS);
     setExit(null);
     setCancelled(false);
     setPhase("running");
     try {
-      await startExport(source, destination, missingSection, keepRootFolder);
+      await startExport(source, destination, keepRootFolder, options);
     } catch (err) {
       setExit({ code: null, stderr: String(err) });
       setPhase("result");
     }
-  }, [source, destination, missingSection, keepRootFolder]);
+  }, [source, destination, keepRootFolder, options]);
 
   const handleCancel = useCallback(async () => {
     setCancelled(true);
@@ -373,7 +379,15 @@ export default function App() {
             </Card>
           )}
 
-          {phase === "setup" && (
+          {phase === "setup" && view === "options" && (
+            <OptionsView
+              options={options}
+              onOptionsChange={handleOptionsChange}
+              onBack={() => setView("main")}
+            />
+          )}
+
+          {phase === "setup" && view === "main" && (
             <Card>
               <CardHeader>
                 <CardTitle>导出 Obsidian Vault</CardTitle>
@@ -403,10 +417,16 @@ export default function App() {
                     />
                     记住上次路径
                   </Label>
-                  <Button disabled={!canExport} onClick={() => setConfirmOpen(true)}>
-                    <FolderOpenIcon className="size-4" />
-                    导出
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button variant="secondary" onClick={() => setView("options")}>
+                      <SettingsIcon className="size-4" />
+                      选项
+                    </Button>
+                    <Button disabled={!canExport} onClick={() => setConfirmOpen(true)}>
+                      <FolderOpenIcon className="size-4" />
+                      导出
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -433,12 +453,12 @@ export default function App() {
       <ExportDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        missingSection={missingSection}
-        onMissingSectionChange={setMissingSection}
         keepRootFolder={keepRootFolder}
         onKeepRootFolderChange={handleKeepRootChange}
         source={source}
         destination={destination}
+        options={options}
+        onEditOptions={handleEditOptions}
         onStart={handleStart}
       />
     </div>

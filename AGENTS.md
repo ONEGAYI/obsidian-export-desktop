@@ -31,11 +31,12 @@
 ## 待定事项
 
 - [x] 桌面端技术栈：**Tauri 2 + React/TypeScript**（跨平台、轻量、Obsidian 风格 UI）。UI 主题复刻 Obsidian 变量命名与色板（明暗双主题，默认暗色）；`--missing-section` 放导出前确认选单并持久化选择。
-- [ ] 桌面端后续迭代：完整选项面板（no-recursive-embeds、frontmatter、tags 等）、打包分发流水线（`tauri build`，与 cargo-dist 互不干扰）、自动更新。
+- [x] 桌面端完整选项面板：独立设置视图（`OptionsView`）暴露全部 CLI 选项，按「转换行为 / 内容过滤 / 文件与过程」分组；选项持久化于 localStorage（`obsidian-export-options`），Rust 侧 `build_args` 仅将非默认值传给边车（默认值语义始终以 CLI 为准）。
+- [ ] 桌面端后续迭代：打包分发流水线（`tauri build`，与 cargo-dist 互不干扰）、自动更新。
 - [ ] 块引用内容提取增强：`![[note#^block]]` 目前不做真正的块定位，匹配不到块 id 时按 `--missing-section` 策略处理（src/lib.rs 中留有 TODO 指引）。
 - [ ] 嵌入展开与 section 切分的顺序重排：嵌入递归发生在解析期，`reduce_to_section` 在展开后的事件流上切分；内层展开引入的同级/更浅标题会提前终止外层段落（embed-full 与内层命中的嵌套场景受影响，tests/export_test.rs 的 test_missing_section_embed_full 有该局限的注释与行为锁定）。正确修法需改为「先切后展」，涉及解析架构重排。
 - [ ] wikilink 格式标记与容器内标题的既有解析边界（上游遗留，非本轮引入）：wikilink 内的强调标记在跨事件拼接时丢失（如 `[[b#__dunder__]]` 的 `__` 被 pulldown-cmark 解析为 strong，锚点与 label 均只剩 `dunder`，src/references.rs 注释已记录单下划线同类问题）；引用块（blockquote）内的标题参与 `reduce_to_section` 时容器 Start/End 事件失衡。
-- [ ] serde_yaml 迁移：当前依赖 0.9.34（上游已归档停维，无安全修复通道），且属公共 API（`pub use serde_yaml`），迁移属破坏性变更，需单独评估社区维护 fork（如 serde_norway）。
+- [x] serde_yaml 迁移：已通过 Cargo package rename 迁移至 `yaml_serde` 0.10（YAML 官方组织维护的 0.9.34 直系 fork；serde_norway 等候选已停滞故未采用）。公共路径 `obsidian_export::serde_yaml` 与解析/序列化行为不变（非破坏变更）；MSRV 由 1.80 升至 1.82。
 - [ ] 嵌入解析缓存与 walker 并行化：vault 索引已消除引用解析的主要瓶颈（基准 7200 文件 11.2s → 0.65s），剩余耗时以文件 IO/解析/渲染为主；两项优化待有真实大 vault 的 profile 数据支撑后再决定是否实施。
 
 ## 修复路线（已批准）
@@ -47,7 +48,7 @@
 - 常用命令：`just desktop-sync-sidecar`（构建 CLI 并复制到 `desktop/src-tauri/binaries/`，**改动 CLI 后必须重跑**）、`just desktop-dev`、`just desktop-build`、`just desktop-test`、`just clean <target|desktop|sidecar|all>`（清理中间产物与依赖，范围可选）。
 - 完整构建说明（含 Windows 坑与图标替换）见 [docs/BUILD.md](docs/BUILD.md)（中文，面向人类读者）。
 - `desktop/src-tauri` 是独立 cargo workspace（自持 `[workspace]`），不影响根 crate 与 cargo-dist；`.cargo/config.toml` 启用 MSRV 感知解析（工具链锁 1.87）。
-- 前端：Tailwind v4 + 手搭 shadcn 层（shadcn CLI 与当前 Node 生态冲突，组件手写在 `src/components/ui/`；CLI 修复后可迁移）。主题三态（light/dark/system，`src/lib/theme.ts`）；路径记忆与「保留根文件夹」等用户偏好存 localStorage。
+- 前端：Tailwind v4 + 手搭 shadcn 层（shadcn CLI 与当前 Node 生态冲突，组件手写在 `src/components/ui/`；CLI 修复后可迁移）。主题三态（light/dark/system，`src/lib/theme.ts`）；用户偏好存 localStorage：路径记忆、「保留根文件夹」（`obsidian-export-*` 逐项键）与转换选项（`obsidian-export-options` 单键 JSON，见 `src/lib/options.ts`）。
 - 事件流消费遵守 `docs/sidecar-events.md` 契约；schema 版本常量在 `desktop/src-tauri/src/events.rs` 与 CLI 的 `main.rs` 各有一份，升级时同步改。
 
 ## 文件树
@@ -67,7 +68,7 @@ obsidian-export/
 ├── desktop/             # Tauri 2 桌面端（前端 React/TS + src-tauri Rust 后端，独立 workspace）
 │   └── src-tauri/
 │       ├── src/events.rs  # sidecar JSON Lines 事件解析（schema v1，单元测试锁定）
-│       ├── src/sidecar.rs # 边车编排：版本握手 / spawn / 事件转发 / 取消 / 导出落点解析
+│       ├── src/sidecar.rs # 边车编排：版本握手 / spawn / 事件转发 / 取消 / 导出落点解析 / CLI 选项参数构建（build_args 仅传非默认值）
 │       ├── icons/         # Tauri 全平台应用图标及 1024px 透明主图
 │       └── binaries/      # sidecar 二进制（just 同步，不入库）
 ├── docs/                # 项目文档：sidecar-events.md（事件契约）、BUILD.md（构建指南）、desktop.md（README 的桌面端章节）

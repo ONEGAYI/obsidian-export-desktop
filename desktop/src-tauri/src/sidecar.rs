@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
@@ -54,6 +55,125 @@ pub fn resolve_destination(
     }
 }
 
+/// Frontmatter strategy selection; mirrors the CLI `--frontmatter` enum.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FrontmatterChoice {
+    Always,
+    Never,
+    #[default]
+    Auto,
+}
+
+impl FrontmatterChoice {
+    fn as_flag(self) -> &'static str {
+        match self {
+            FrontmatterChoice::Always => "always",
+            FrontmatterChoice::Never => "never",
+            FrontmatterChoice::Auto => "auto",
+        }
+    }
+}
+
+/// Missing-section strategy selection; mirrors the CLI `--missing-section`
+/// enum.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum MissingSectionChoice {
+    EmbedFull,
+    Fail,
+    #[default]
+    Skip,
+}
+
+impl MissingSectionChoice {
+    fn as_flag(self) -> &'static str {
+        match self {
+            MissingSectionChoice::EmbedFull => "embed-full",
+            MissingSectionChoice::Fail => "fail",
+            MissingSectionChoice::Skip => "skip",
+        }
+    }
+}
+
+/// User-configurable export options, one field per CLI flag of the sidecar.
+///
+/// Defaults mirror the CLI defaults: `build_args` only emits flags for
+/// non-default values, so the CLI stays the single source of default
+/// behavior and the options summary shown in the UI can be derived from the
+/// same comparison.
+#[derive(Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportOptions {
+    /// Only export notes under this absolute sub-path of the vault.
+    pub start_at: Option<String>,
+    pub frontmatter: FrontmatterChoice,
+    /// Name of the ignore-pattern file; `None` keeps the CLI default
+    /// (`.export-ignore`).
+    pub ignore_file: Option<String>,
+    pub skip_tags: Vec<String>,
+    pub only_tags: Vec<String>,
+    pub hidden: bool,
+    pub no_git: bool,
+    pub no_recursive_embeds: bool,
+    pub preserve_mtime: bool,
+    pub missing_section: MissingSectionChoice,
+    pub fail_fast: bool,
+    pub hard_linebreaks: bool,
+}
+
+/// Build the sidecar argv. `--progress json` is always passed (the desktop
+/// app consumes the JSON Lines event stream); user options are only passed
+/// when they deviate from the CLI defaults.
+fn build_args(options: &ExportOptions, source: &str, target: &str) -> Vec<String> {
+    let mut args = vec!["--progress".to_owned(), "json".to_owned()];
+    if let Some(start_at) = &options.start_at {
+        args.extend(["--start-at".to_owned(), start_at.clone()]);
+    }
+    if options.frontmatter != FrontmatterChoice::Auto {
+        args.extend([
+            "--frontmatter".to_owned(),
+            options.frontmatter.as_flag().to_owned(),
+        ]);
+    }
+    if let Some(ignore_file) = &options.ignore_file {
+        args.extend(["--ignore-file".to_owned(), ignore_file.clone()]);
+    }
+    for tag in &options.skip_tags {
+        args.extend(["--skip-tags".to_owned(), tag.clone()]);
+    }
+    for tag in &options.only_tags {
+        args.extend(["--only-tags".to_owned(), tag.clone()]);
+    }
+    if options.hidden {
+        args.push("--hidden".to_owned());
+    }
+    if options.no_git {
+        args.push("--no-git".to_owned());
+    }
+    if options.no_recursive_embeds {
+        args.push("--no-recursive-embeds".to_owned());
+    }
+    if options.preserve_mtime {
+        args.push("--preserve-mtime".to_owned());
+    }
+    if options.missing_section != MissingSectionChoice::Skip {
+        args.extend([
+            "--missing-section".to_owned(),
+            options.missing_section.as_flag().to_owned(),
+        ]);
+    }
+    if options.fail_fast {
+        args.push("--fail-fast".to_owned());
+    }
+    if options.hard_linebreaks {
+        args.push("--hard-linebreaks".to_owned());
+    }
+    args.push(source.to_owned());
+    args.push(target.to_owned());
+    args
+}
+
 /// Handshake: run `--version` and return the banner (e.g. "obsidian-export 25.9.0").
 ///
 /// Called on startup so a stale or mismatched sidecar is reported clearly instead
@@ -87,7 +207,9 @@ pub async fn check_sidecar(app: AppHandle) -> Result<String, String> {
 /// Start an export. Emits `sidecar-event` per parsed JSON Lines event and a
 /// final `sidecar-exit` with the process exit code (0/1/2 per the contract).
 ///
-/// `keep_root_folder` routes a directory source into
+/// `options` carries the user-configurable CLI flags (only non-default values
+/// are passed through, see [`build_args`]). `keep_root_folder` is a
+/// desktop-only concept routing a directory source into
 /// `<destination>/<source folder name>` (created if missing) so the vault's
 /// first-level entries don't scatter directly in the destination.
 #[tauri::command]
@@ -96,7 +218,7 @@ pub async fn start_export(
     state: State<'_, ExportState>,
     source: String,
     destination: String,
-    missing_section: String,
+    options: ExportOptions,
     keep_root_folder: Option<bool>,
 ) -> Result<(), String> {
     let mut slot = state.child.lock().map_err(|_| "export state poisoned")?;
@@ -104,8 +226,14 @@ pub async fn start_export(
         return Err("an export is already running".to_string());
     }
 
-    let source_path = PathBuf::from(&source);
-    let destination_path = PathBuf::from(&destination);
+    // Normalize picked paths to absolute form per the sidecar contract: the
+    // events echo `path` back in the same shape they were given
+    // (docs/sidecar-events.md), and a manually typed relative path must not
+    // be resolved against the GUI's working directory.
+    let source_path = std::path::absolute(&source)
+        .map_err(|err| format!("invalid source path '{source}': {err}"))?;
+    let destination_path = std::path::absolute(&destination)
+        .map_err(|err| format!("invalid destination path '{destination}': {err}"))?;
     let target = resolve_destination(
         &source_path,
         &destination_path,
@@ -120,20 +248,15 @@ pub async fn start_export(
             format!("failed to create destination '{}': {err}", target.display())
         })?;
     }
-    let target = target.to_string_lossy().into_owned();
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let target_arg = target.to_string_lossy().into_owned();
 
+    let args = build_args(&options, &source_arg, &target_arg);
     let (mut rx, child) = app
         .shell()
         .sidecar("obsidian-export")
         .map_err(|err| format!("sidecar binary not found: {err}"))?
-        .args([
-            "--progress",
-            "json",
-            "--missing-section",
-            &missing_section,
-            &source,
-            &target,
-        ])
+        .args(&args)
         .spawn()
         .map_err(|err| format!("failed to spawn sidecar: {err}"))?;
     *slot = Some(child);
@@ -239,11 +362,118 @@ mod tests {
 
     #[test]
     fn rootless_source_falls_back_to_destination() {
-        // A drive root has no file name; wrapping must not panic or produce
-        // a degenerate path.
+        // A drive root has no file name; wrapping must not panic or produce a
+        // degenerate path.
         let source = Path::new(r"D:\");
         let destination = Path::new(r"E:\out");
         let resolved = resolve_destination(source, destination, true, true);
         assert_eq!(resolved, PathBuf::from(r"E:\out"));
+    }
+
+    #[test]
+    fn default_options_pass_no_extra_flags() {
+        let args = build_args(&ExportOptions::default(), "SRC", "DST");
+        assert_eq!(args, vec!["--progress", "json", "SRC", "DST"]);
+    }
+
+    #[test]
+    fn nondefault_enum_and_bool_flags_are_passed() {
+        let mut options = ExportOptions::default();
+        options.frontmatter = FrontmatterChoice::Always;
+        options.missing_section = MissingSectionChoice::Fail;
+        options.hidden = true;
+        options.no_git = true;
+        options.no_recursive_embeds = true;
+        options.preserve_mtime = true;
+        options.fail_fast = true;
+        options.hard_linebreaks = true;
+        let args = build_args(&options, "SRC", "DST");
+        assert_eq!(
+            args,
+            vec![
+                "--progress",
+                "json",
+                "--frontmatter",
+                "always",
+                "--hidden",
+                "--no-git",
+                "--no-recursive-embeds",
+                "--preserve-mtime",
+                "--missing-section",
+                "fail",
+                "--fail-fast",
+                "--hard-linebreaks",
+                "SRC",
+                "DST",
+            ]
+        );
+    }
+
+    #[test]
+    fn explicit_default_enums_are_omitted() {
+        // frontmatter=auto / missing-section=skip match the CLI defaults; even
+        // when the frontend sends them explicitly they must not reach the argv.
+        let mut options = ExportOptions::default();
+        options.frontmatter = FrontmatterChoice::Auto;
+        options.missing_section = MissingSectionChoice::Skip;
+        let args = build_args(&options, "S", "D");
+        assert!(!args.iter().any(|a| a == "--frontmatter"));
+        assert!(!args.iter().any(|a| a == "--missing-section"));
+    }
+
+    #[test]
+    fn value_options_and_repeated_tag_flags() {
+        let mut options = ExportOptions::default();
+        options.start_at = Some(r"D:\vaults\lib".to_owned());
+        options.ignore_file = Some(".custom-ignore".to_owned());
+        options.skip_tags = vec!["draft".to_owned(), "private".to_owned()];
+        options.only_tags = vec!["published".to_owned()];
+        let args = build_args(&options, "S", "D");
+        assert_eq!(
+            args,
+            vec![
+                "--progress",
+                "json",
+                "--start-at",
+                r"D:\vaults\lib",
+                "--ignore-file",
+                ".custom-ignore",
+                "--skip-tags",
+                "draft",
+                "--skip-tags",
+                "private",
+                "--only-tags",
+                "published",
+                "S",
+                "D",
+            ]
+        );
+    }
+
+    #[test]
+    fn options_deserialize_from_camelcase_frontend_payload() {
+        let payload = r#"{
+            "startAt": "D:/vaults/sub",
+            "frontmatter": "never",
+            "ignoreFile": ".ignore",
+            "skipTags": ["a"],
+            "onlyTags": [],
+            "hidden": false,
+            "noGit": true,
+            "noRecursiveEmbeds": false,
+            "preserveMtime": false,
+            "missingSection": "embed-full",
+            "failFast": false,
+            "hardLinebreaks": true
+        }"#;
+        let options: ExportOptions =
+            serde_json::from_str(payload).expect("valid frontend payload");
+        assert_eq!(options.start_at.as_deref(), Some("D:/vaults/sub"));
+        assert_eq!(options.frontmatter, FrontmatterChoice::Never);
+        assert_eq!(options.ignore_file.as_deref(), Some(".ignore"));
+        assert_eq!(options.skip_tags, vec!["a".to_owned()]);
+        assert!(options.no_git);
+        assert_eq!(options.missing_section, MissingSectionChoice::EmbedFull);
+        assert!(options.hard_linebreaks);
     }
 }

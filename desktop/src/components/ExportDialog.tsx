@@ -7,46 +7,45 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  MISSING_SECTION_OPTIONS,
-  baseName,
-  type MissingSectionStrategy,
-} from "@/lib/sidecar";
+import { summarizeOptions, type ExportOptions } from "@/lib/options";
+import { baseName } from "@/lib/sidecar";
 
 interface ExportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  missingSection: MissingSectionStrategy;
-  onMissingSectionChange: (value: MissingSectionStrategy) => void;
   keepRootFolder: boolean;
   onKeepRootFolderChange: (value: boolean) => void;
   source: string;
   destination: string;
+  options: ExportOptions;
+  onEditOptions: () => void;
   onStart: () => void;
 }
 
 /**
  * Pre-export confirmation sheet. Export-time choices live here (not in a
  * global settings panel) per the project decision; each choice is persisted
- * by the parent so the next export preselects it.
+ * by the parent so the next export preselects it. Conversion options are
+ * configured in the settings view; this dialog only summarizes them so they
+ * stay visible at export time.
  */
 export function ExportDialog({
   open,
   onOpenChange,
-  missingSection,
-  onMissingSectionChange,
   keepRootFolder,
   onKeepRootFolderChange,
   source,
   destination,
+  options,
+  onEditOptions,
   onStart,
 }: ExportDialogProps) {
   const effectiveDestination = keepRootFolder
     ? `${destination.replace(/[\\/]+$/, "")}/${baseName(source)}`
     : destination;
+  const summary = summarizeOptions(options);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -60,33 +59,24 @@ export function ExportDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-2.5">
-          <span className="text-sm font-medium">缺失章节的处理方式</span>
-          <RadioGroup
-            value={missingSection}
-            onValueChange={(v) => onMissingSectionChange(v as MissingSectionStrategy)}
-            className="gap-2"
-          >
-            {MISSING_SECTION_OPTIONS.map((option) => (
-              <Label
-                key={option.value}
-                className="flex cursor-pointer items-start gap-2.5 rounded-md border p-2.5 font-normal transition-colors hover:bg-[var(--background-modifier-hover)] [&:has([data-state=checked])]:border-[var(--interactive-accent)]"
-              >
-                <RadioGroupItem value={option.value} className="mt-0.5" />
-                <span className="flex flex-col gap-0.5">
-                  <span className="text-sm leading-none font-medium">
-                    {option.label}
-                  </span>
-                  <span className="text-muted-foreground text-xs">
-                    {option.description}
-                  </span>
-                </span>
-              </Label>
-            ))}
-          </RadioGroup>
-          <span className="text-[var(--text-faint)] text-xs">
-            选择会被记住，下次导出默认沿用。
-          </span>
+        <div className="flex flex-col gap-1.5 rounded-md border p-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-sm leading-none font-medium">生效选项</span>
+            <button
+              type="button"
+              className="text-xs text-muted-foreground underline underline-offset-2 transition-colors hover:text-[var(--text-normal)]"
+              onClick={onEditOptions}
+            >
+              修改
+            </button>
+          </div>
+          {summary.length === 0 ? (
+            <span className="text-muted-foreground text-xs">全部保持默认</span>
+          ) : (
+            <span className="text-xs leading-relaxed break-words">
+              {summary.join(" · ")}
+            </span>
+          )}
         </div>
 
         <Label

@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
+import type { ExportOptions } from "@/lib/options";
+
 /** Mirrors SidecarEvent in desktop/src-tauri/src/events.rs (schema v1). */
 export type SidecarEvent =
   | { type: "schema"; version: number }
@@ -16,30 +18,6 @@ export interface SidecarExit {
   stderr: string;
 }
 
-export type MissingSectionStrategy = "skip" | "embed-full" | "fail";
-
-export const MISSING_SECTION_OPTIONS: {
-  value: MissingSectionStrategy;
-  label: string;
-  description: string;
-}[] = [
-  {
-    value: "skip",
-    label: "跳过",
-    description: "嵌入置空并发警告（默认，贴近 Obsidian 行为）",
-  },
-  {
-    value: "embed-full",
-    label: "嵌入整篇",
-    description: "找不到章节时嵌入整篇笔记（旧行为）",
-  },
-  {
-    value: "fail",
-    label: "报错",
-    description: "该笔记导出失败并计入结果",
-  },
-];
-
 export function checkSidecar(): Promise<string> {
   return invoke<string>("check_sidecar");
 }
@@ -47,14 +25,14 @@ export function checkSidecar(): Promise<string> {
 export function startExport(
   source: string,
   destination: string,
-  missingSection: MissingSectionStrategy,
   keepRootFolder: boolean,
+  options: ExportOptions,
 ): Promise<void> {
   return invoke("start_export", {
     source,
     destination,
-    missingSection,
     keepRootFolder,
+    options,
   });
 }
 
