@@ -97,7 +97,9 @@ _get-next-version-number:
     while true; do
         VERSION_STRING="${DATEPART}.${ITERATION}"
         if git rev-list "v$VERSION_STRING" > /dev/null 2>&1; then
-            ((ITERATION++))
+            # $((...)) instead of ((...)): the latter's exit status fails
+            # under `set -e` when the pre-increment value is 0.
+            ITERATION=$((ITERATION + 1))
         else
             printf "$VERSION_STRING"
             exit
