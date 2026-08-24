@@ -54,6 +54,7 @@ export const en: Dict = {
     sectionConversion: "Conversion",
     sectionFiltering: "Content Filtering",
     sectionProcess: "Files & Process",
+    sectionLinkCheck: "Link Check",
     frontmatterLabel: "Frontmatter handling",
     missingSectionLabel: "Missing section handling",
     hardLinebreaks: {
@@ -93,6 +94,24 @@ export const en: Dict = {
       title: "Fail fast",
       description:
         "Stop at the first failed file instead of continuing and summarizing at the end",
+    },
+    linkCheckEnable: {
+      title: "Link check after export",
+      description:
+        "Run the link checker automatically after a successful export and report every broken link",
+    },
+    linkCheckTargetLabel: "Check target",
+    linkCheckTargetChoices: {
+      source: {
+        label: "Vault source",
+        description:
+          "Check the vault itself; catches dead links (wikilinks, embeds, plain links) before conversion",
+      },
+      destination: {
+        label: "Export output",
+        description:
+          "Check the exported tree and verify the generated Markdown links and anchors; broken wikilinks have already collapsed to plain text there",
+      },
     },
     footer: "All options are remembered and reused on the next launch.",
     resetDefaults: "Reset to defaults",
@@ -139,6 +158,7 @@ export const en: Dict = {
       missingSection: "Missing section: {label}",
       failFast: "Fail fast",
       hardLinebreaks: "Hard line breaks",
+      linkCheck: "Link check after export ({target})",
     },
   },
   dialog: {
@@ -172,6 +192,38 @@ export const en: Dict = {
     summary: "{total} notes: {done} done · {skipped} skipped · {failures} failed",
     warnings: "{n} warnings",
     back: "Back",
+  },
+  linkCheck: {
+    runningTitle: "Checking links…",
+    runningProgress: "{n} links reported",
+    titleClean: "Link check: all good",
+    titleBroken: "Link check: {n} broken",
+    titleFailed: "Link check could not finish",
+    failedHint: "The event stream ended abnormally; see the sidecar output below.",
+    summary:
+      "{files} files · {links} links · {broken} broken · {skipped} skipped (external)",
+    filter: {
+      broken: "Broken only",
+      all: "All",
+      skipped: "Skipped",
+    },
+    truncated: "Showing the first {shown} of {total} entries",
+    emptyList: "Nothing under this filter",
+    statusOk: "OK",
+    statusMissingFile: "Target not found: {target}",
+    statusOutOfBounds: "Escapes the checked root: {target}",
+    statusMissingSection: "Section \u201c{section}\u201d not found in {target}",
+    statusMissingBlock: "Block ^{block} not found in {target}",
+    statusUnreadable: "File unreadable: {message}",
+    statusExternal: "External link, skipped: {url}",
+    statusUnknown: "Unknown status",
+    kinds: {
+      wikiLink: "Wikilink",
+      wikiEmbed: "Embed",
+      markdownLink: "Markdown link",
+      markdownImage: "Markdown image",
+      unknown: "Unknown kind",
+    },
   },
   tagInput: {
     removeTag: "Remove tag {tag}",
