@@ -45,6 +45,37 @@ add-changelog:
 preview-changelog:
     {{towncrier_cmd}} build --draft --version $(just _get-next-version-number)
 
+# Bump the version everywhere in one go: root crate (Cargo.toml + Cargo.lock)
+# and the desktop app (package.json, tauri.conf.json, src-tauri/Cargo.toml and
+# its Cargo.lock). Requires cargo-edit (`cargo install cargo-edit`).
+set-version version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VERSION="{{version}}"
+    if ! [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        printf "not an x.y.z version: %s\n" "${VERSION}"
+        exit 1
+    fi
+
+    # cargo set-version refuses to downgrade — releases only ever move up,
+    # and recovering from a mistaken bump is a manual, deliberate edit.
+    cargo set-version "${VERSION}"
+    cargo set-version --manifest-path desktop/src-tauri/Cargo.toml "${VERSION}"
+
+    # The two JSON manifests carry the version as a top-level field (two-space
+    # indent) — nothing else in either file uses that shape.
+    sed -i -E 's/^  "version": "[^"]+"/  "version": "'"${VERSION}"'"/' \
+        desktop/package.json desktop/src-tauri/tauri.conf.json
+
+    # Patch both lockfiles in place instead of running cargo: the desktop
+    # workspace's build script requires the synced sidecar binary, so even
+    # `cargo check` there fails on a fresh checkout. A lock's `version` line
+    # sits directly under its package name, which is a unique anchor.
+    sed -i -E "/^name = \"obsidian-export\"$/,+1 s/^version = \"[^\"]+\"/version = \"${VERSION}\"/" Cargo.lock
+    sed -i -E "/^name = \"obsidian-export-desktop\"$/,+1 s/^version = \"[^\"]+\"/version = \"${VERSION}\"/" desktop/src-tauri/Cargo.lock
+
+    printf "version %s set in: Cargo.toml, Cargo.lock, desktop/package.json, desktop/src-tauri/tauri.conf.json, desktop/src-tauri/Cargo.toml, desktop/src-tauri/Cargo.lock\n" "${VERSION}"
+
 # Create a new release
 make-new-release:
     #!/usr/bin/env bash
@@ -61,7 +92,7 @@ make-new-release:
     trap 'rm "$COMMITMSG"' EXIT
     set -x
 
-    cargo set-version "${VERSION}"
+    {{just_executable()}} set-version "${VERSION}"
 
     # Construct a git commit message.
     # This must be done before the next step so we can leverage the --draft
