@@ -1575,30 +1575,21 @@ fn normalize_lexically(path: &Path) -> PathBuf {
 
 /// Generate a URL fragment for a section reference.
 ///
-/// Unlike the `slug` crate (which transliterates non-ASCII characters, turning e.g. a Chinese
-/// heading into pinyin), this keeps Unicode letters and digits as-is, matching how common
-/// Markdown renderers such as GitHub generate heading anchors. Underscores are kept (they
-/// are word characters, as on GitHub); other ASCII punctuation is stripped, whitespace
-/// becomes hyphens. Unlike GitHub, runs of consecutive hyphens are collapsed into one and
-/// leading/trailing hyphens are dropped.
+/// Delegates to the `github-slugger` crate so that generated anchors match
+/// what common Markdown renderers such as GitHub and VS Code's preview
+/// produce for a given heading: Unicode letters and digits (including CJK)
+/// are kept as-is, underscores and hyphens are kept, each whitespace
+/// character becomes a hyphen, and punctuation — ASCII or fullwidth — is
+/// stripped outright without leaving a hyphen behind. Vectors for this
+/// behavior were captured from live GitHub rendering (see
+/// `test_format_anchor_matches_github_slugger`).
+///
+/// One known divergence from GitHub remains: GitHub disambiguates duplicate
+/// headings within a document by appending `-1`, `-2`, … which requires
+/// document-level state; this function is stateless and does not. Leading
+/// and trailing whitespace is trimmed first, matching VS Code's preview.
 fn format_anchor(section: &str) -> String {
-    let mut anchor = String::with_capacity(section.len());
-    let mut prev_hyphen = true;
-    for ch in section.chars().flat_map(char::to_lowercase) {
-        if (ch.is_ascii_punctuation() && ch != '_') || ch.is_whitespace() {
-            if !prev_hyphen {
-                anchor.push('-');
-                prev_hyphen = true;
-            }
-        } else {
-            anchor.push(ch);
-            prev_hyphen = false;
-        }
-    }
-    while anchor.ends_with('-') {
-        anchor.pop();
-    }
-    anchor
+    github_slugger::slug(section.trim())
 }
 
 /// Render an error and its full source chain as a single string, so event consumers
@@ -2276,9 +2267,41 @@ mod tests {
 
     #[test]
     fn test_format_anchor_strips_punctuation() {
+        // Punctuation is removed without leaving a hyphen behind (GitHub's
+        // slugger deletes the character outright; it does not replace it).
         assert_eq!(format_anchor("C++ and Rust!"), "c-and-rust");
-        assert_eq!(format_anchor("  spaced   out  "), "spaced-out");
-        assert_eq!(format_anchor("-dashed-"), "dashed");
+        // Each space becomes one hyphen; runs are not collapsed, and
+        // surrounding whitespace is trimmed first.
+        assert_eq!(format_anchor("  spaced   out  "), "spaced---out");
+        // Hyphens are ordinary characters to GitHub: neither collapsed nor
+        // trimmed from the ends.
+        assert_eq!(format_anchor("-dashed-"), "-dashed-");
+    }
+
+    #[test]
+    fn test_format_anchor_matches_github_slugger() {
+        // Vectors captured from live GitHub rendering in 2026-08: GitHub and
+        // VS Code strip punctuation — including fullwidth CJK forms such as
+        // '：' (U+FF1A) and '，' (U+FF0C) — without leaving a hyphen behind.
+        // Keeping such punctuation in a generated anchor produces links that
+        // resolve on neither renderer.
+        assert_eq!(
+            format_anchor("总纲：三份形态，两个断口"),
+            "总纲三份形态两个断口"
+        );
+        assert_eq!(
+            format_anchor("断口-a：入库前，输入已非原话"),
+            "断口-a入库前输入已非原话"
+        );
+        assert_eq!(
+            format_anchor("对照：半角逗号, 句号. 与空格"),
+            "对照半角逗号-句号-与空格"
+        );
+        // Numbered headings (e.g. produced by the "Number Headings" plugin):
+        // periods vanish, so '1.1.1 C' must not become '1-1-1-c'.
+        assert_eq!(format_anchor("1.1.1 C"), "111-c");
+        assert_eq!(format_anchor("1.2.3.4"), "1234");
+        assert_eq!(format_anchor("this--or-that"), "this--or-that");
     }
 
     #[test]

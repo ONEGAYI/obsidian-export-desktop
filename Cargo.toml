@@ -27,6 +27,7 @@ doc = false
 
 [dependencies]
 eyre = "0.6.12"
+github-slugger = "0.1.0"
 gumdrop = "0.8.1"
 ignore = "0.4.22"
 pathdiff = "0.2.1"

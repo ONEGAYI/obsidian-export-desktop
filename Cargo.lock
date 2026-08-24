@@ -179,6 +179,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "github-slugger"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "721820f4eab1c427d482e144b63288754d9872fb7f0d72d73ab101008ef43147"
+dependencies = [
+ "once_cell",
+ "regex",
+]
+
+[[package]]
 name = "glob"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -314,6 +324,7 @@ version = "26.8.2"
 dependencies = [
  "eyre",
  "filetime",
+ "github-slugger",
  "gumdrop",
  "ignore",
  "pathdiff",
