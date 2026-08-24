@@ -6,7 +6,8 @@ use eyre::{eyre, Result};
 use gumdrop::Options;
 use obsidian_export::postprocessors::{filter_by_tags, softbreaks_to_hardbreaks};
 use obsidian_export::{
-    ExportError, ExportEvent, Exporter, FrontmatterStrategy, MissingSectionStrategy, WalkOptions,
+    ExportError, ExportEvent, Exporter, FrontmatterStrategy, LinkCheckReport, LinkCheckStatus,
+    LinkKind, MissingSectionStrategy, WalkOptions,
 };
 use serde_json::json;
 
@@ -152,6 +153,15 @@ struct CheckOpts {
 
     #[options(no_short, help = "Disable git integration", default = "false")]
     no_git: bool,
+
+    #[options(
+        no_short,
+        help = "Progress output format (one of: none, json). json emits machine-readable JSON Lines events on stdout",
+        long = "progress",
+        parse(try_from_str = "progress_format_from_str"),
+        default = "none"
+    )]
+    progress: ProgressFormat,
 }
 
 fn frontmatter_strategy_from_str(input: &str) -> Result<FrontmatterStrategy> {
@@ -335,24 +345,60 @@ fn run_check(opts: CheckOpts) -> ! {
         exporter.start_at(path);
     }
 
+    // Same emission point as exports: the schema line goes out before the
+    // run starts, so a JSON consumer always knows the stream's dialect even
+    // when the check itself fails before any report is produced.
+    if opts.progress == ProgressFormat::Json {
+        print_line(
+            &json!({
+                "type": "schema",
+                "version": JSON_EVENT_SCHEMA_VERSION,
+            })
+            .to_string(),
+        );
+    }
+
     match exporter.check() {
         Ok(summary) => {
-            for report in &summary.reports {
+            if opts.progress == ProgressFormat::Json {
+                print_line(
+                    &json!({
+                        "type": "check-start",
+                        "files": summary.files_checked,
+                    })
+                    .to_string(),
+                );
+                for report in &summary.reports {
+                    print_line(&link_report_to_json(report).to_string());
+                }
+                print_line(
+                    &json!({
+                        "type": "check-end",
+                        "filesChecked": summary.files_checked,
+                        "totalLinks": summary.total_links(),
+                        "broken": summary.broken_links(),
+                        "skipped": summary.skipped_links(),
+                    })
+                    .to_string(),
+                );
+            } else {
+                for report in &summary.reports {
+                    print_line(&format!(
+                        "{}:{}: {} [{}]",
+                        report.source.display(),
+                        report.line,
+                        report.status,
+                        report.raw,
+                    ));
+                }
                 print_line(&format!(
-                    "{}:{}: {} [{}]",
-                    report.source.display(),
-                    report.line,
-                    report.status,
-                    report.raw,
+                    "\n{} file(s) checked, {} link(s) found, {} broken, {} skipped (external)",
+                    summary.files_checked,
+                    summary.total_links(),
+                    summary.broken_links(),
+                    summary.skipped_links(),
                 ));
             }
-            print_line(&format!(
-                "\n{} file(s) checked, {} link(s) found, {} broken, {} skipped (external)",
-                summary.files_checked,
-                summary.total_links(),
-                summary.broken_links(),
-                summary.skipped_links(),
-            ));
             if summary.broken_links() > 0 {
                 std::process::exit(1);
             }
@@ -363,6 +409,53 @@ fn run_check(opts: CheckOpts) -> ! {
         }
     }
     std::process::exit(0);
+}
+
+/// Render a single [`LinkCheckReport`] as a JSON value for the
+/// `check --progress json` event stream. The verdict travels as structured
+/// data instead of the formatted text line, so consumers never have to parse
+/// English prose to recover the target or section names.
+fn link_report_to_json(report: &LinkCheckReport) -> serde_json::Value {
+    // Both enums are #[non_exhaustive]: a variant added after this CLI
+    // version degrades to an opaque status kind instead of dropping the
+    // line (the report itself is still worth showing).
+    let status = match &report.status {
+        LinkCheckStatus::Ok => json!({"type": "ok"}),
+        LinkCheckStatus::MissingFile { target } => {
+            json!({"type": "missing-file", "target": target})
+        }
+        LinkCheckStatus::OutOfBounds { target } => {
+            json!({"type": "out-of-bounds", "target": target})
+        }
+        LinkCheckStatus::MissingSection { target, section } => {
+            json!({"type": "missing-section", "target": target, "section": section})
+        }
+        LinkCheckStatus::MissingBlock { target, block } => {
+            json!({"type": "missing-block", "target": target, "block": block})
+        }
+        LinkCheckStatus::FileUnreadable { message } => {
+            json!({"type": "file-unreadable", "message": message})
+        }
+        LinkCheckStatus::ExternalSkipped { url } => {
+            json!({"type": "external-skipped", "url": url})
+        }
+        _ => json!({"type": "unknown"}),
+    };
+    let kind = match report.kind {
+        LinkKind::WikiLink => "wiki-link",
+        LinkKind::WikiEmbed => "wiki-embed",
+        LinkKind::MarkdownLink => "markdown-link",
+        LinkKind::MarkdownImage => "markdown-image",
+        _ => "unknown",
+    };
+    json!({
+        "type": "link-report",
+        "source": report.source.display().to_string(),
+        "line": report.line,
+        "raw": report.raw,
+        "kind": kind,
+        "status": status,
+    })
 }
 
 /// Print a human-readable report for a failed export run to stderr.
