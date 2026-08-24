@@ -119,6 +119,37 @@ struct Opts {
     hard_linebreaks: bool,
 }
 
+/// Options for `obsidian-export check`: walk the vault and verify every
+/// link without writing any files.
+#[derive(Debug, Options)]
+struct CheckOpts {
+    #[options(help = "Display program help")]
+    help: bool,
+
+    #[options(
+        help = "Check all links in this vault (a folder of notes)",
+        free,
+        required
+    )]
+    source: Option<PathBuf>,
+
+    #[options(no_short, help = "Only check notes under this sub-path")]
+    start_at: Option<PathBuf>,
+
+    #[options(
+        no_short,
+        help = "Read ignore patterns from files with this name",
+        default = ".export-ignore"
+    )]
+    ignore_file: String,
+
+    #[options(no_short, help = "Check hidden files", default = "false")]
+    hidden: bool,
+
+    #[options(no_short, help = "Disable git integration", default = "false")]
+    no_git: bool,
+}
+
 fn frontmatter_strategy_from_str(input: &str) -> Result<FrontmatterStrategy> {
     match input {
         "auto" => Ok(FrontmatterStrategy::Auto),
@@ -145,15 +176,28 @@ fn main() {
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
 
-    // The version flag in first position must work without the required free arguments
-    // present, so it gets handled before parsing. Elsewhere, gumdrop owns it (as the
-    // value of another option, or as a free argument error, just like every other flag).
+    // The version flag in first position must work without the required free
+    // arguments present, so it gets handled before parsing. Elsewhere, gumdrop owns
+    // it (as the value of another option, or as a free argument error, just like
+    // every other flag).
     if argv
         .first()
         .is_some_and(|arg| arg == "-v" || arg == "--version")
     {
         print_line(&format!("obsidian-export {VERSION}"));
         std::process::exit(0);
+    }
+
+    // The `check` subcommand is dispatched manually: gumdrop forbids a
+    // `command` field in a struct that also has `free` positional arguments,
+    // so matching the leading keyword ourselves is the equivalent shape.
+    if argv.first().is_some_and(|arg| arg == "check") {
+        let rest = argv.get(1..).unwrap_or(&[]);
+        let check = CheckOpts::parse_args_default(rest).unwrap_or_else(|err| {
+            eprintln!("Error: {err}\n\n{}", CheckOpts::usage());
+            std::process::exit(2);
+        });
+        run_check(check);
     }
 
     let args = Opts::parse_args_default(&argv).unwrap_or_else(|err| {
@@ -165,7 +209,7 @@ fn main() {
     // stdout, which is what virtually every other CLI does.
     if args.help {
         print_line(&format!(
-            "Usage: obsidian-export [OPTIONS] SOURCE DESTINATION\n\n{}",
+            "Usage: obsidian-export [OPTIONS] SOURCE DESTINATION\n       obsidian-export check [OPTIONS] SOURCE\n\n{}",
             Opts::usage()
         ));
         std::process::exit(0);
@@ -231,6 +275,67 @@ fn main() {
         print_run_error(err);
         std::process::exit(1);
     }
+}
+
+/// Run `obsidian-export check`: verify every link in the vault and print a
+/// per-link report. Exits 0 when no links are broken, 1 when any are (or
+/// the check itself fails), keeping the documented exit-code contract.
+fn run_check(opts: CheckOpts) -> ! {
+    if opts.help {
+        print_line(&format!(
+            "Usage: obsidian-export check [OPTIONS] SOURCE\n\n{}",
+            CheckOpts::usage()
+        ));
+        std::process::exit(0);
+    }
+
+    let root = opts
+        .source
+        .expect("source is a required free argument enforced by gumdrop");
+    let walk_options = WalkOptions {
+        ignore_filename: &opts.ignore_file,
+        ignore_hidden: !opts.hidden,
+        honor_gitignore: !opts.no_git,
+        ..Default::default()
+    };
+
+    // The destination is unused by check() — it never writes files — but
+    // Exporter's constructor requires one; reusing the source keeps the
+    // intent obvious.
+    let mut exporter = Exporter::new(root.clone(), root);
+    exporter.walk_options(walk_options);
+    if let Some(path) = opts.start_at {
+        exporter.start_at(path);
+    }
+
+    match exporter.check() {
+        Ok(summary) => {
+            for report in &summary.reports {
+                print_line(&format!(
+                    "{}:{}: {} [{}]",
+                    report.source.display(),
+                    report.line,
+                    report.status,
+                    report.raw,
+                ));
+            }
+            print_line(&format!(
+                "\n{} file(s) checked, {} link(s) found, {} broken, {} skipped (external)",
+                summary.files_checked,
+                summary.total_links(),
+                summary.broken_links(),
+                summary.skipped_links(),
+            ));
+            if summary.broken_links() > 0 {
+                std::process::exit(1);
+            }
+        }
+        Err(err) => {
+            print_run_error(err);
+            std::process::exit(1);
+        }
+    }
+    std::process::exit(0);
 }
 
 /// Print a human-readable report for a failed export run to stderr.

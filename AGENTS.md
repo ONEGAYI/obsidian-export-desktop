@@ -38,12 +38,14 @@
 
 - [x] 桌面端技术栈：**Tauri 2 + React/TypeScript**（跨平台、轻量、Obsidian 风格 UI）。UI 主题复刻 Obsidian 变量命名与色板（明暗双主题，默认暗色）；`--missing-section` 放导出前确认选单并持久化选择。
 - [x] 桌面端完整选项面板：独立设置视图（`OptionsView`）暴露全部 CLI 选项，按「转换行为 / 内容过滤 / 文件与过程」分组；选项持久化于 localStorage（`obsidian-export-options`），Rust 侧 `build_args` 仅将非默认值传给边车（默认值语义始终以 CLI 为准）。
-- [ ] 桌面端后续迭代：打包分发流水线（`tauri build`，与 cargo-dist 互不干扰）、自动更新。
+- [ ] 桌面端后续迭代：打包分发流水线（`tauri build`，与 cargo-dist 互不干扰）、自动更新、**导出后自动链接检查**（GUI 可配置开关：导出完成后对导出文件夹跑 `check` 子命令并展示逐条报告；core 能力已就绪，见 `src/linkcheck.rs`，GUI 适配需为 check 结果设计事件流或复用 stdout 解析）。
 - [x] 块引用内容提取增强：已完成——`![[note#^block-id]]` 真实定位标记块（reduce_to_block：行尾 id 标记所在段落/列表项/引用块，独立行 id 标记上方紧邻块，嵌入副本剥离 id 标记），未命中回退 `--missing-section` 三策略；同文件嵌入（`![[#Heading]]` / `![[#^id]]`）一并支持，防环靠「嵌入副本剥离 id」天然终止 + 嵌入公共入口的深度限制兜底。
 - [x] 嵌入展开与 section 切分的顺序重排：已完成——parse_raw_note（raw 事件收集 + 引用规范化为五事件形态）与 expand_references（引用展开）两阶段拆分，section 切分在目标文件自己的事件流上进行后再展开内层嵌入；embed_postprocessors「看到合并嵌入后内容」的契约保持。
 - [x] wikilink 格式标记与容器内标题的既有解析边界：已完成——引用文本在 raw 层以 source offset 切片保留原拼写（`__dunder__` 不再突变为 `**dunder**`，锚点/文件查找/section 匹配三处下游一致）；reduce_to_section 维护容器配对栈，blockquote（含 callout）内标题切分后事件流保持平衡。
 - [x] 标题含 wikilink 的 section 引用：已完成——reduce_to_section 标题聚合识别坍缩五事件形态并按显示名聚合（label 优先，否则 `file > section` 拼接，复用 `ObsidianNoteReference::display`），`## [[mid]]` 重新可被 `![[t#mid]]` 命中，嵌入切片内 wikilink 照常展开为链接；字面单层方括号标题（`[WIP]` 类）因状态机回吐永不构成 `Text("[")+Text("[")` 相邻对而天然免疫误伤；引用文本含 `]` 的嵌套写法（`![[t#[[mid]]]]`）受 wikilink 语法限制（坍缩状态机遇 `]` 重置）仍按 missing-section 处理。
 - [x] serde_yaml 迁移：已通过 Cargo package rename 迁移至 `yaml_serde` 0.10（YAML 官方组织维护的 0.9.34 直系 fork；serde_norway 等候选已停滞故未采用）。公共路径 `obsidian_export::serde_yaml` 与解析/序列化行为不变（非破坏变更）；MSRV 由 1.80 升至 1.82。
+- [x] 章节锚点对齐 GitHub slug：已完成——format_anchor 委托 github-slugger crate（封装层先 trim 对齐 VS Code），全角标点无痕剔除、标点不再误产连字符、连字符不折叠不修剪；行为向量来自 2026-08 对 GitHub 网页渲染的实测（与 VS Code 官方包源码、github-slugger 三方一致），与上游 PR #373 同路线（fork 未用回 slug crate 的原因是其对中文做拼音化）。已知限制：同文档重复标题的 GitHub `-1` 去重后缀需要文档级状态，未实现。
+- [x] vault 链接完整性检查（core + CLI check 子命令）：已完成——`Exporter::check()`（`src/linkcheck.rs`）walk 与导出同集的文件，逐链接验证：目标存在性、**越界即断**（逃出检查根的链接即使盘上存在也判 broken，根即导出边界）、wikilink 锚点按 Obsidian 原文语义（复用 reduce_to_section/reduce_to_block 聚合）、标准 md 链接锚点按 slug 语义（format_anchor 幂等匹配）、外部 URL 跳过；引用提取复用 parse_raw_note_with_refs（其新增的源偏移旁路供行号归因），md 链接经同一 parser flavor 二次遍历，代码块/行内代码剔除语义与导出一致。CLI：`obsidian-export check SOURCE`（`--start-at`/`--hidden`/`--no-git`/`--ignore-file` 可复用；gumdrop 禁止 command 与 free 并存，子命令靠首位关键字手动分流），逐条 `{source}:{line}: {status} [{raw}]` + 汇总，退出码沿用 0/1/2 契约（有任何 broken 即 1）。
 - [ ] 嵌入解析缓存与 walker 并行化：vault 索引已消除引用解析的主要瓶颈（基准 7200 文件 11.2s → 0.65s），剩余耗时以文件 IO/解析/渲染为主；两项优化待有真实大 vault 的 profile 数据支撑后再决定是否实施。
 
 已知限制（审查登记，后续迭代评估）：
@@ -75,6 +77,7 @@ obsidian-export/
 │   ├── frontmatter.rs   # frontmatter 的解析与剥离
 │   ├── postprocessors.rs# 后处理器：对导出结果再加工
 │   ├── references.rs    # 引用解析：wikilink、嵌入等链接形式
+│   ├── linkcheck.rs     # 链接完整性检查（Exporter::check）：存在性/越界/锚点有效性 + 逐条报告
 │   └── walker.rs        # vault 的递归遍历
 ├── tests/               # 集成测试：export_test（导出行为）、cli_test（CLI 契约）、postprocessors_test
 ├── tests/testdata/      # 测试 vault fixtures（section-variants、image-size 等按场景分组）
