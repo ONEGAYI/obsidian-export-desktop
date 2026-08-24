@@ -589,8 +589,15 @@ fn test_chinese_section_anchor() {
     .expect("exporter returned error");
 
     // Anchors for CJK headings must be preserved as-is rather than transliterated,
-    // otherwise section links point nowhere on renderers like GitHub.
-    let expected = "链接到 [target > 中文标题](target.md#中文标题) 的引用。\n\n也链接到 [target > Mixed 混合 Heading](target.md#mixed-混合-heading)。\n";
+    // otherwise section links point nowhere on renderers like GitHub. Fullwidth
+    // punctuation is stripped from the anchor (matching GitHub/VS Code), while the
+    // link text keeps the original spelling.
+    let expected = concat!(
+        "链接到 [target > 中文标题](target.md#中文标题) 的引用。\n\n",
+        "也链接到 [target > Mixed 混合 Heading](target.md#mixed-混合-heading)。\n\n",
+        "再链接全角标点标题：[target > 总纲：三份形态，两个断口](target.md#总纲三份形态两个断口)",
+        " 与 [target > 断口-a：入库前，输入已非原话](target.md#断口-a入库前输入已非原话)。\n",
+    );
     let actual = read_to_string(tmp_dir.path().join(PathBuf::from("note.md"))).unwrap();
     assert_eq!(expected, actual);
 }
