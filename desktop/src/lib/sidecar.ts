@@ -113,6 +113,11 @@ export function onCheckExit(
   return listen<CheckExit>("check-exit", (e) => cb(e.payload));
 }
 
+/** Parse/IO errors of the check stream (the check dialect's error channel). */
+export function onCheckError(cb: (message: string) => void): Promise<UnlistenFn> {
+  return listen<string>("check-error", (e) => cb(e.payload));
+}
+
 export function onSidecarError(cb: (message: string) => void): Promise<UnlistenFn> {
   return listen<string>("sidecar-error", (e) => cb(e.payload));
 }

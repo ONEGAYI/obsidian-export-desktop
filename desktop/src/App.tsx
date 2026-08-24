@@ -35,7 +35,7 @@ import { ExportResultView } from "@/components/ExportResultView";
 import {
   EMPTY_LINK_CHECK,
   LinkCheckPanel,
-  foldCheckEvent,
+  applyCheckEvents,
   type LinkCheckState,
 } from "@/components/LinkCheckPanel";
 import { OptionsView } from "@/components/OptionsView";
@@ -48,11 +48,13 @@ import {
   type ExportOptions,
 } from "@/lib/options";
 import {
+  type CheckEvent,
   type SidecarEvent,
   type SidecarExit,
   baseName,
   cancelExport,
   checkSidecar,
+  onCheckError,
   onCheckEvent,
   onCheckExit,
   onSidecarError,
@@ -292,13 +294,25 @@ export default function App() {
       .catch((err) => setSidecarError(String(err)));
   }, []);
 
-  // Re-subscribed when the language changes so log placeholders follow the
-  // active dictionary.
+  // Subscriptions that don't reference the active dictionary live in their
+  // own effect: re-subscribing on language change would open a window in
+  // which sidecar-exit (the auto-check trigger) or check-exit could be
+  // missed. Only sidecar-event needs the dictionary (its warning label).
   useEffect(() => {
+    // The CLI bursts every link report in one go after checking finishes;
+    // folding each event into state individually is quadratic on big vaults.
+    // Events are buffered and folded once per animation frame instead.
+    let buffer: CheckEvent[] = [];
+    let frame: number | null = null;
+    const flush = () => {
+      frame = null;
+      if (buffer.length === 0) return;
+      const events = buffer;
+      buffer = [];
+      setCheck((s) => applyCheckEvents(s, events));
+    };
+
     const unlisteners: Promise<() => void>[] = [
-      onSidecarEvent((event) =>
-        setProgress((p) => foldEvent(p, event, t.app.warningLog)),
-      ),
       onSidecarExit((payload) => {
         setExit(payload);
         setPhase("result");
@@ -324,16 +338,33 @@ export default function App() {
           }
         }
       }),
-      onCheckEvent((event) => setCheck((s) => foldCheckEvent(s, event))),
-      onCheckExit((payload) =>
-        // Exit 1 covers "broken links found" (a completed run, the end event
-        // is present) and "the check itself failed" (no end event); the two
-        // are told apart by the end summary, not the code.
+      onCheckEvent((event) => {
+        buffer.push(event);
+        if (frame === null) {
+          frame = requestAnimationFrame(flush);
+        }
+      }),
+      // Exit is the definitive end of the stream: flush pending reports
+      // first so the end summary (and the done/failed verdict) sees them.
+      onCheckExit((payload) => {
+        if (frame !== null) cancelAnimationFrame(frame);
+        flush();
+        // Exit 1 covers both "broken links found" (a completed run, the end
+        // event is present) and "the check itself failed" (no end event);
+        // the two are told apart by the end summary, not the code.
         setCheck((s) =>
           s.phase === "running"
             ? { ...s, exit: payload, phase: s.end ? "done" : "failed" }
             : s,
-        ),
+        );
+      }),
+      onCheckError((message) =>
+        // Keep the last few stream errors for the failed-state diagnosis;
+        // the export log view is gone while checking, so they can't go there.
+        setCheck((s) => ({
+          ...s,
+          streamErrors: [...s.streamErrors.slice(-4), message],
+        })),
       ),
       onSidecarError((message) =>
         setProgress((p) => ({
@@ -343,9 +374,21 @@ export default function App() {
       ),
     ];
     return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
       for (const p of unlisteners) {
         p.then((unlisten) => unlisten());
       }
+    };
+  }, []);
+
+  // Re-subscribed when the language changes so log placeholders follow the
+  // active dictionary.
+  useEffect(() => {
+    const unlisten = onSidecarEvent((event) =>
+      setProgress((p) => foldEvent(p, event, t.app.warningLog)),
+    );
+    return () => {
+      unlisten.then((u) => u());
     };
   }, [t]);
 
@@ -484,7 +527,7 @@ export default function App() {
         }`}
       >
         <div className="m-auto flex w-full flex-col gap-4">
-            {sidecarError && (
+          {sidecarError && (
             <Card className="border-destructive">
               <CardHeader>
                 <CardTitle className="text-destructive">
@@ -569,7 +612,12 @@ export default function App() {
                 cancelled={cancelled}
                 onRestart={handleReset}
               />
-              {check.phase !== "idle" && <LinkCheckPanel state={check} />}
+              {check.phase !== "idle" && (
+                <LinkCheckPanel
+                  state={check}
+                  onCancel={() => void cancelExport()}
+                />
+              )}
             </>
           )}
         </div>
