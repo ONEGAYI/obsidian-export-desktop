@@ -12,12 +12,14 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
-use crate::events::{self, ParsedLine};
+use crate::events::{self, ParsedCheckLine, ParsedLine};
 
 /// Tauri event names emitted to the frontend.
 pub const EVENT_SIDECAR_EVENT: &str = "sidecar-event";
 pub const EVENT_SIDECAR_ERROR: &str = "sidecar-error";
 pub const EVENT_SIDECAR_EXIT: &str = "sidecar-exit";
+pub const EVENT_CHECK_EVENT: &str = "check-event";
+pub const EVENT_CHECK_EXIT: &str = "check-exit";
 
 /// Handle of a running export, if any.
 #[derive(Default)]
@@ -96,6 +98,19 @@ impl MissingSectionChoice {
     }
 }
 
+/// Which tree the automatic post-export link check walks.
+///
+/// `Source` re-checks the vault (catching broken wikilinks before they
+/// collapse into italic text during conversion); `Destination` checks the
+/// exported output (verifying the emitted markdown links and anchors).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum LinkCheckTarget {
+    #[default]
+    Source,
+    Destination,
+}
+
 /// User-configurable export options, one field per CLI flag of the sidecar.
 ///
 /// Defaults mirror the CLI defaults: `build_args` only emits flags for
@@ -120,6 +135,12 @@ pub struct ExportOptions {
     pub missing_section: MissingSectionChoice,
     pub fail_fast: bool,
     pub hard_linebreaks: bool,
+    /// GUI-only preference: run the link checker after a successful export.
+    /// Never part of `build_args`; the frontend orchestrates the follow-up
+    /// `start_check` invocation.
+    pub link_check_enabled: bool,
+    /// GUI-only preference: which tree that automatic check walks.
+    pub link_check_target: LinkCheckTarget,
 }
 
 /// Build the sidecar argv. `--progress json` is always passed (the desktop
@@ -188,6 +209,49 @@ fn build_args(options: &ExportOptions, source: &str, target: &str) -> Vec<String
     args
 }
 
+/// Build the sidecar argv for `obsidian-export check`.
+///
+/// Filter flags (`--start-at`, `--ignore-file`, `--hidden`, `--no-git`) are
+/// only passed when checking the vault source, so the checked file set
+/// matches the exported one. The exported output is already filtered and
+/// holds plain markdown links, so re-applying vault filters could only
+/// exclude files wrongly.
+fn build_check_args(
+    options: &ExportOptions,
+    target: LinkCheckTarget,
+    source: &str,
+) -> Vec<String> {
+    let mut args = vec![
+        "check".to_owned(),
+        "--progress".to_owned(),
+        "json".to_owned(),
+    ];
+    if target == LinkCheckTarget::Source {
+        if let Some(start_at) = options
+            .start_at
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            args.extend(["--start-at".to_owned(), start_at.to_owned()]);
+        }
+        if let Some(ignore_file) = options
+            .ignore_file
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
+            args.extend(["--ignore-file".to_owned(), ignore_file.to_owned()]);
+        }
+        if options.hidden {
+            args.push("--hidden".to_owned());
+        }
+        if options.no_git {
+            args.push("--no-git".to_owned());
+        }
+    }
+    args.push(source.to_owned());
+    args
+}
+
 /// Handshake: run `--version` and return the banner (e.g. "obsidian-export 25.9.0").
 ///
 /// Called on startup so a stale or mismatched sidecar is reported clearly instead
@@ -226,6 +290,10 @@ pub async fn check_sidecar(app: AppHandle) -> Result<String, String> {
 /// desktop-only concept routing a directory source into
 /// `<destination>/<source folder name>` (created if missing) so the vault's
 /// first-level entries don't scatter directly in the destination.
+///
+/// Returns the actual export destination (after `keep_root_folder`
+/// resolution) so the frontend can point later actions — like the post-export
+/// link check — at the tree that was written.
 #[tauri::command]
 pub async fn start_export(
     app: AppHandle,
@@ -234,10 +302,10 @@ pub async fn start_export(
     destination: String,
     options: ExportOptions,
     keep_root_folder: Option<bool>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let mut slot = state.child.lock().map_err(|_| "export state poisoned")?;
     if slot.is_some() {
-        return Err("an export is already running".to_string());
+        return Err("a sidecar process is already running".to_string());
     }
 
     // Resolve picked paths against the GUI process's working directory up
@@ -266,7 +334,7 @@ pub async fn start_export(
     let target_arg = target.to_string_lossy().into_owned();
 
     let args = build_args(&options, &source_arg, &target_arg);
-    let (mut rx, child) = app
+    let (rx, child) = app
         .shell()
         .sidecar("obsidian-export")
         .map_err(|err| format!("sidecar binary not found: {err}"))?
@@ -276,55 +344,157 @@ pub async fn start_export(
     *slot = Some(child);
     drop(slot);
 
-    let handle = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut stdout_buffer = String::new();
-        let mut stderr_text = String::new();
-        while let Some(message) = rx.recv().await {
-            match message {
-                CommandEvent::Stdout(bytes) => {
-                    stdout_buffer.push_str(&String::from_utf8_lossy(&bytes));
-                    while let Some(pos) = stdout_buffer.find('\n') {
-                        let line: String = stdout_buffer.drain(..=pos).collect();
-                        match events::parse_line(&line) {
-                            Ok(ParsedLine::Event(event)) => {
-                                let _ = handle.emit(EVENT_SIDECAR_EVENT, &event);
-                            }
-                            Ok(ParsedLine::Ignored) => (),
-                            Err(err) => {
-                                let _ = handle.emit(EVENT_SIDECAR_ERROR, err);
-                            }
+    tauri::async_runtime::spawn(pump_sidecar(app.clone(), rx, StreamDialect::Export));
+
+    Ok(target_arg)
+}
+
+/// Which JSON Lines dialect a spawned sidecar speaks; decides the parse
+/// function and the frontend channels used by [`pump_sidecar`].
+#[derive(Clone, Copy)]
+enum StreamDialect {
+    Export,
+    Check,
+}
+
+impl StreamDialect {
+    fn event_channel(self) -> &'static str {
+        match self {
+            Self::Export => EVENT_SIDECAR_EVENT,
+            Self::Check => EVENT_CHECK_EVENT,
+        }
+    }
+
+    fn exit_channel(self) -> &'static str {
+        match self {
+            Self::Export => EVENT_SIDECAR_EXIT,
+            Self::Check => EVENT_CHECK_EXIT,
+        }
+    }
+
+    /// Parse one stdout line into a forwardable event; `None` for blank or
+    /// unknown event types (a newer sidecar may add kinds; skipping them
+    /// keeps older app builds usable), an error for malformed lines or an
+    /// unsupported schema version.
+    fn parse(self, line: &str) -> Result<Option<serde_json::Value>, String> {
+        match self {
+            Self::Export => match events::parse_line(line) {
+                Ok(ParsedLine::Event(event)) => Ok(Some(event_value(&event))),
+                Ok(ParsedLine::Ignored) => Ok(None),
+                Err(err) => Err(err),
+            },
+            Self::Check => match events::parse_check_line(line) {
+                Ok(ParsedCheckLine::Event(event)) => Ok(Some(event_value(&event))),
+                Ok(ParsedCheckLine::Ignored) => Ok(None),
+                Err(err) => Err(err),
+            },
+        }
+    }
+}
+
+/// Serialize a parsed event for the frontend. These are plain data types, so
+/// serialization cannot fail in practice.
+fn event_value(event: &impl serde::Serialize) -> serde_json::Value {
+    serde_json::to_value(event).expect("event serializes to JSON")
+}
+
+/// Shared stdout/stderr pump for a spawned sidecar: parses each JSON Lines
+/// event with the stream's dialect, forwards it to the dialect's event
+/// channel, and maps process termination onto the dialect's exit event
+/// (`{code, stderr}`). Releasing the child slot on termination lets the
+/// next export or check start.
+async fn pump_sidecar(
+    handle: AppHandle,
+    mut rx: tauri::async_runtime::Receiver<CommandEvent>,
+    dialect: StreamDialect,
+) {
+    let mut stdout_buffer = String::new();
+    let mut stderr_text = String::new();
+    while let Some(message) = rx.recv().await {
+        match message {
+            CommandEvent::Stdout(bytes) => {
+                stdout_buffer.push_str(&String::from_utf8_lossy(&bytes));
+                while let Some(pos) = stdout_buffer.find('\n') {
+                    let line: String = stdout_buffer.drain(..=pos).collect();
+                    match dialect.parse(&line) {
+                        Ok(Some(event)) => {
+                            let _ = handle.emit(dialect.event_channel(), &event);
+                        }
+                        Ok(None) => (),
+                        Err(err) => {
+                            let _ = handle.emit(EVENT_SIDECAR_ERROR, err);
                         }
                     }
                 }
-                CommandEvent::Stderr(bytes) => {
-                    stderr_text.push_str(&String::from_utf8_lossy(&bytes));
-                }
-                CommandEvent::Error(err) => {
-                    let _ = handle.emit(EVENT_SIDECAR_ERROR, format!("sidecar IO error: {err}"));
-                }
-                CommandEvent::Terminated(status) => {
-                    // The child handle is dead now; release it so a new export
-                    // can start. Reaching termination without an `end` event
-                    // means the run never reached processing (see the contract).
-                    take_child(&handle);
-                    let _ = handle.emit(
-                        EVENT_SIDECAR_EXIT,
-                        serde_json::json!({
-                            "code": status.code,
-                            "stderr": stderr_text.trim(),
-                        }),
-                    );
-                }
-                _ => (),
             }
+            CommandEvent::Stderr(bytes) => {
+                stderr_text.push_str(&String::from_utf8_lossy(&bytes));
+            }
+            CommandEvent::Error(err) => {
+                let _ = handle.emit(EVENT_SIDECAR_ERROR, format!("sidecar IO error: {err}"));
+            }
+            CommandEvent::Terminated(status) => {
+                // The child handle is dead now; release it so a new export
+                // or check can start. Reaching termination without an `end`
+                // (or `check-end`) event means the run never reached
+                // processing (see docs/sidecar-events.md).
+                take_child(&handle);
+                let _ = handle.emit(
+                    dialect.exit_channel(),
+                    serde_json::json!({
+                        "code": status.code,
+                        "stderr": stderr_text.trim(),
+                    }),
+                );
+            }
+            _ => (),
         }
-    });
+    }
+}
+
+/// Start a link check (`obsidian-export check`). Emits `check-event` per
+/// parsed JSON Lines event and a final `check-exit` with the process exit
+/// code. Exit 1 covers both "broken links found" and "the check itself
+/// failed"; the frontend distinguishes the two by the presence of a
+/// `check-end` event.
+///
+/// The check shares the export's child slot: only one sidecar process may
+/// run at a time, and `cancel_export` covers both kinds.
+#[tauri::command]
+pub async fn start_check(
+    app: AppHandle,
+    state: State<'_, ExportState>,
+    source: String,
+    options: ExportOptions,
+    target: LinkCheckTarget,
+) -> Result<(), String> {
+    let mut slot = state.child.lock().map_err(|_| "export state poisoned")?;
+    if slot.is_some() {
+        return Err("a sidecar process is already running".to_string());
+    }
+
+    let source_path = std::path::absolute(&source)
+        .map_err(|err| format!("invalid source path '{source}': {err}"))?;
+    let source_arg = source_path.to_string_lossy().into_owned();
+
+    let args = build_check_args(&options, target, &source_arg);
+    let (rx, child) = app
+        .shell()
+        .sidecar("obsidian-export")
+        .map_err(|err| format!("sidecar binary not found: {err}"))?
+        .args(&args)
+        .spawn()
+        .map_err(|err| format!("failed to spawn sidecar: {err}"))?;
+    *slot = Some(child);
+    drop(slot);
+
+    tauri::async_runtime::spawn(pump_sidecar(app.clone(), rx, StreamDialect::Check));
 
     Ok(())
 }
 
-/// Cancel a running export by killing the sidecar process.
+/// Cancel the running sidecar process (an export or a link check) by
+/// killing it.
 #[tauri::command]
 pub fn cancel_export(app: AppHandle) -> Result<bool, String> {
     match take_child(&app) {
@@ -519,5 +689,65 @@ mod tests {
     fn wrong_type_fails_deserialization() {
         let payload = r#"{ "hidden": "yes" }"#;
         assert!(serde_json::from_str::<ExportOptions>(payload).is_err());
+    }
+
+    #[test]
+    fn check_args_default_only_pass_progress_and_source() {
+        let args = build_check_args(&ExportOptions::default(), LinkCheckTarget::Source, "SRC");
+        assert_eq!(args, vec!["check", "--progress", "json", "SRC"]);
+    }
+
+    #[test]
+    fn check_args_source_target_inherits_export_filters() {
+        // Checking the vault source must walk the same file set as the
+        // export: every non-default filter flag is forwarded.
+        let mut options = ExportOptions::default();
+        options.start_at = Some(r"D:\vaults\lib".to_owned());
+        options.ignore_file = Some(".custom-ignore".to_owned());
+        options.hidden = true;
+        options.no_git = true;
+        // Export-only flags must not leak into the check argv.
+        options.frontmatter = FrontmatterChoice::Always;
+        options.fail_fast = true;
+        let args = build_check_args(&options, LinkCheckTarget::Source, "SRC");
+        assert_eq!(
+            args,
+            vec![
+                "check",
+                "--progress",
+                "json",
+                "--start-at",
+                r"D:\vaults\lib",
+                "--ignore-file",
+                ".custom-ignore",
+                "--hidden",
+                "--no-git",
+                "SRC",
+            ]
+        );
+    }
+
+    #[test]
+    fn check_args_destination_target_passes_no_filters() {
+        // The export output is already filtered and contains plain markdown
+        // links: re-applying vault filters could only exclude files wrongly.
+        let mut options = ExportOptions::default();
+        options.hidden = true;
+        options.no_git = true;
+        options.start_at = Some("sub".to_owned());
+        let args = build_check_args(&options, LinkCheckTarget::Destination, "OUT");
+        assert_eq!(args, vec!["check", "--progress", "json", "OUT"]);
+    }
+
+    #[test]
+    fn link_check_preferences_deserialize_from_camelcase() {
+        let payload = r#"{ "linkCheckEnabled": true, "linkCheckTarget": "destination" }"#;
+        let options: ExportOptions = serde_json::from_str(payload).expect("valid payload");
+        assert!(options.link_check_enabled);
+        assert_eq!(options.link_check_target, LinkCheckTarget::Destination);
+        // Omitted preferences keep the defaults (check off, vault source).
+        let options: ExportOptions = serde_json::from_str("{}").expect("valid payload");
+        assert!(!options.link_check_enabled);
+        assert_eq!(options.link_check_target, LinkCheckTarget::Source);
     }
 }
