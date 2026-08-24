@@ -55,6 +55,7 @@ export const zh = {
     sectionConversion: "转换行为",
     sectionFiltering: "内容过滤",
     sectionProcess: "文件与过程",
+    sectionLinkCheck: "链接检查",
     frontmatterLabel: "Frontmatter 处理",
     missingSectionLabel: "缺失章节的处理方式",
     hardLinebreaks: {
@@ -89,6 +90,23 @@ export const zh = {
     failFast: {
       title: "快速失败",
       description: "遇到第一个失败文件立即停止，而非继续并在末尾汇总",
+    },
+    linkCheckEnable: {
+      title: "导出后链接检查",
+      description: "导出成功后自动运行链接检查，逐条报告失效链接",
+    },
+    linkCheckTargetLabel: "检查目标",
+    // 检查目标选项：与 OptionsView 单选列表共用文案。
+    linkCheckTargetChoices: {
+      source: {
+        label: "Vault 源",
+        description: "检查 vault 原文，可发现转换前的死链（wikilink、嵌入、标准链接）",
+      },
+      destination: {
+        label: "导出结果",
+        description:
+          "检查导出产物，验证生成的 Markdown 链接与锚点；死链 wikilink 在导出时已塌缩为纯文本，不再可查",
+      },
     },
     footer: "全部选项均已记住，下次启动自动沿用。",
     resetDefaults: "恢复默认",
@@ -136,6 +154,7 @@ export const zh = {
       missingSection: "缺失章节：{label}",
       failFast: "快速失败",
       hardLinebreaks: "硬换行",
+      linkCheck: "导出后链接检查（{target}）",
     },
   },
   dialog: {
@@ -168,6 +187,39 @@ export const zh = {
     summary: "共 {total} 篇：{done} 成功 · {skipped} 跳过 · {failures} 失败",
     warnings: "{n} 警告",
     back: "返回",
+  },
+  // 导出后自动链接检查的报告面板：状态文案将结构化判定本地化，
+  // 文件路径与链接原文保持技术原文透传。
+  linkCheck: {
+    runningTitle: "正在检查链接…",
+    runningProgress: "已报告 {n} 条链接",
+    titleClean: "链接检查：全部通过",
+    titleBroken: "链接检查：{n} 处失效",
+    titleFailed: "链接检查未能完成",
+    failedHint: "事件流未正常终结，原因见下方边车输出。",
+    summary: "{files} 个文件 · {links} 条链接 · {broken} 失效 · {skipped} 跳过（外部链接）",
+    filter: {
+      broken: "仅失效",
+      all: "全部",
+      skipped: "跳过",
+    },
+    truncated: "仅显示前 {shown} 条，共 {total} 条",
+    emptyList: "该筛选下没有条目",
+    statusOk: "正常",
+    statusMissingFile: "目标不存在：{target}",
+    statusOutOfBounds: "越出检查根：{target}",
+    statusMissingSection: "{target} 中不存在章节「{section}」",
+    statusMissingBlock: "{target} 中不存在块 ^{block}",
+    statusUnreadable: "文件不可读：{message}",
+    statusExternal: "外部链接，跳过：{url}",
+    statusUnknown: "未知状态",
+    kinds: {
+      wikiLink: "Wikilink",
+      wikiEmbed: "嵌入",
+      markdownLink: "Markdown 链接",
+      markdownImage: "Markdown 图片",
+      unknown: "未知类型",
+    },
   },
   tagInput: {
     removeTag: "移除标签 {tag}",

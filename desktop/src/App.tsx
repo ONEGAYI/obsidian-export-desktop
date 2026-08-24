@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   CheckIcon,
@@ -32,6 +32,12 @@ import {
 import { ExportDialog } from "@/components/ExportDialog";
 import { ExportRunView } from "@/components/ExportRunView";
 import { ExportResultView } from "@/components/ExportResultView";
+import {
+  EMPTY_LINK_CHECK,
+  LinkCheckPanel,
+  foldCheckEvent,
+  type LinkCheckState,
+} from "@/components/LinkCheckPanel";
 import { OptionsView } from "@/components/OptionsView";
 import { PathPicker } from "@/components/PathPicker";
 import { fmt, LANGUAGE_ORDER, useI18n } from "@/i18n";
@@ -47,9 +53,12 @@ import {
   baseName,
   cancelExport,
   checkSidecar,
+  onCheckEvent,
+  onCheckExit,
   onSidecarError,
   onSidecarEvent,
   onSidecarExit,
+  startCheck,
   startExport,
 } from "@/lib/sidecar";
 import { THEME_ORDER, useTheme, type ThemePreference } from "@/lib/theme";
@@ -269,6 +278,13 @@ export default function App() {
   const [cancelled, setCancelled] = useState(false);
   const [sidecarBanner, setSidecarBanner] = useState<string | null>(null);
   const [sidecarError, setSidecarError] = useState<string | null>(null);
+  const [check, setCheck] = useState<LinkCheckState>(EMPTY_LINK_CHECK);
+  // The sidecar-exit listener below is subscribed once per language change,
+  // so the trigger data it needs (latest options, last run's paths) travels
+  // through refs instead of stale closures.
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const lastRunRef = useRef<{ source: string; target: string } | null>(null);
 
   useEffect(() => {
     checkSidecar()
@@ -286,7 +302,39 @@ export default function App() {
       onSidecarExit((payload) => {
         setExit(payload);
         setPhase("result");
+        // A healthy export kicks off the automatic link check configured in
+        // the options. The check runs against the vault source (pre-export,
+        // wikilinks intact) or the exported tree (post-export markdown).
+        const current = optionsRef.current;
+        if (payload.code === 0 && current.linkCheckEnabled) {
+          const run = lastRunRef.current;
+          if (run) {
+            const root =
+              current.linkCheckTarget === "destination"
+                ? run.target
+                : run.source;
+            setCheck({ ...EMPTY_LINK_CHECK, phase: "running" });
+            startCheck(root, current, current.linkCheckTarget).catch((err) =>
+              setCheck((s) => ({
+                ...s,
+                phase: "failed",
+                invokeError: String(err),
+              })),
+            );
+          }
+        }
       }),
+      onCheckEvent((event) => setCheck((s) => foldCheckEvent(s, event))),
+      onCheckExit((payload) =>
+        // Exit 1 covers "broken links found" (a completed run, the end event
+        // is present) and "the check itself failed" (no end event); the two
+        // are told apart by the end summary, not the code.
+        setCheck((s) =>
+          s.phase === "running"
+            ? { ...s, exit: payload, phase: s.end ? "done" : "failed" }
+            : s,
+        ),
+      ),
       onSidecarError((message) =>
         setProgress((p) => ({
           ...p,
@@ -363,9 +411,11 @@ export default function App() {
     setProgress(EMPTY_PROGRESS);
     setExit(null);
     setCancelled(false);
+    setCheck(EMPTY_LINK_CHECK);
     setPhase("running");
     try {
-      await startExport(source, destination, keepRootFolder, options);
+      const target = await startExport(source, destination, keepRootFolder, options);
+      lastRunRef.current = { source, target };
     } catch (err) {
       setExit({ code: null, stderr: String(err) });
       setPhase("result");
@@ -378,10 +428,13 @@ export default function App() {
   }, []);
 
   const handleReset = useCallback(() => {
+    // No-ops when nothing runs; kills a still-running link check otherwise.
+    void cancelExport();
     setPhase("setup");
     setProgress(EMPTY_PROGRESS);
     setExit(null);
     setCancelled(false);
+    setCheck(EMPTY_LINK_CHECK);
   }, []);
 
   const canExport = source !== "" && destination !== "" && !sidecarError;
@@ -425,7 +478,11 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-xl flex-1 flex-col overflow-y-auto p-4">
+      <main
+        className={`mx-auto flex w-full flex-1 flex-col overflow-y-auto p-4 ${
+          phase === "setup" && view === "options" ? "max-w-2xl" : "max-w-xl"
+        }`}
+      >
         <div className="m-auto flex w-full flex-col gap-4">
             {sidecarError && (
             <Card className="border-destructive">
@@ -505,12 +562,15 @@ export default function App() {
           )}
 
           {phase === "result" && (
-            <ExportResultView
-              progress={progress}
-              exit={exit}
-              cancelled={cancelled}
-              onRestart={handleReset}
-            />
+            <>
+              <ExportResultView
+                progress={progress}
+                exit={exit}
+                cancelled={cancelled}
+                onRestart={handleReset}
+              />
+              {check.phase !== "idle" && <LinkCheckPanel state={check} />}
+            </>
           )}
         </div>
       </main>

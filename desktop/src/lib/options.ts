@@ -4,6 +4,8 @@ import { baseName } from "@/lib/sidecar";
 /** Mirrors ExportOptions in desktop/src-tauri/src/sidecar.rs (camelCase JSON). */
 export type FrontmatterStrategy = "auto" | "always" | "never";
 export type MissingSectionStrategy = "skip" | "embed-full" | "fail";
+/** Which tree the post-export link check walks; GUI-only, never a CLI flag. */
+export type LinkCheckTarget = "source" | "destination";
 
 export interface ExportOptions {
   /** Absolute sub-path of the vault; `null` exports everything. */
@@ -20,6 +22,9 @@ export interface ExportOptions {
   missingSection: MissingSectionStrategy;
   failFast: boolean;
   hardLinebreaks: boolean;
+  /** Run the link checker automatically after a successful export. */
+  linkCheckEnabled: boolean;
+  linkCheckTarget: LinkCheckTarget;
 }
 
 export const DEFAULT_OPTIONS: ExportOptions = {
@@ -35,10 +40,13 @@ export const DEFAULT_OPTIONS: ExportOptions = {
   missingSection: "skip",
   failFast: false,
   hardLinebreaks: false,
+  linkCheckEnabled: false,
+  linkCheckTarget: "source",
 };
 
 // Legal values for the string-enum options; the user-facing labels live in
-// the i18n dictionaries (options.frontmatterChoices / missingSectionChoices).
+// the i18n dictionaries (options.frontmatterChoices / missingSectionChoices /
+// linkCheckTargetChoices).
 export const FRONTMATTER_VALUES: readonly FrontmatterStrategy[] = [
   "auto",
   "always",
@@ -49,6 +57,11 @@ export const MISSING_SECTION_VALUES: readonly MissingSectionStrategy[] = [
   "skip",
   "embed-full",
   "fail",
+];
+
+export const LINK_CHECK_TARGET_VALUES: readonly LinkCheckTarget[] = [
+  "source",
+  "destination",
 ];
 
 const OPTIONS_KEY = "obsidian-export-options";
@@ -104,6 +117,12 @@ function sanitizeOptions(raw: unknown): ExportOptions {
     missingSection: oneOf(value.missingSection, MISSING_SECTION_VALUES, "skip"),
     failFast: bool(value.failFast),
     hardLinebreaks: bool(value.hardLinebreaks),
+    linkCheckEnabled: bool(value.linkCheckEnabled),
+    linkCheckTarget: oneOf(
+      value.linkCheckTarget,
+      LINK_CHECK_TARGET_VALUES,
+      "source",
+    ),
   };
 }
 
@@ -199,6 +218,13 @@ export function summarizeOptions(options: ExportOptions, t: Dict): string[] {
   }
   if (options.hardLinebreaks) {
     items.push(t.options.summary.hardLinebreaks);
+  }
+  if (options.linkCheckEnabled) {
+    items.push(
+      fmt(t, "linkCheck", {
+        target: t.options.linkCheckTargetChoices[options.linkCheckTarget].label,
+      }),
+    );
   }
   return items;
 }
