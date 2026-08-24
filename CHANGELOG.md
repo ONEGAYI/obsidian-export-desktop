@@ -2,6 +2,61 @@
 
 <!-- towncrier release notes start -->
 
+## [26.8.4](https://github.com/zoni/obsidian-export/tree/26.8.4) - 2026-08-24
+
+This release wires the link checker into the desktop app — an automatic check after export (against the vault source or the exported tree) plus a paginated settings view — adds the machine-readable `check --progress json` event stream, and fixes accessibility labeling for settings switches, filter tabs, and inputs.
+
+### New Features
+
+- Desktop: automatic link check after export + paginated settings
+
+  The desktop app can now run the link checker automatically after a
+  successful export. A new "Link Check" settings page toggles it and picks
+  the check target: the vault source (default — catches dead wikilinks,
+  embeds, and plain links before conversion) or the exported tree (verifies
+  the generated Markdown links and anchors; broken wikilinks have already
+  collapsed to plain text there). Checking the vault source reuses the
+  export's filter options so the checked file set matches the exported one.
+
+  The report panel shows the run summary (files, links, broken, skipped)
+  with filter tabs (broken by default, all, skipped); verdicts are rendered
+  from the structured payloads and localized, while paths and raw link text
+  stay verbatim. A check can be cancelled by going back to the main view.
+
+  The settings view itself was rebuilt as a paginated layout (side
+  navigation: Conversion / Content Filtering / Files & Process / Link
+  Check), collapsing to horizontal tabs on narrow windows.
+
+- `check --progress json`: machine-readable link-check event stream
+
+  The `check` subcommand now accepts `--progress json`, emitting the same
+  JSON Lines dialect family as exports: a `schema` header (shared version
+  constant), `check-start`, one `link-report` per link with fully structured
+  payloads (`source`, `line`, `raw`, `kind`, and a `status` object whose
+  variants carry the target/section/block names), and a `check-end` summary
+  (`filesChecked`, `totalLinks`, `broken`, `skipped`). Consumers no longer
+  parse the human-readable verdict lines. The termination protocol mirrors
+  exports (a run that fails after the schema line emits no `check-end`; the
+  reason stays on stderr), exit codes stay 0/1/2, and the plain-text mode is
+  unchanged.
+
+### Fixes
+
+- Desktop: settings switches and filter tabs are now fully labeled for screen readers and accessibility trees
+
+  The settings switches (hard line breaks, hidden files, link check, …)
+  exposed no accessible name at all and appeared as anonymous buttons in
+  accessibility trees. Their accessible name now carries the row title plus
+  the current state ("Hard line breaks (on)"): tree-based tooling typically
+  does not render the toggle state, so without the state in the name a click
+  left the observed tree completely unchanged. Screen readers will announce
+  the state twice (name and toggle state) — an accepted trade-off for
+  walk-through tooling. Additionally, the link-check report's filter tabs
+  now expose their pressed state (`aria-pressed`), path inputs are named by
+  their field label instead of falling back to the placeholder, and the
+  radio groups carry their group label.
+
+
 ## [26.8.3](https://github.com/zoni/obsidian-export/tree/26.8.3) - 2026-08-24
 
 This release adds a link-integrity checker (`obsidian-export check`) that verifies every wikilink and Markdown link in a vault — file existence, anchor/block resolution, and out-of-root escapes — and aligns generated section anchors exactly with what GitHub and VS Code produce, fixing links to headings that contain fullwidth punctuation.

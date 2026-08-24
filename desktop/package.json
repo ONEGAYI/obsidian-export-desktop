@@ -1,7 +1,7 @@
 {
   "name": "obsidian-export-desktop",
   "private": true,
-  "version": "26.8.3",
+  "version": "26.8.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
