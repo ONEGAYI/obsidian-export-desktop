@@ -38,7 +38,8 @@
 
 - [x] 桌面端技术栈：**Tauri 2 + React/TypeScript**（跨平台、轻量、Obsidian 风格 UI）。UI 主题复刻 Obsidian 变量命名与色板（明暗双主题，默认暗色）；`--missing-section` 放导出前确认选单并持久化选择。
 - [x] 桌面端完整选项面板：独立设置视图（`OptionsView`）暴露全部 CLI 选项，按「转换行为 / 内容过滤 / 文件与过程」分组；选项持久化于 localStorage（`obsidian-export-options`），Rust 侧 `build_args` 仅将非默认值传给边车（默认值语义始终以 CLI 为准）。
-- [ ] 桌面端后续迭代：打包分发流水线（`tauri build`，与 cargo-dist 互不干扰）、自动更新、**导出后自动链接检查**（GUI 可配置开关：导出完成后对导出文件夹跑 `check` 子命令并展示逐条报告；core 能力已就绪，见 `src/linkcheck.rs`，GUI 适配需为 check 结果设计事件流或复用 stdout 解析）。
+- [x] 导出后自动链接检查：已完成——check 子命令支持 `--progress json`（独立 check 事件方言、共享 schema 版本常量，契约见 `docs/sidecar-events.md` 的 check 章节）；桌面端 `start_check` 编排复用导出的 child 槽（同时仅一个边车进程），导出成功（exit 0）且开关开启时由前端自动触发；开关与检查目标（默认 vault 源，可选导出产物——两者语义不等价：死链 wikilink 导出后已塌缩为纯文本，查产物抓不到）持久化为 GUI 偏好字段（`linkCheckEnabled`/`linkCheckTarget`），不进 build_args；`LinkCheckPanel` 展示逐条报告（结构化判定本地化 + 筛选页签 + 渲染上限兜底）。
+- [ ] 桌面端后续迭代：打包分发流水线（`tauri build`，与 cargo-dist 互不干扰）、自动更新。
 - [x] 块引用内容提取增强：已完成——`![[note#^block-id]]` 真实定位标记块（reduce_to_block：行尾 id 标记所在段落/列表项/引用块，独立行 id 标记上方紧邻块，嵌入副本剥离 id 标记），未命中回退 `--missing-section` 三策略；同文件嵌入（`![[#Heading]]` / `![[#^id]]`）一并支持，防环靠「嵌入副本剥离 id」天然终止 + 嵌入公共入口的深度限制兜底。
 - [x] 嵌入展开与 section 切分的顺序重排：已完成——parse_raw_note（raw 事件收集 + 引用规范化为五事件形态）与 expand_references（引用展开）两阶段拆分，section 切分在目标文件自己的事件流上进行后再展开内层嵌入；embed_postprocessors「看到合并嵌入后内容」的契约保持。
 - [x] wikilink 格式标记与容器内标题的既有解析边界：已完成——引用文本在 raw 层以 source offset 切片保留原拼写（`__dunder__` 不再突变为 `**dunder**`，锚点/文件查找/section 匹配三处下游一致）；reduce_to_section 维护容器配对栈，blockquote（含 callout）内标题切分后事件流保持平衡。
@@ -64,7 +65,8 @@
 - 前端：Tailwind v4 + 手搭 shadcn 层（shadcn CLI 与当前 Node 生态冲突，组件手写在 `src/components/ui/`；CLI 修复后可迁移）。主题三态（light/dark/system，`src/lib/theme.ts`）；用户偏好存 localStorage：路径记忆、「保留根文件夹」（`obsidian-export-*` 逐项键）与转换选项（`obsidian-export-options` 单键 JSON，见 `src/lib/options.ts`）。
 - i18n：界面文案抽离为字典（`src/i18n/`，zh 为结构基准、`Widen` 宽化出 `Dict` 类型锁两份字典键一致），运行时经项目首个 React Context（`I18nProvider`）分发；语言三态 zh/en/system（跟随系统按 `navigator.languages` 是否含 zh 前缀判定），偏好存 `obsidian-export-language`，生效语言同步 `document.documentElement.lang`；标题栏下拉（`LanguageMenu`，radix dropdown-menu）三态互转。Rust/CLI 侧英文技术错误原文透传，不进字典。
 - 版本号统一由 `just set-version X.Y.Z` 控制：一次对齐六处——根 crate（`Cargo.toml` + `Cargo.lock`）与桌面端三处（`desktop/package.json`、`desktop/src-tauri/tauri.conf.json`、`desktop/src-tauri/Cargo.toml` + 其 `Cargo.lock`），避免安装包文件名与 release 版本错位（26.8.2 起对齐）。`make-new-release` 已接入该目标。依赖 cargo-edit（仓库工具链锁 1.87 而 cargo-edit 0.13.13 要求 1.92，**须在仓库外目录用 stable 工具链安装 0.13.10**：`rustup run stable cargo install cargo-edit --version 0.13.10 --locked`）；`cargo set-version` 拒绝降级（发布防呆，误 bump 的还原属手动操作）。桌面端 lock 由脚本 sed 直接修补——桌面 workspace 的 build script 依赖已同步的 sidecar 二进制，`cargo check` 在 clean 后不可用。
-- 事件流消费遵守 `docs/sidecar-events.md` 契约；schema 版本常量在 `desktop/src-tauri/src/events.rs` 与 CLI 的 `main.rs` 各有一份，升级时同步改。
+- 事件流消费遵守 `docs/sidecar-events.md` 契约（导出与 check 两种事件方言）；schema 版本常量在 `desktop/src-tauri/src/events.rs` 与 CLI 的 `main.rs` 各有一份，升级时同步改。
+- 设置视图为分页式（`OptionsView`：左侧导航四页「转换行为 / 内容过滤 / 文件与过程 / 链接检查」，窄窗降级横排页签）。链接检查：导出成功且开关开启时前端自动 invoke `start_check`，检查 vault 源时由 Rust 侧 `build_check_args` 转发与导出一致的过滤项（检查集=导出集），检查产物时不传过滤；check 与导出共用 child 槽，`cancel_export` 通杀，`start_export` 返回实际落点供「检查产物」定位。
 
 ## 文件树
 
@@ -82,9 +84,10 @@ obsidian-export/
 ├── tests/               # 集成测试：export_test（导出行为）、cli_test（CLI 契约）、postprocessors_test
 ├── tests/testdata/      # 测试 vault fixtures（section-variants、image-size 等按场景分组）
 ├── desktop/             # Tauri 2 桌面端（前端 React/TS + src-tauri Rust 后端，独立 workspace）
+│   ├── src/components/  # 视图组件：OptionsView（分页式设置）、ExportRunView/ExportResultView（进度与结果）、LinkCheckPanel（链接检查报告）等
 │   └── src-tauri/
-│       ├── src/events.rs  # sidecar JSON Lines 事件解析（schema v1，单元测试锁定）
-│       ├── src/sidecar.rs # 边车编排：版本握手 / spawn / 事件转发 / 取消 / 导出落点解析 / CLI 选项参数构建（build_args 仅传非默认值）
+│       ├── src/events.rs  # sidecar JSON Lines 事件解析（schema v1，导出与 check 两种方言，单元测试锁定）
+│       ├── src/sidecar.rs # 边车编排：版本握手 / spawn / 事件转发（共享 pump）/ 取消 / 导出落点解析 / start_check 链接检查 / 参数构建（build_args·build_check_args 仅传非默认值）
 │       ├── icons/         # Tauri 全平台应用图标及 1024px 透明主图
 │       └── binaries/      # sidecar 二进制（just 同步，不入库）
 ├── docs/                # 项目文档：sidecar-events.md（事件契约）、BUILD.md（构建指南）、desktop.md（README 的桌面端章节）
