@@ -496,3 +496,64 @@ fn non_utf8_arguments_exit_cleanly_instead_of_panicking() {
     assert_eq!(output.status.code(), Some(1_i32));
     assert!(String::from_utf8_lossy(&output.stderr).contains("Error:"));
 }
+
+#[test]
+fn check_reports_per_link_verdicts_and_exit_code() {
+    // main-samples contains deliberately broken links (a missing note, a
+    // missing block id, a missing markdown target): the per-link report
+    // must name each one, and any broken link exits 1.
+    let out = run_cli(&["check", "tests/testdata/input/main-samples"]);
+    assert_eq!(out.code, Some(1_i32));
+    assert!(
+        out.stdout
+            .contains("embeds.md:7: broken: file not found 'non-existing note'"),
+        "missing-note verdict reported per link, got: {:?}",
+        out.stdout
+    );
+    assert!(
+        out.stdout
+            .contains("broken: block 'abc' not found in 'foo.md'"),
+        "missing block verdict reported per link, got: {:?}",
+        out.stdout
+    );
+    assert!(
+        out.stdout.contains("35 link(s) found, 6 broken"),
+        "summary counts, got: {:?}",
+        out.stdout
+    );
+}
+
+#[test]
+fn check_exits_zero_when_nothing_is_broken() {
+    let out = run_cli(&["check", "tests/testdata/input/chinese-anchor"]);
+    assert_eq!(out.code, Some(0_i32));
+    assert!(
+        out.stdout.contains("0 broken"),
+        "healthy vault reports zero broken links, got: {:?}",
+        out.stdout
+    );
+    assert!(
+        out.stdout
+            .contains("note.md:5: ok [target#总纲：三份形态，两个断口]"),
+        "ok verdicts are listed per link too, got: {:?}",
+        out.stdout
+    );
+}
+
+#[test]
+fn check_without_source_is_a_usage_error() {
+    let out = run_cli(&["check"]);
+    assert_eq!(out.code, Some(2_i32));
+    assert!(
+        out.stderr.contains("Error:"),
+        "usage error goes to stderr with the documented exit code, got: {:?}",
+        out.stderr
+    );
+}
+
+#[test]
+fn check_with_unknown_flag_is_a_usage_error() {
+    let out = run_cli(&["check", "--bogus-flag", "."]);
+    assert_eq!(out.code, Some(2_i32));
+    assert!(out.stderr.contains("Error:"));
+}

@@ -7,6 +7,7 @@ pub use {pulldown_cmark, serde_yaml};
 
 mod context;
 mod frontmatter;
+mod linkcheck;
 pub mod postprocessors;
 mod references;
 mod walker;
@@ -24,6 +25,7 @@ pub use context::Context;
 use filetime::set_file_mtime;
 use frontmatter::{frontmatter_from_str, frontmatter_to_str};
 pub use frontmatter::{Frontmatter, FrontmatterStrategy};
+pub use linkcheck::{CheckSummary, LinkCheckReport, LinkCheckStatus, LinkKind};
 use pathdiff::diff_paths;
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use pulldown_cmark_to_cmark::cmark_with_options;
@@ -787,7 +789,6 @@ impl<'a> Exporter<'a> {
     /// Parse a note into raw markdown events: frontmatter stripped, references
     /// (`[[...]]` / `![[...]]`) left as their literal bracket text events for
     /// [`Exporter::expand_references`] to process in a later pass.
-    ///
     /// Splitting raw parsing from reference expansion is what allows section
     /// cuts to run on a note's own events (see [`Exporter::embed_file`]):
     /// headings pulled in by nested embeds must not terminate an outer
@@ -806,19 +807,29 @@ impl<'a> Exporter<'a> {
     #[allow(clippy::shadow_unrelated)]
     #[allow(clippy::too_many_lines)]
     fn parse_raw_note<'b>(path: &Path) -> Result<(Frontmatter, MarkdownEvents<'b>)> {
+        Self::parse_raw_note_with_refs(path)
+            .map(|(frontmatter, events, _refs)| (frontmatter, events))
+    }
+
+    /// Like [`parse_raw_note`], additionally returning every reference
+    /// recognized during the scan with the byte offset of its verbatim text
+    /// in the source. The link checker uses the offsets to attribute each
+    /// reference to a source line; the export path ignores them.
+    #[allow(clippy::shadow_unrelated)]
+    #[allow(clippy::too_many_lines)]
+    fn parse_raw_note_with_refs<'b>(
+        path: &Path,
+    ) -> Result<(Frontmatter, MarkdownEvents<'b>, Vec<RawNoteRef>)> {
         let content = fs::read_to_string(path).context(ReadSnafu { path })?;
         let mut frontmatter = String::new();
 
-        let parser_options = Options::ENABLE_TABLES
-            | Options::ENABLE_FOOTNOTES
-            | Options::ENABLE_STRIKETHROUGH
-            | Options::ENABLE_TASKLISTS
-            | Options::ENABLE_MATH
-            | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
-            | Options::ENABLE_GFM;
+        let parser_options = markdown_parser_options();
 
         let mut events: MarkdownEvents<'b> = vec![];
         let mut ref_parser = RefParser::new();
+        // References recognized so far, in source order, for callers (the
+        // link checker) that need the verbatim text plus source offsets.
+        let mut refs: Vec<RawNoteRef> = vec![];
         // Events of the reference currently being scanned, flushed verbatim
         // when the scan resets, or collapsed into the canonical form once the
         // reference completes.
@@ -923,6 +934,13 @@ impl<'a> Exporter<'a> {
                                 .expect("reference offsets are inside the source"),
                             _ => "",
                         };
+                        if let Some(start) = ref_start {
+                            refs.push(RawNoteRef {
+                                embed: matches!(ref_parser.ref_type, Some(RefType::Embed)),
+                                text: literal.to_owned(),
+                                start,
+                            });
+                        }
                         for text in [opener, "[", literal, "]", "]"] {
                             events.push(Event::Text(CowStr::from(text.to_owned())));
                         }
@@ -946,6 +964,7 @@ impl<'a> Exporter<'a> {
         Ok((
             frontmatter_from_str(&frontmatter).context(FrontMatterDecodeSnafu { path })?,
             events,
+            refs,
         ))
     }
 
@@ -1695,6 +1714,28 @@ const fn block_container_end(tag: &Tag<'_>) -> Option<TagEnd> {
         Tag::FootnoteDefinition(_) => Some(TagEnd::FootnoteDefinition),
         _ => None,
     }
+}
+
+/// The pulldown-cmark parser flavor used for every note this crate parses.
+/// The link checker reuses the same options so links are recognized with the
+/// same extensions (tables, footnotes, GFM autolinks, …) as during export.
+fn markdown_parser_options() -> Options {
+    Options::ENABLE_TABLES
+        | Options::ENABLE_FOOTNOTES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_MATH
+        | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
+        | Options::ENABLE_GFM
+}
+
+/// A reference (`[[...]]` / `![[...]]`) extracted verbatim from a note by
+/// [`Exporter::parse_raw_note_with_refs`]: the exact reference text plus the
+/// byte offset where that text starts in the source.
+struct RawNoteRef {
+    embed: bool,
+    text: String,
+    start: usize,
 }
 
 /// Aggregate the inline text of a section query the same way heading
