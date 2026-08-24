@@ -2,6 +2,71 @@
 
 <!-- towncrier release notes start -->
 
+## [26.8.3](https://github.com/zoni/obsidian-export/tree/26.8.3) - 2026-08-24
+
+This release adds a link-integrity checker (`obsidian-export check`) that verifies every wikilink and Markdown link in a vault — file existence, anchor/block resolution, and out-of-root escapes — and aligns generated section anchors exactly with what GitHub and VS Code produce, fixing links to headings that contain fullwidth punctuation.
+
+### New Features
+
+- New `check` subcommand and library API for vault link integrity
+
+  `obsidian-export check SOURCE` (and the new `Exporter::check()` library
+  method) walks the same files an export would process and verifies every
+  link without writing anything:
+
+  - Obsidian references (`[[note]]`, `[[note#section]]`, `[[note#^block]]`,
+    embeds included) resolve exactly the way the exporter resolves them;
+  - standard Markdown links/images must point to a file inside the checked
+    root — the root is the export boundary, so links that escape it
+    (`../sibling`, absolute paths, other drives) are reported as broken even
+    when the file exists on disk;
+  - section anchors are validated per target (Obsidian-style matching for
+    wikilinks, GitHub-style slugs for markdown fragments), block ids reuse
+    the exporter's block-locating rules;
+  - external URLs (`https://…`) are skipped and counted separately.
+
+  Output is one line per link, `{source}:{line}: {status} [{raw}]`, plus a
+  summary; the exit code stays within the documented 0/1/2 contract (any
+  broken link exits 1). The desktop app can later run this automatically
+  after an export (configuration point pending).
+
+  Note for scripts: a leading `check` argument is now always treated as the
+  subcommand. Exporting from a vault folder that happens to be named `check`
+  now requires spelling it `./check`; the CLI prints a warning when it
+  detects that situation.
+
+  ([#link-check](https://github.com/zoni/obsidian-export/issues/link-check))
+
+### Fixes
+
+- NSIS installer now shows the app icon explicitly
+
+  The Windows NSIS setup wizard no longer falls back to a generic executable
+  icon; the installer configuration now sets the application icon explicitly,
+  so shortcuts and Add/Remove Programs entries pick up the Obsidian Export
+  icon. ([#nsis-icon](https://github.com/zoni/obsidian-export/issues/nsis-icon))
+- Section anchors now match exactly what GitHub and VS Code generate for a heading
+
+  Anchors are now produced with the `github-slugger` crate instead of a hand-rolled
+  slug function, fixing four divergences from GitHub/VS Code behavior (vectors for
+  the new behavior were captured from live GitHub rendering):
+
+  - Fullwidth punctuation such as `：` and `，` is now stripped. Previously it was
+    kept verbatim in the anchor, so links like `[[note#总纲：三份形态，两个断口]]`
+    produced `#总纲：三份形态，两个断口`, which resolves on neither GitHub nor VS
+    Code (both generate `#总纲三份形态两个断口`).
+  - Punctuation no longer leaves a hyphen behind. Numbered headings such as
+    `1.1.1 C` (see the upstream issue this closes for the "Number Headings"
+    plugin use case) now produce `#111-c` instead of the broken `#1-1-1-c`.
+  - Runs of consecutive hyphens are kept (`this--or-that` stays `this--or-that`).
+  - Leading/trailing hyphens are no longer trimmed.
+
+  Link display text is unchanged; only the `#anchor` part of generated links is
+  affected.
+
+  ([#370](https://github.com/zoni/obsidian-export/issues/370))
+
+
 ## [26.8.2](https://github.com/zoni/obsidian-export/tree/26.8.2) - 2026-08-22
 
 This release makes the desktop app bilingual — every UI string moved into i18n dictionaries with an English translation alongside the original Chinese, switched through a title-bar language menu (Chinese / English / follow system) — and restores section references to headings that contain wikilinks: `![[note#mid]]` embeds a `## [[mid]]` heading again.
