@@ -238,6 +238,19 @@ pub enum ExportError {
     /// This occurs when one or more files failed to export and [`Exporter::fail_fast`]
     /// is disabled (the default). All other files will have been exported.
     ExportCompletedWithErrors { errors: Vec<FailedFile> },
+
+    #[snafu(display(
+        "failed to resolve the canonical path of '{}': {}",
+        path.display(),
+        source
+    ))]
+    /// This occurs when the filesystem cannot produce an absolute,
+    /// normalized form of a path (e.g. permission issues, or a path that
+    /// disappeared between validation and use).
+    CanonicalizeError {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 /// A single failed file, as reported by [`ExportError::ExportCompletedWithErrors`].
@@ -786,13 +799,6 @@ impl<'a> Exporter<'a> {
         Ok((frontmatter, events))
     }
 
-    /// Parse a note into raw markdown events: frontmatter stripped, references
-    /// (`[[...]]` / `![[...]]`) left as their literal bracket text events for
-    /// [`Exporter::expand_references`] to process in a later pass.
-    /// Splitting raw parsing from reference expansion is what allows section
-    /// cuts to run on a note's own events (see [`Exporter::embed_file`]):
-    /// headings pulled in by nested embeds must not terminate an outer
-    /// section cut.
     /// Parse a note into raw markdown events: frontmatter stripped, references
     /// (`[[...]]` / `![[...]]`) normalized to a canonical five-event form
     /// (`![`/`[`, `[`, single text event, `]`, `]`) with the reference text

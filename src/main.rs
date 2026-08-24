@@ -126,6 +126,9 @@ struct CheckOpts {
     #[options(help = "Display program help")]
     help: bool,
 
+    #[options(help = "Display version information")]
+    version: bool,
+
     #[options(
         help = "Check all links in this vault (a folder of notes)",
         free,
@@ -191,8 +194,27 @@ fn main() {
     // The `check` subcommand is dispatched manually: gumdrop forbids a
     // `command` field in a struct that also has `free` positional arguments,
     // so matching the leading keyword ourselves is the equivalent shape.
+    // When a folder named "check" exists in the working directory, the old
+    // export spelling `obsidian-export check DEST` is shadowed; warn so the
+    // migration path (./check) is discoverable.
     if argv.first().is_some_and(|arg| arg == "check") {
+        if std::path::Path::new("check").is_dir() {
+            eprintln!(
+                "Warning: 'check' was interpreted as the link-check subcommand, but a \
+                 directory named 'check' exists here. To export from it, use './check' \
+                 as the source instead."
+            );
+        }
         let rest = argv.get(1..).unwrap_or(&[]);
+        // Same first-position special case as the main command: version must
+        // work without the required free argument present.
+        if rest
+            .first()
+            .is_some_and(|arg| arg == "-v" || arg == "--version")
+        {
+            print_line(&format!("obsidian-export {VERSION}"));
+            std::process::exit(0);
+        }
         let check = CheckOpts::parse_args_default(rest).unwrap_or_else(|err| {
             eprintln!("Error: {err}\n\n{}", CheckOpts::usage());
             std::process::exit(2);
@@ -286,6 +308,10 @@ fn run_check(opts: CheckOpts) -> ! {
             "Usage: obsidian-export check [OPTIONS] SOURCE\n\n{}",
             CheckOpts::usage()
         ));
+        std::process::exit(0);
+    }
+    if opts.version {
+        print_line(&format!("obsidian-export {VERSION}"));
         std::process::exit(0);
     }
 

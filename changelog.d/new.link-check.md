@@ -19,3 +19,8 @@ Output is one line per link, `{source}:{line}: {status} [{raw}]`, plus a
 summary; the exit code stays within the documented 0/1/2 contract (any
 broken link exits 1). The desktop app can later run this automatically
 after an export (configuration point pending).
+
+Note for scripts: a leading `check` argument is now always treated as the
+subcommand. Exporting from a vault folder that happens to be named `check`
+now requires spelling it `./check`; the CLI prints a warning when it
+detects that situation.
