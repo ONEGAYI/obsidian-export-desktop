@@ -597,3 +597,108 @@ fn check_keyword_shadowing_a_directory_prints_a_warning() {
     );
     assert!(stderr.contains("./check"), "hint mentions ./check");
 }
+
+#[test]
+fn check_progress_json_emits_event_stream() {
+    // The desktop app drives check through the same JSON Lines contract as
+    // exports: a schema header first, one event per link with structured
+    // payloads, and a summary end event last. The verdict counts must match
+    // the human-readable format (see check_reports_per_link_verdicts_...).
+    let out = run_cli(&[
+        "check",
+        "--progress",
+        "json",
+        "tests/testdata/input/main-samples",
+    ]);
+    assert_eq!(out.code, Some(1_i32), "broken links keep the exit contract");
+
+    let events = parse_json_lines(&out.stdout);
+    assert_eq!(events[0]["type"], "schema", "schema line comes first");
+    assert_eq!(events[0]["version"], 1);
+    assert_eq!(events[1]["type"], "check-start");
+    assert_eq!(events[1]["files"], 19, "file count, got: {:?}", events[1]);
+
+    let end = events.last().expect("non-empty output");
+    assert_eq!(end["type"], "check-end", "check-end comes last");
+    assert_eq!(end["filesChecked"], 19);
+    assert_eq!(end["totalLinks"], 35);
+    assert_eq!(end["broken"], 6);
+
+    let reports: Vec<&Value> = events
+        .iter()
+        .filter(|event| event["type"] == "link-report")
+        .collect();
+    assert_eq!(reports.len(), 35, "one report event per link");
+
+    // A broken embed carries its verdict as structured data instead of the
+    // formatted text line, so consumers never parse English prose.
+    assert!(
+        reports.iter().any(|report| report["status"]["type"] == "missing-file"
+            && report["source"] == "embeds.md"
+            && report["line"] == 7
+            && report["kind"] == "wiki-embed"
+            && report["raw"] == "![[non-existing note]]"
+            && report["status"]["target"] == "non-existing note"),
+        "missing-file verdict with structured payload, got: {:?}",
+        reports
+    );
+
+    // Every report carries the full field set, whatever the verdict.
+    for report in &reports {
+        assert!(report["source"].is_string(), "source, got: {report}");
+        assert!(report["line"].is_u64(), "line, got: {report}");
+        assert!(report["raw"].is_string(), "raw, got: {report}");
+        assert!(report["kind"].is_string(), "kind, got: {report}");
+        assert!(
+            report["status"]["type"].is_string(),
+            "status type, got: {report}"
+        );
+    }
+}
+
+#[test]
+fn check_progress_json_healthy_vault_exits_zero() {
+    let out = run_cli(&[
+        "check",
+        "--progress",
+        "json",
+        "tests/testdata/input/chinese-anchor",
+    ]);
+    assert_eq!(out.code, Some(0_i32));
+    let events = parse_json_lines(&out.stdout);
+    assert_eq!(events[0]["type"], "schema");
+    let end = events.last().expect("non-empty output");
+    assert_eq!(end["type"], "check-end");
+    assert_eq!(end["broken"], 0);
+
+    // Ok verdicts are reported too, with unicode anchors intact.
+    assert!(
+        events.iter().any(|event| event["type"] == "link-report"
+            && event["status"]["type"] == "ok"
+            && event["source"] == "note.md"
+            && event["raw"] == "target#总纲：三份形态，两个断口"),
+        "ok verdict with the unicode anchor, got: {:?}",
+        events
+    );
+}
+
+#[test]
+fn check_progress_json_failure_reports_on_stderr_without_end() {
+    // Same termination protocol as exports: a run that fails after the
+    // schema line emits no check-end, and the reason stays on stderr.
+    let out = run_cli(&["check", "--progress", "json", "no-such-vault"]);
+    assert_eq!(out.code, Some(1_i32));
+    assert!(
+        out.stderr.contains("Error:"),
+        "run error stays human-readable on stderr, got: {:?}",
+        out.stderr
+    );
+    let events = parse_json_lines(&out.stdout);
+    assert_eq!(
+        events.len(),
+        1,
+        "only the schema line, no check-end on failure, got: {:?}",
+        events
+    );
+    assert_eq!(events[0]["type"], "schema");
+}
