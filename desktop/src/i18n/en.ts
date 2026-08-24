@@ -199,7 +199,9 @@ export const en: Dict = {
     titleClean: "Link check: all good",
     titleBroken: "Link check: {n} broken",
     titleFailed: "Link check could not finish",
-    failedHint: "The event stream ended abnormally; see the sidecar output below.",
+    failedHint: "The event stream ended abnormally.",
+    exitCode: "Exit code {code}",
+    cancel: "Cancel Check",
     summary:
       "{files} files · {links} links · {broken} broken · {skipped} skipped (external)",
     filter: {

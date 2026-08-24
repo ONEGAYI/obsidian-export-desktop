@@ -19,6 +19,7 @@ pub const EVENT_SIDECAR_EVENT: &str = "sidecar-event";
 pub const EVENT_SIDECAR_ERROR: &str = "sidecar-error";
 pub const EVENT_SIDECAR_EXIT: &str = "sidecar-exit";
 pub const EVENT_CHECK_EVENT: &str = "check-event";
+pub const EVENT_CHECK_ERROR: &str = "check-error";
 pub const EVENT_CHECK_EXIT: &str = "check-exit";
 
 /// Handle of a running export, if any.
@@ -211,11 +212,17 @@ fn build_args(options: &ExportOptions, source: &str, target: &str) -> Vec<String
 
 /// Build the sidecar argv for `obsidian-export check`.
 ///
-/// Filter flags (`--start-at`, `--ignore-file`, `--hidden`, `--no-git`) are
-/// only passed when checking the vault source, so the checked file set
-/// matches the exported one. The exported output is already filtered and
-/// holds plain markdown links, so re-applying vault filters could only
-/// exclude files wrongly.
+/// Checking the vault source forwards the non-default filter flags
+/// (`--start-at`, `--ignore-file`, `--hidden`, `--no-git`) so the checked
+/// walk set matches the exported one (tag post-processing is export-only and
+/// deliberately not part of check).
+///
+/// Checking the exported output re-applies no vault filters (the tree is
+/// already filtered), but the CLI's *defaults* are themselves filters:
+/// `honor_gitignore` would silently exclude an output folder living inside
+/// a git repository, and `ignore_hidden` would miss dot-files that the
+/// export produced under `--hidden`. So `--no-git` is always passed and
+/// `--hidden` mirrors the export's setting.
 fn build_check_args(
     options: &ExportOptions,
     target: LinkCheckTarget,
@@ -226,25 +233,33 @@ fn build_check_args(
         "--progress".to_owned(),
         "json".to_owned(),
     ];
-    if target == LinkCheckTarget::Source {
-        if let Some(start_at) = options
-            .start_at
-            .as_deref()
-            .filter(|s| !s.trim().is_empty())
-        {
-            args.extend(["--start-at".to_owned(), start_at.to_owned()]);
+    match target {
+        LinkCheckTarget::Source => {
+            if let Some(start_at) = options
+                .start_at
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+            {
+                args.extend(["--start-at".to_owned(), start_at.to_owned()]);
+            }
+            if let Some(ignore_file) = options
+                .ignore_file
+                .as_deref()
+                .filter(|s| !s.trim().is_empty())
+            {
+                args.extend(["--ignore-file".to_owned(), ignore_file.to_owned()]);
+            }
+            if options.hidden {
+                args.push("--hidden".to_owned());
+            }
+            if options.no_git {
+                args.push("--no-git".to_owned());
+            }
         }
-        if let Some(ignore_file) = options
-            .ignore_file
-            .as_deref()
-            .filter(|s| !s.trim().is_empty())
-        {
-            args.extend(["--ignore-file".to_owned(), ignore_file.to_owned()]);
-        }
-        if options.hidden {
-            args.push("--hidden".to_owned());
-        }
-        if options.no_git {
+        LinkCheckTarget::Destination => {
+            if options.hidden {
+                args.push("--hidden".to_owned());
+            }
             args.push("--no-git".to_owned());
         }
     }
@@ -372,6 +387,16 @@ impl StreamDialect {
         }
     }
 
+    /// Parse errors and sidecar IO errors go to the dialect's own channel so
+    /// the frontend can surface them next to the stream they belong to
+    /// (check runs while the export log view is gone).
+    fn error_channel(self) -> &'static str {
+        match self {
+            Self::Export => EVENT_SIDECAR_ERROR,
+            Self::Check => EVENT_CHECK_ERROR,
+        }
+    }
+
     /// Parse one stdout line into a forwardable event; `None` for blank or
     /// unknown event types (a newer sidecar may add kinds; skipping them
     /// keeps older app builds usable), an error for malformed lines or an
@@ -408,21 +433,26 @@ async fn pump_sidecar(
     mut rx: tauri::async_runtime::Receiver<CommandEvent>,
     dialect: StreamDialect,
 ) {
-    let mut stdout_buffer = String::new();
+    // Bytes are buffered until a full line arrives and only then decoded:
+    // chunks may split a multi-byte UTF-8 character in the middle, and
+    // per-chunk lossy decoding would corrupt it into U+FFFD. The CLI always
+    // emits valid UTF-8, so per-line lossy decoding is safe.
+    let mut stdout_buffer: Vec<u8> = Vec::new();
     let mut stderr_text = String::new();
     while let Some(message) = rx.recv().await {
         match message {
             CommandEvent::Stdout(bytes) => {
-                stdout_buffer.push_str(&String::from_utf8_lossy(&bytes));
-                while let Some(pos) = stdout_buffer.find('\n') {
-                    let line: String = stdout_buffer.drain(..=pos).collect();
+                stdout_buffer.extend_from_slice(&bytes);
+                while let Some(pos) = stdout_buffer.iter().position(|&b| b == b'\n') {
+                    let line_bytes: Vec<u8> = stdout_buffer.drain(..=pos).collect();
+                    let line = String::from_utf8_lossy(&line_bytes);
                     match dialect.parse(&line) {
                         Ok(Some(event)) => {
                             let _ = handle.emit(dialect.event_channel(), &event);
                         }
                         Ok(None) => (),
                         Err(err) => {
-                            let _ = handle.emit(EVENT_SIDECAR_ERROR, err);
+                            let _ = handle.emit(dialect.error_channel(), err);
                         }
                     }
                 }
@@ -431,7 +461,10 @@ async fn pump_sidecar(
                 stderr_text.push_str(&String::from_utf8_lossy(&bytes));
             }
             CommandEvent::Error(err) => {
-                let _ = handle.emit(EVENT_SIDECAR_ERROR, format!("sidecar IO error: {err}"));
+                let _ = handle.emit(
+                    dialect.error_channel(),
+                    format!("sidecar IO error: {err}"),
+                );
             }
             CommandEvent::Terminated(status) => {
                 // The child handle is dead now; release it so a new export
@@ -728,15 +761,29 @@ mod tests {
     }
 
     #[test]
-    fn check_args_destination_target_passes_no_filters() {
-        // The export output is already filtered and contains plain markdown
-        // links: re-applying vault filters could only exclude files wrongly.
+    fn check_args_destination_target_never_applies_default_filters() {
+        // The output tree is already filtered, but the CLI defaults are
+        // themselves filters: gitignore rules would silently exclude an
+        // output folder inside a git repository, and dot-files produced
+        // under `--hidden` would be skipped. Vault-only filters (start-at,
+        // ignore-file) stay off.
         let mut options = ExportOptions::default();
-        options.hidden = true;
-        options.no_git = true;
         options.start_at = Some("sub".to_owned());
+        options.ignore_file = Some(".custom-ignore".to_owned());
+        options.hidden = true;
         let args = build_check_args(&options, LinkCheckTarget::Destination, "OUT");
-        assert_eq!(args, vec!["check", "--progress", "json", "OUT"]);
+        assert_eq!(
+            args,
+            vec!["check", "--progress", "json", "--hidden", "--no-git", "OUT"]
+        );
+    }
+
+    #[test]
+    fn check_args_destination_default_options_still_pass_no_git() {
+        // Even with every option at its default, checking the output must
+        // not honor gitignore (the false-negative trap).
+        let args = build_check_args(&ExportOptions::default(), LinkCheckTarget::Destination, "OUT");
+        assert_eq!(args, vec!["check", "--progress", "json", "--no-git", "OUT"]);
     }
 
     #[test]

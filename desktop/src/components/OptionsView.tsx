@@ -183,6 +183,7 @@ export function OptionsView({
               (macOS System Settings style). Collapses to a horizontal tab
               strip on narrow windows. */}
           <nav
+            role="tablist"
             aria-label={t.options.title}
             className="flex flex-row gap-1 overflow-x-auto border-b bg-[var(--background-secondary)] p-2 sm:flex-col sm:border-r sm:border-b-0"
           >
@@ -191,7 +192,9 @@ export function OptionsView({
                 key={item.id}
                 type="button"
                 role="tab"
+                id={`settings-tab-${item.id}`}
                 aria-selected={page === item.id}
+                aria-controls="settings-tabpanel"
                 onClick={() => setPage(item.id)}
                 className={`flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm whitespace-nowrap transition-colors sm:justify-start ${
                   page === item.id
@@ -205,7 +208,12 @@ export function OptionsView({
             ))}
           </nav>
 
-          <div className="flex min-w-0 flex-col gap-4 p-4">
+          <div
+            role="tabpanel"
+            id="settings-tabpanel"
+            aria-labelledby={`settings-tab-${page}`}
+            className="flex min-w-0 flex-col gap-4 p-4"
+          >
             {page === "conversion" && (
               <section className="flex flex-col gap-2.5">
                 <h3 className="text-sm font-semibold">{t.options.sectionConversion}</h3>

@@ -196,7 +196,9 @@ export const zh = {
     titleClean: "链接检查：全部通过",
     titleBroken: "链接检查：{n} 处失效",
     titleFailed: "链接检查未能完成",
-    failedHint: "事件流未正常终结，原因见下方边车输出。",
+    failedHint: "事件流未正常终结。",
+    exitCode: "退出码 {code}",
+    cancel: "取消检查",
     summary: "{files} 个文件 · {links} 条链接 · {broken} 失效 · {skipped} 跳过（外部链接）",
     filter: {
       broken: "仅失效",

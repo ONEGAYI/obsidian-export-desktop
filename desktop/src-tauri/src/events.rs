@@ -281,12 +281,15 @@ mod tests {
         );
         assert_eq!(
             parse_check_ok(
-                r#"{"type":"link-report","source":"embeds.md","line":7,"raw":"![[non-existing note]]","kind":"wiki-embed","status":{"type":"missing-file","target":"non-existing note"}}"#
+                // A real line shape from `check --progress json`: `raw` is the
+                // reference text between the brackets, without its ![[…]]
+                // syntax wrapper (same as the CLI contract fixture).
+                r#"{"type":"link-report","source":"embeds.md","line":7,"raw":"non-existing note","kind":"wiki-embed","status":{"type":"missing-file","target":"non-existing note"}}"#
             ),
             CheckEvent::LinkReport {
                 source: "embeds.md".into(),
                 line: 7,
-                raw: "![[non-existing note]]".into(),
+                raw: "non-existing note".into(),
                 kind: LinkKind::WikiEmbed,
                 status: CheckStatus::MissingFile {
                     target: "non-existing note".into()
