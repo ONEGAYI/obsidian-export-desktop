@@ -22,7 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
-import { useI18n } from "@/i18n";
+import { fmt, useI18n } from "@/i18n";
 import {
   DEFAULT_OPTIONS,
   FRONTMATTER_VALUES,
@@ -51,16 +51,20 @@ type Page = "conversion" | "filtering" | "process" | "linkCheck";
 function EnumChoice<T extends string>({
   value,
   choices,
+  groupLabel,
   onChange,
 }: {
   value: T;
   choices: { value: T; label: string; description: string }[];
+  /** Accessible name for the radio group (the visible FieldLabel text). */
+  groupLabel: string;
   onChange: (value: T) => void;
 }) {
   return (
     <RadioGroup
       value={value}
       onValueChange={(v) => onChange(v as T)}
+      aria-label={groupLabel}
       className="gap-0 overflow-hidden rounded-md border bg-[var(--background-primary)]"
     >
       {choices.map((choice) => (
@@ -94,13 +98,26 @@ function SwitchRow({
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="flex items-start justify-between gap-3 rounded-md border bg-[var(--background-primary)] p-2.5">
       <span className="flex flex-col gap-0.5">
         <span className="text-sm leading-none font-medium">{title}</span>
         <span className="text-muted-foreground text-xs">{description}</span>
       </span>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} className="mt-0.5" />
+      {/* The name carries the state: AX-tree walkers don't render
+          ToggleState, so without it a toggle leaves the tree unchanged. */}
+      <Switch
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        aria-label={fmt(
+          checked
+            ? t.common.statefulControl.nameOn
+            : t.common.statefulControl.nameOff,
+          { title },
+        )}
+        className="mt-0.5"
+      />
     </div>
   );
 }
@@ -226,6 +243,7 @@ export function OptionsView({
                     <EnumChoice
                       value={options.frontmatter}
                       choices={frontmatterChoices}
+                      groupLabel={t.options.frontmatterLabel}
                       onChange={(frontmatter) => patch({ frontmatter })}
                     />
                   </div>
@@ -234,6 +252,7 @@ export function OptionsView({
                     <EnumChoice
                       value={options.missingSection}
                       choices={missingSectionChoices}
+                      groupLabel={t.options.missingSectionLabel}
                       onChange={(missingSection) => patch({ missingSection })}
                     />
                   </div>
@@ -352,6 +371,7 @@ export function OptionsView({
                     <EnumChoice
                       value={options.linkCheckTarget}
                       choices={linkCheckTargetChoices}
+                      groupLabel={t.options.linkCheckTargetLabel}
                       onChange={(linkCheckTarget) => patch({ linkCheckTarget })}
                     />
                   </div>

@@ -8,6 +8,13 @@ export const zh = {
   common: {
     close: "关闭",
     browse: "浏览",
+    // 带状态控件（开关等）的无障碍名称模板：AX 树走查工具（CUA 类）不
+    // 渲染 ToggleState，状态并入名称才能在点击后被观察到；读屏会把名称
+    // 与状态各播一遍，属为走查场景接受的取舍。
+    statefulControl: {
+      nameOn: "{title}（已开启）",
+      nameOff: "{title}（已关闭）",
+    },
   },
   window: {
     minimize: "最小化",

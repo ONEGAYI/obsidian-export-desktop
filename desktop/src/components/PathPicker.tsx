@@ -33,6 +33,7 @@ export function PathPicker({ label, placeholder, value, onChange, hint }: PathPi
         <input
           value={value}
           placeholder={placeholder}
+          aria-label={label}
           spellCheck={false}
           onChange={(e) => onChange(e.target.value)}
           className="h-8 flex-1 rounded-md border bg-[var(--background-primary)] px-2.5 font-mono text-xs outline-none placeholder:font-sans placeholder:text-[var(--text-faint)] focus-visible:ring-2 focus-visible:ring-ring/60"

@@ -281,6 +281,7 @@ export function LinkCheckPanel({
                     variant={filter === f ? "secondary" : "ghost"}
                     size="sm"
                     onClick={() => setFilter(f)}
+                    aria-pressed={filter === f}
                   >
                     {t.linkCheck.filter[f]}
                     <span className="text-muted-foreground">

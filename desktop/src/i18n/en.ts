@@ -8,6 +8,14 @@ export const en: Dict = {
   common: {
     close: "Close",
     browse: "Browse",
+    // Accessible-name templates for stateful controls (switches etc.):
+    // AX-tree walkers (CUA and the like) don't render ToggleState, so the
+    // state goes into the name to stay observable after a click; screen
+    // readers announce it twice — an accepted trade-off for walk-throughs.
+    statefulControl: {
+      nameOn: "{title} (on)",
+      nameOff: "{title} (off)",
+    },
   },
   window: {
     minimize: "Minimize",
