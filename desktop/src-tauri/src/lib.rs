@@ -11,6 +11,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             sidecar::check_sidecar,
             sidecar::start_export,
+            sidecar::start_check,
             sidecar::cancel_export,
             sidecar::export_running,
         ])
