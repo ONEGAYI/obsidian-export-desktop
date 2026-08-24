@@ -122,6 +122,7 @@ struct Opts {
 /// Options for `obsidian-export check`: walk the vault and verify every
 /// link without writing any files.
 #[derive(Debug, Options)]
+#[allow(clippy::struct_excessive_bools)]
 struct CheckOpts {
     #[options(help = "Display program help")]
     help: bool,
