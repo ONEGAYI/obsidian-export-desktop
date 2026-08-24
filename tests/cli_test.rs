@@ -557,3 +557,43 @@ fn check_with_unknown_flag_is_a_usage_error() {
     assert_eq!(out.code, Some(2_i32));
     assert!(out.stderr.contains("Error:"));
 }
+
+#[test]
+fn check_accepts_dot_relative_source_spellings() {
+    // `./`-prefixed and redundant-component roots must behave like their
+    // canonical spelling: no in-bounds link may be flagged as an escape.
+    let out = run_cli(&["check", "./tests/testdata/input/chinese-anchor"]);
+    assert_eq!(out.code, Some(0_i32));
+    assert!(out.stdout.contains("0 broken"), "got: {:?}", out.stdout);
+}
+
+#[test]
+fn check_version_flag_works_inside_subcommand() {
+    let out = run_cli(&["check", "--version"]);
+    assert_eq!(out.code, Some(0_i32));
+    assert!(out.stdout.contains("obsidian-export"));
+}
+
+#[test]
+fn check_keyword_shadowing_a_directory_prints_a_warning() {
+    use std::process::Command;
+    use tempfile::TempDir;
+
+    // A folder named "check" in the working directory shadows the old
+    // export spelling; the CLI must say so instead of failing cryptically.
+    let dir = TempDir::new().expect("tempdir");
+    std::fs::create_dir(dir.path().join("check")).expect("mkdir check");
+    let output = Command::new(BIN)
+        .current_dir(dir.path())
+        .args(["check", "some-dest"])
+        .output()
+        .expect("run CLI");
+    assert_eq!(output.status.code(), Some(1_i32));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Warning:"),
+        "shadowing warning on stderr, got: {:?}",
+        stderr
+    );
+    assert!(stderr.contains("./check"), "hint mentions ./check");
+}

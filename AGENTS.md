@@ -75,9 +75,9 @@ obsidian-export/
 │   ├── lib.rs           # 库入口：导出流程、事件回调、错误聚合与 VaultIndex
 │   ├── context.rs       # 导出上下文与配置
 │   ├── frontmatter.rs   # frontmatter 的解析与剥离
+│   ├── linkcheck.rs     # 链接完整性检查（Exporter::check）：存在性/越界/锚点有效性 + 逐条报告
 │   ├── postprocessors.rs# 后处理器：对导出结果再加工
 │   ├── references.rs    # 引用解析：wikilink、嵌入等链接形式
-│   ├── linkcheck.rs     # 链接完整性检查（Exporter::check）：存在性/越界/锚点有效性 + 逐条报告
 │   └── walker.rs        # vault 的递归遍历
 ├── tests/               # 集成测试：export_test（导出行为）、cli_test（CLI 契约）、postprocessors_test
 ├── tests/testdata/      # 测试 vault fixtures（section-variants、image-size 等按场景分组）

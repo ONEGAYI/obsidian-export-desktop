@@ -24,6 +24,7 @@ use std::sync::{Arc, Mutex};
 
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use rayon::prelude::*;
+use snafu::ResultExt;
 use unicode_normalization::UnicodeNormalization;
 
 use crate::references::ObsidianNoteReference;
@@ -245,38 +246,50 @@ fn normalized_heading(text: &str) -> String {
 
 /// Heading-derived anchors of one target note: the normalized heading names
 /// used by Obsidian-style section matching, and the GitHub-style slugs used
-/// by standard Markdown link fragments.
+/// by standard Markdown link fragments. Unreadable/unparsable targets are
+/// cached too (negative caching) with `unreadable` set, so a broken note
+/// costs one parse and is reported as such rather than as a missing
+/// section.
 #[derive(Default)]
 struct TargetInfo {
     headings: HashSet<String>,
     anchors: HashSet<String>,
+    unreadable: Option<String>,
 }
 
 impl TargetInfo {
-    fn collect(path: &Path) -> Option<Self> {
-        let (_frontmatter, events) = Exporter::parse_raw_note(path).ok()?;
+    fn collect(path: &Path) -> Self {
+        let (_frontmatter, events) = match Exporter::parse_raw_note(path) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                return Self {
+                    unreadable: Some(error.to_string()),
+                    ..Self::default()
+                }
+            }
+        };
         let mut info = Self::default();
         for heading in headings_of(&events) {
             info.headings.insert(normalized_heading(&heading));
             info.anchors.insert(format_anchor(&heading));
         }
-        Some(info)
+        info
     }
 }
 
 /// Cache of [`TargetInfo`] shared across the parallel per-file checks.
 type TargetCache = Mutex<HashMap<PathBuf, Arc<TargetInfo>>>;
 
-fn cached_target_info(path: &Path, cache: &TargetCache) -> Option<Arc<TargetInfo>> {
+fn cached_target_info(path: &Path, cache: &TargetCache) -> Arc<TargetInfo> {
     if let Some(hit) = cache.lock().expect("target cache poisoned").get(path) {
-        return Some(Arc::clone(hit));
+        return Arc::clone(hit);
     }
-    let info = Arc::new(TargetInfo::collect(path)?);
+    let info = Arc::new(TargetInfo::collect(path));
     cache
         .lock()
         .expect("target cache poisoned")
         .insert(path.to_path_buf(), Arc::clone(&info));
-    Some(info)
+    info
 }
 
 /// The outcome of resolving a reference's file part against the vault.
@@ -299,6 +312,11 @@ fn resolve_for_check<'a>(
 ) -> FileResolution<'a> {
     if let Some(found) = index.lookup(file) {
         return FileResolution::Found(found);
+    }
+    // Absolute paths (e.g. `C:\x` or `/x`) point outside the checked root
+    // by definition; the vault suffix index can never contain them.
+    if Path::new(file).is_absolute() || file.starts_with('/') || file.starts_with('\\') {
+        return FileResolution::OutOfBounds;
     }
     let has_relative_marker = file
         .split(['/', '\\'])
@@ -413,9 +431,9 @@ fn check_obsidian_ref(
     };
 
     // References with no file part point at a section of the current note.
-    let target: Option<PathBuf> = match reference.file {
+    let target: PathBuf = match reference.file {
         Some(file) => match resolve_for_check(file, source, root, index) {
-            FileResolution::Found(path) => Some(path.clone()),
+            FileResolution::Found(path) => path.clone(),
             FileResolution::Missing => {
                 return make(LinkCheckStatus::MissingFile {
                     target: file.to_owned(),
@@ -427,13 +445,7 @@ fn check_obsidian_ref(
                 })
             }
         },
-        None => Some(source.to_path_buf()),
-    };
-    let Some(target) = target else {
-        // `[[#]]` and friends: nothing addressable at all.
-        return make(LinkCheckStatus::MissingFile {
-            target: raw.text.clone(),
-        });
+        None => source.to_path_buf(),
     };
     let Some(section) = reference.section else {
         return make(LinkCheckStatus::Ok);
@@ -446,11 +458,16 @@ fn check_obsidian_ref(
         let found = if target == source {
             crate::reduce_to_block(events, block).is_some()
         } else {
-            Exporter::parse_raw_note(&target)
-                .map(|(_frontmatter, target_events)| {
+            match Exporter::parse_raw_note(&target) {
+                Ok((_frontmatter, target_events)) => {
                     crate::reduce_to_block(&target_events, block).is_some()
-                })
-                .unwrap_or(false)
+                }
+                Err(error) => {
+                    return make(LinkCheckStatus::FileUnreadable {
+                        message: error.to_string(),
+                    })
+                }
+            }
         };
         return if found {
             make(LinkCheckStatus::Ok)
@@ -471,7 +488,13 @@ fn check_obsidian_ref(
             .iter()
             .any(|h| normalized_heading(h) == normalized)
     } else {
-        cached_target_info(&target, cache).is_some_and(|info| info.headings.contains(&normalized))
+        let info = cached_target_info(&target, cache);
+        if let Some(message) = &info.unreadable {
+            return make(LinkCheckStatus::FileUnreadable {
+                message: message.clone(),
+            });
+        }
+        info.headings.contains(&normalized)
     };
     if found {
         make(LinkCheckStatus::Ok)
@@ -484,9 +507,14 @@ fn check_obsidian_ref(
 }
 
 /// Verify a standard Markdown link or image destination found in `source`.
+/// `events` is the already-parsed event stream of `source`, reused for
+/// same-file fragment targets instead of re-reading the note.
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 fn check_markdown_dest(
     dest: &str,
     image: bool,
+    events: &[Event<'_>],
     source: &Path,
     root: &Path,
     known: &HashSet<String>,
@@ -558,8 +586,20 @@ fn check_markdown_dest(
     }
 
     if let Some(block) = fragment.strip_prefix('^') {
-        let found = Exporter::parse_raw_note(&target)
-            .is_ok_and(|(_frontmatter, events)| crate::reduce_to_block(&events, block).is_some());
+        let found = if target == source {
+            crate::reduce_to_block(events, block).is_some()
+        } else {
+            match Exporter::parse_raw_note(&target) {
+                Ok((_frontmatter, target_events)) => {
+                    crate::reduce_to_block(&target_events, block).is_some()
+                }
+                Err(error) => {
+                    return make(LinkCheckStatus::FileUnreadable {
+                        message: error.to_string(),
+                    })
+                }
+            }
+        };
         return if found {
             make(LinkCheckStatus::Ok)
         } else {
@@ -576,14 +616,17 @@ fn check_markdown_dest(
     let slug = format_anchor(fragment);
     let normalized = normalized_heading(fragment);
     let found = if target == source {
-        Exporter::parse_raw_note(&target).is_ok_and(|(_frontmatter, events)| {
-            headings_of(&events)
-                .iter()
-                .any(|h| format_anchor(h) == slug || normalized_heading(h) == normalized)
-        })
+        headings_of(events)
+            .iter()
+            .any(|h| format_anchor(h) == slug || normalized_heading(h) == normalized)
     } else {
-        cached_target_info(&target, cache)
-            .is_some_and(|info| info.anchors.contains(&slug) || info.headings.contains(&normalized))
+        let info = cached_target_info(&target, cache);
+        if let Some(message) = &info.unreadable {
+            return make(LinkCheckStatus::FileUnreadable {
+                message: message.clone(),
+            });
+        }
+        info.anchors.contains(&slug) || info.headings.contains(&normalized)
     };
     if found {
         make(LinkCheckStatus::Ok)
@@ -654,6 +697,7 @@ fn check_file(
         reports.push(check_markdown_dest(
             dest.as_ref(),
             image,
+            &events,
             source,
             root,
             known,
@@ -703,10 +747,16 @@ impl Exporter<'_> {
             }
         }
 
-        let contents = Arc::from(vault_contents(
-            self.root.as_path(),
-            self.walk_options.clone(),
-        )?);
+        // Every path this checker compares or strips prefixes from is
+        // derived from one absolute, canonical form, so roots spelled ".",
+        // "./sub" or with redundant components behave identically. Without
+        // this, lexically normalized link targets would be compared against
+        // an un-normalized boundary and in-bounds links would be flagged as
+        // escapes.
+        let root = std::fs::canonicalize(&self.root).context(crate::CanonicalizeSnafu {
+            path: self.root.clone(),
+        })?;
+        let contents = Arc::from(vault_contents(&root, self.walk_options.clone())?);
         self.vault_index = Some(VaultIndex::build(&contents));
         self.vault_contents = Some(Arc::clone(&contents));
         let index = self
@@ -716,24 +766,27 @@ impl Exporter<'_> {
 
         // Checking a single file uses its directory as the boundary, the
         // same way a single-file export treats the file's folder as root.
-        let (boundary, files): (PathBuf, Vec<PathBuf>) = if self.root.is_file() {
-            let root = self
-                .root
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_default();
-            (root, vec![self.root.clone()])
+        let (boundary, files): (PathBuf, Vec<PathBuf>) = if root.is_file() {
+            let parent = root.parent().map(Path::to_path_buf).unwrap_or_default();
+            (parent, vec![root])
         } else {
+            let start_at = if self.start_at == self.root {
+                root.clone()
+            } else {
+                std::fs::canonicalize(&self.start_at).context(crate::CanonicalizeSnafu {
+                    path: self.start_at.clone(),
+                })?
+            };
             let files: Vec<PathBuf> = contents
                 .iter()
                 .filter(|file| {
-                    file.starts_with(&self.start_at)
+                    file.starts_with(&start_at)
                         && file.extension().map(std::ffi::OsStr::to_ascii_lowercase)
                             == Some("md".into())
                 })
                 .cloned()
                 .collect();
-            (self.root.clone(), files)
+            (root, files)
         };
 
         let known: HashSet<String> = contents
@@ -938,6 +991,96 @@ mod tests {
         write(&root, "note.md", "[[target#总纲：三份形态，两个断口]]\n");
         let summary = check(&root);
         assert_eq!(summary.broken_links(), 0, "{:#?}", summary);
+    }
+
+    #[test]
+    fn oddly_spelled_roots_classify_links_correctly() {
+        // Roots spelled with redundant `.`/`..` components must behave like
+        // their canonical form: in-bounds links stay ok, missing files are
+        // "not found" (not "escapes"), real escapes are still flagged.
+        let root = TempDir::new().unwrap();
+        write(&root, "target.md", TARGET);
+        write(
+            &root,
+            "sub/note.md",
+            "ok: [[../target]] plus [t](../target.md), missing: [[gone]]
+",
+        );
+        let weird = root.path().join("./sub/../.");
+
+        let mut exporter = Exporter::new(weird, root.path().to_path_buf());
+        let summary = exporter.check().expect("check should succeed");
+        assert_eq!(
+            report_for(&summary, "../target").status,
+            LinkCheckStatus::Ok,
+            "in-bounds reference from a subdir, weird root spelling"
+        );
+        assert!(
+            matches!(
+                report_for(&summary, "../target.md").status,
+                LinkCheckStatus::Ok
+            ),
+            "in-bounds markdown link, weird root spelling"
+        );
+        assert!(
+            matches!(
+                report_for(&summary, "gone").status,
+                LinkCheckStatus::MissingFile { .. }
+            ),
+            "missing file must not be misclassified as an escape"
+        );
+    }
+
+    #[test]
+    fn absolute_wikilink_targets_are_out_of_bounds() {
+        let root = TempDir::new().unwrap();
+        write(
+            &root,
+            "note.md",
+            "[[/abs/path]] and windows [[C:\\other\\note]]\n",
+        );
+        let summary = check(&root);
+        assert!(matches!(
+            report_for(&summary, "/abs/path").status,
+            LinkCheckStatus::OutOfBounds { .. }
+        ));
+        assert!(matches!(
+            report_for(&summary, "C:\\other\\note").status,
+            LinkCheckStatus::OutOfBounds { .. }
+        ));
+    }
+
+    #[test]
+    fn unreadable_target_reports_file_unreadable_not_missing_section() {
+        // A section link into a note whose frontmatter is broken must say
+        // the target is unreadable, not send the user hunting for a heading
+        // that may well exist.
+        let root = TempDir::new().unwrap();
+        write(
+            &root,
+            "broken.md",
+            "---
+not: [valid: yaml
+---
+
+# Heading
+",
+        );
+        write(
+            &root,
+            "note.md",
+            "[[broken#Heading]]
+",
+        );
+        let summary = check(&root);
+        assert!(
+            matches!(
+                report_for(&summary, "broken#Heading").status,
+                LinkCheckStatus::FileUnreadable { .. }
+            ),
+            "{:#?}",
+            summary
+        );
     }
 
     #[test]
