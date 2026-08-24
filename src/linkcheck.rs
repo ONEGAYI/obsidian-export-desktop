@@ -9,9 +9,9 @@
 //!   file inside the checked root, and their `#anchor` fragment (when the
 //!   target is Markdown) must match a heading or block id in that file;
 //! - the checked root is the export boundary: a link that escapes the root
-//!   (`../sibling/…`, absolute paths, other drives) is reported as broken
-//!   even when the file exists on disk, because it will not be part of the
-//!   export;
+//!   (`../sibling/…`, absolute paths the vault index cannot resolve, other
+//!   drives) is reported as broken even when the file exists on disk,
+//!   because it will not be part of the export;
 //! - external URLs (`https://…`, `mailto:…`) are skipped: reachability is a
 //!   property of the network, not of the vault.
 //!
@@ -724,9 +724,10 @@ impl Exporter<'_> {
     /// # Errors
     ///
     /// Returns an error when the root or `start_at` does not exist, when
-    /// `start_at` lies outside the root, or when walking the vault fails.
-    /// Unreadable individual notes are reported through the summary
-    /// instead of aborting the check.
+    /// `start_at` lies outside the root, when either path cannot be
+    /// canonicalized, or when walking the vault fails. Unreadable
+    /// individual notes are reported through the summary instead of
+    /// aborting the check.
     pub fn check(&mut self) -> Result<CheckSummary, ExportError> {
         if !self.root.exists() {
             return Err(ExportError::PathDoesNotExist {
