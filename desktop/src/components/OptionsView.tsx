@@ -152,8 +152,8 @@ export function OptionsView({
   ];
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="flex max-h-[calc(100vh-5rem)] flex-col">
+      <CardHeader className="shrink-0">
         <div className="flex items-center justify-between gap-1.5">
           <div className="flex items-center gap-1.5">
             <Button
@@ -177,15 +177,18 @@ export function OptionsView({
         </div>
         <CardDescription>{t.options.description}</CardDescription>
       </CardHeader>
-      <CardContent className="p-0">
-        <div className="grid sm:grid-cols-[150px_minmax(0,1fr)]">
+      <CardContent className="min-h-0 flex-1 p-0">
+        {/* The card is capped at the viewport (minus title bar and page
+            padding); every level down to the panel must allow shrinking so
+            the overflow lands on the option panel, not the whole page. */}
+        <div className="grid h-full grid-rows-[auto_minmax(0,1fr)] sm:grid-cols-[150px_minmax(0,1fr)] sm:grid-rows-[minmax(0,1fr)]">
           {/* Side-nav: soft background with the selected page floating on it
               (macOS System Settings style). Collapses to a horizontal tab
               strip on narrow windows. */}
           <nav
             role="tablist"
             aria-label={t.options.title}
-            className="flex flex-row gap-1 overflow-x-auto border-b bg-[var(--background-secondary)] p-2 sm:flex-col sm:border-r sm:border-b-0"
+            className="flex flex-row gap-1 overflow-x-auto border-b bg-[var(--background-secondary)] p-2 sm:flex-col sm:overflow-y-auto sm:border-r sm:border-b-0"
           >
             {navItems.map((item) => (
               <button
@@ -212,7 +215,7 @@ export function OptionsView({
             role="tabpanel"
             id="settings-tabpanel"
             aria-labelledby={`settings-tab-${page}`}
-            className="flex min-w-0 flex-col gap-4 p-4"
+            className="flex min-w-0 flex-col gap-4 overflow-y-auto p-4"
           >
             {page === "conversion" && (
               <section className="flex flex-col gap-2.5">
