@@ -1,0 +1,2306 @@
+{
+  "tags": {
+    "ci": "CI/CD 与发布流水线",
+    "config": "构建/工具链/项目配置",
+    "docs": "文档",
+    "fixture": "测试 vault 数据（场景目录粗粒度收录）",
+    "frontend": "桌面端前端 TS/TSX/CSS",
+    "generated": "生成产物，禁止手改",
+    "i18n": "界面国际化",
+    "meta": "项目规则与技能自身",
+    "rust": "Rust 源码（根 crate 或 src-tauri）",
+    "sidecar": "边车（CLI 进程）编排与契约",
+    "tauri": "Tauri 桌面端（Rust 后端）",
+    "test": "测试代码"
+  },
+  "tree": {
+    ".agents": {
+      "kind": "dir",
+      "desc": "agent 技能目录",
+      "children": {
+        "skills": {
+          "kind": "dir",
+          "desc": "已部署技能目录",
+          "children": {
+            "file-tree": {
+              "kind": "dir",
+              "desc": "文件树技能（唯一数据源）",
+              "detail": [
+                "文件树维护与查询技能：tree.json 为唯一数据源，tree_tool.py 是唯一写入口，AGENTS.md 两个标记块是渲染产物。"
+              ],
+              "tags": [
+                "meta"
+              ],
+              "children": {
+                "agents": {
+                  "kind": "dir",
+                  "desc": "技能元数据目录",
+                  "children": {
+                    "openai.yaml": {
+                      "kind": "file",
+                      "desc": "Codex 技能元数据",
+                      "detail": [
+                        "OpenAI/Codex 形态的技能元数据描述文件。"
+                      ],
+                      "tags": [
+                        "meta"
+                      ]
+                    }
+                  }
+                },
+                "scripts": {
+                  "kind": "dir",
+                  "desc": "技能脚本目录",
+                  "children": {
+                    "tree_tool.py": {
+                      "kind": "file",
+                      "desc": "文件树唯一维护脚本",
+                      "detail": [
+                        "tree.json/标签词表/AGENTS.md 标记块的一切增删改入口：add/rm/get/query/tag-add/tag-rm/check/undo/redo/history/render；写后自动按字典序重排并确定性序列化，撤销历史存 git 私有区。本仓库副本已修复 --tags 未按逗号拆分的 bug。"
+                      ],
+                      "tags": [
+                        "meta"
+                      ]
+                    },
+                    "tree_tool_test.py": {
+                      "kind": "file",
+                      "desc": "tree_tool 契约测试",
+                      "detail": [
+                        "52 个契约测试：路径校验、规范化、渲染、undo/redo、check 不变量等。"
+                      ],
+                      "tags": [
+                        "meta",
+                        "test"
+                      ]
+                    }
+                  }
+                },
+                "SKILL.md": {
+                  "kind": "file",
+                  "desc": "技能主入口与命令速查",
+                  "detail": [
+                    "file-tree 技能主入口：核心约定（唯一数据源/唯一写入口/确定性输出/收录粒度）、命令速查、条目字段规范、渲染产物索引。"
+                  ],
+                  "tags": [
+                    "meta"
+                  ]
+                },
+                "tree.json": {
+                  "kind": "file",
+                  "desc": "文件树数据（唯一数据源）",
+                  "detail": [
+                    "JSON 嵌套 = 目录嵌套；条目字段 desc/detail/rel/tags/children；由 tree_tool.py 维护，禁止手改。"
+                  ],
+                  "tags": [
+                    "generated",
+                    "meta"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    ".gitattributes": {
+      "kind": "file",
+      "desc": "换行符规范",
+      "detail": [
+        "全库 LF 检出，二进制资源（图片/图标等）标记。"
+      ],
+      "rel": [
+        ".gitignore"
+      ],
+      "tags": [
+        "config"
+      ]
+    },
+    ".github": {
+      "kind": "dir",
+      "desc": "GitHub 配置目录",
+      "detail": [
+        "CI/发布工作流、复合动作、Renovate 与赞助配置。"
+      ],
+      "tags": [
+        "ci"
+      ],
+      "children": {
+        "actions": {
+          "kind": "dir",
+          "desc": "复合动作目录",
+          "detail": [
+            "被 workflows 复用的两个 composite action。"
+          ],
+          "tags": [
+            "ci"
+          ],
+          "children": {
+            "cargo-binstall": {
+              "kind": "dir",
+              "desc": "cargo 二进制安装动作",
+              "children": {
+                "action.yaml": {
+                  "kind": "file",
+                  "desc": "复合动作：装 cargo 二进制",
+                  "detail": [
+                    "先装 cargo-binstall，再以 --no-confirm --min-tls-version 1.3 --force 安装指定工具（CI 中用于 cargo-deny、cargo-tarpaulin）。"
+                  ],
+                  "rel": [
+                    ".github/workflows/ci.yml"
+                  ],
+                  "tags": [
+                    "ci"
+                  ]
+                }
+              }
+            },
+            "setup-ci": {
+              "kind": "dir",
+              "desc": "CI 环境准备动作",
+              "children": {
+                "action.yaml": {
+                  "kind": "file",
+                  "desc": "复合动作：装工具链与缓存",
+                  "detail": [
+                    "rustup show 激活 rust-toolchain.toml 固定工具链 + Swatinem/rust-cache@v2 按可选 key 缓存构建产物；被 ci.yml 与 publish-crate.yml 引用。"
+                  ],
+                  "rel": [
+                    ".github/workflows/ci.yml",
+                    "rust-toolchain.toml"
+                  ],
+                  "tags": [
+                    "ci"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "FUNDING.yml": {
+          "kind": "file",
+          "desc": "GitHub 赞助配置",
+          "detail": [
+            "单行 ko_fi: nickgroenen（上游作者 Nick Groenen 的 Ko-fi 赞助入口）。"
+          ],
+          "tags": [
+            "ci"
+          ]
+        },
+        "renovate.json5": {
+          "kind": "file",
+          "desc": "Renovate 依赖更新机器人配置",
+          "detail": [
+            "extends best-practices + schedule:monthly + group:linters；customManagers regex 管理 rust-toolchain.toml 与 Justfile 中 towncrier 版本；rust 依赖发布满 3 天自动合并；pulldown-cmark* 成组更新；ignorePaths 排除自动生成的 release.yml。"
+          ],
+          "rel": [
+            ".github/workflows/release.yml",
+            "Justfile",
+            "rust-toolchain.toml"
+          ],
+          "tags": [
+            "ci"
+          ]
+        },
+        "workflows": {
+          "kind": "dir",
+          "desc": "CI 工作流目录",
+          "detail": [
+            "ci（测试矩阵）、publish-crate（可复用发布）、release（cargo-dist 发布）三个 workflow。"
+          ],
+          "tags": [
+            "ci"
+          ],
+          "children": {
+            "ci.yml": {
+              "kind": "file",
+              "desc": "CI 测试工作流",
+              "detail": [
+                "on push，6 个 job：populate-rust-cache（预热）、rust-jobs（nightly fmt --check / cargo test / clippy -D warnings 矩阵）、deny（cargo-deny，advisories 容错）、pre-commit（SKIP 重复钩子）、test-windows（关 autocrlf 后 cargo test）、coverage（cargo-tarpaulin HTML 报告）。fork 上 push/tag 事件从不触发（AGENTS.md 发布登记）。"
+              ],
+              "rel": [
+                ".github/actions/setup-ci/action.yaml",
+                ".pre-commit-config.yaml",
+                "deny.toml"
+              ],
+              "tags": [
+                "ci"
+              ]
+            },
+            "publish-crate.yml": {
+              "kind": "file",
+              "desc": "可复用发布到 crates.io 工作流",
+              "detail": [
+                "仅 workflow_call 触发，输入 dist 清单 JSON；checkout + setup-ci 后携 CARGO_REGISTRY_TOKEN 执行 cargo publish；由 release.yml 的 custom-publish-crate job 调用。"
+              ],
+              "rel": [
+                ".github/workflows/release.yml",
+                "dist-workspace.toml"
+              ],
+              "tags": [
+                "ci"
+              ]
+            },
+            "release.yml": {
+              "kind": "file",
+              "desc": "cargo-dist 自动发布工作流",
+              "detail": [
+                "由 dist 生成后手工修补：tag 触发改为 v*.*.* 并补 workflow_dispatch（原 glob 无 + 量词匹配不到 v26.8.x；fork 上从不自动触发，须手动 dispatch --ref tag，且 tag 须指向含最新 workflow 的提交）。job 链：plan → build-local-artifacts（平台矩阵）→ build-global-artifacts → host（gh release 创建）→ custom-publish-crate → announce；权限 contents:write。"
+              ],
+              "rel": [
+                ".github/workflows/publish-crate.yml",
+                "dist-workspace.toml"
+              ],
+              "tags": [
+                "ci"
+              ]
+            }
+          }
+        }
+      }
+    },
+    ".gitignore": {
+      "kind": "file",
+      "desc": "根忽略规则",
+      "detail": [
+        "忽略 /target、mdBook 生成 HTML、tarpaulin 覆盖报告、.zcode/，及桌面端 node_modules/dist/src-tauri 的 target、gen 与 sidecar 落位 binaries/。"
+      ],
+      "tags": [
+        "config"
+      ]
+    },
+    ".pre-commit-config.yaml": {
+      "kind": "file",
+      "desc": "本地与 CI 共用提交钩子",
+      "detail": [
+        "上游 pre-commit-hooks（check-case-conflicts/check-yaml/end-of-file-fixer/trailing-whitespace 等，排除 README 与 expected 测试数据）+ local 钩子（nightly fmt、cargo test --all-targets、clippy -D warnings，仅对 .rs 触发）。"
+      ],
+      "rel": [
+        ".github/workflows/ci.yml",
+        "rustfmt.toml"
+      ],
+      "tags": [
+        "config"
+      ]
+    },
+    "AGENTS.md": {
+      "kind": "file",
+      "desc": "项目规则单一事实源",
+      "detail": [
+        "项目定位与边车架构、仓库与发布约定、桌面端开发说明；文件树简版与标签词表两个标记块由 tree_tool.py 渲染（见 .agents/skills/file-tree）。通用行为准则以用户级 AGENTS.md 为准。"
+      ],
+      "rel": [
+        ".agents/skills/file-tree/tree.json",
+        "CLAUDE.md"
+      ],
+      "tags": [
+        "meta"
+      ]
+    },
+    "Cargo.lock": {
+      "kind": "file",
+      "desc": "根 crate 依赖锁文件",
+      "detail": [
+        "Cargo 自动生成的根 crate 依赖锁文件；版本号由 just set-version 统一对齐。"
+      ],
+      "rel": [
+        "Cargo.toml"
+      ],
+      "tags": [
+        "config",
+        "generated"
+      ]
+    },
+    "Cargo.toml": {
+      "kind": "file",
+      "desc": "主 crate 清单（lib+bin）",
+      "detail": [
+        "package obsidian-export，rust-version 1.82，edition 2018，BSD-2-Clause-Patent。lib 目标 obsidian_export（src/lib.rs），bin 目标 obsidian-export（src/main.rs，doc=false）。依赖 pulldown-cmark 系/rayon/ignore/gumdrop/eyre/snafu/serde_yaml（实为 yaml_serde 包 rename）等；[profile.dist] 供 cargo-dist；大量 pedantic/nursery/restriction lint 配置。desktop/ 为独立 workspace，不在本清单内。"
+      ],
+      "rel": [
+        "dist-workspace.toml",
+        "src/lib.rs",
+        "src/main.rs"
+      ],
+      "tags": [
+        "config",
+        "rust"
+      ]
+    },
+    "changelog.d": {
+      "kind": "dir",
+      "desc": "towncrier 变更片段目录",
+      "detail": [
+        "发布时被收集进 CHANGELOG.md 的片段目录；新式命名 <issue>.<type>.md；常驻 .gitignore 占位，片段文件发布后清理。"
+      ],
+      "rel": [
+        "CHANGELOG.md",
+        "towncrier.toml"
+      ],
+      "tags": [
+        "config"
+      ],
+      "children": {
+        ".gitignore": {
+          "kind": "file",
+          "desc": "片段目录占位忽略文件",
+          "detail": [
+            "使空目录可入库的占位。"
+          ],
+          "tags": [
+            "config"
+          ]
+        }
+      }
+    },
+    "CHANGELOG.md": {
+      "kind": "file",
+      "desc": "变更日志（towncrier 生成）",
+      "detail": [
+        "按版本组织的变更日志，由 towncrier 在发布时（just make-new-release）从 changelog.d 片段收集生成；新版本段落置顶。"
+      ],
+      "rel": [
+        "changelog.d",
+        "docs/CHANGELOG.md",
+        "towncrier.toml"
+      ],
+      "tags": [
+        "docs"
+      ]
+    },
+    "CLAUDE.md": {
+      "kind": "file",
+      "desc": "Claude 专属补充规则",
+      "detail": [
+        "通过 @AGENTS.md 导入主规则文件，仅附加 Claude 专属的补充规则；修改通用规则只改 AGENTS.md。"
+      ],
+      "rel": [
+        "AGENTS.md"
+      ],
+      "tags": [
+        "meta"
+      ]
+    },
+    "cliff.toml": {
+      "kind": "file",
+      "desc": "git-cliff 备用变更日志配置",
+      "detail": [
+        "git-cliff 配置：按 New:/Fix:/Chg: 前缀分组，非 conventional commits 模式。仓库实际 changelog 由 towncrier 生成（Justfile 仅调用 towncrier，未引用本文件），此为备用/历史配置（推断）。"
+      ],
+      "rel": [
+        "CHANGELOG.md",
+        "towncrier.toml"
+      ],
+      "tags": [
+        "config"
+      ]
+    },
+    "CONTRIBUTING.md": {
+      "kind": "file",
+      "desc": "贡献指南（上游）",
+      "detail": [
+        "上游贡献指南（英文）：对提交与 PR 流程的期望、项目范围说明；docs/CONTRIBUTING.md 指针指向本文件。"
+      ],
+      "rel": [
+        "docs/CONTRIBUTING.md"
+      ],
+      "tags": [
+        "docs"
+      ]
+    },
+    "deny.toml": {
+      "kind": "file",
+      "desc": "cargo-deny 依赖审计配置",
+      "detail": [
+        "advisories（RustSec v2）/licenses 白名单（Apache-2.0/BSD/MIT/MPL-2.0/ISC 等，unicode-ident 例外）/bans（多版本依赖 deny，仅容忍 syn<=1.0.109，wildcards deny）/sources（仅 crates.io）；由 ci.yml 的 deny job 执行。"
+      ],
+      "rel": [
+        ".github/workflows/ci.yml"
+      ],
+      "tags": [
+        "ci",
+        "config"
+      ]
+    },
+    "desktop": {
+      "kind": "dir",
+      "desc": "Tauri 2 桌面端",
+      "detail": [
+        "Tauri 2 + React/TS 桌面应用：前端负责界面与选项配置，src-tauri Rust 后端负责边车进程编排；不含任何转换逻辑。"
+      ],
+      "rel": [
+        "docs/sidecar-events.md",
+        "src"
+      ],
+      "tags": [
+        "tauri"
+      ],
+      "children": {
+        ".gitignore": {
+          "kind": "file",
+          "desc": "前端目录 Git 忽略规则",
+          "detail": [
+            "忽略 logs/node_modules/dist/dist-ssr/*.local 及编辑器目录（.vscode/* 但保留 extensions.json、.idea 等）。"
+          ],
+          "tags": [
+            "config"
+          ]
+        },
+        ".vscode": {
+          "kind": "dir",
+          "desc": "VS Code 配置目录",
+          "detail": [
+            "含 extensions.json 一个文件。"
+          ],
+          "tags": [
+            "config"
+          ],
+          "children": {
+            "extensions.json": {
+              "kind": "file",
+              "desc": "VS Code 推荐扩展列表",
+              "detail": [
+                "推荐 tauri-apps.tauri-vscode 与 rust-lang.rust-analyzer 两个扩展。"
+              ],
+              "tags": [
+                "config"
+              ]
+            }
+          }
+        },
+        "components.json": {
+          "kind": "file",
+          "desc": "shadcn/ui CLI 配置",
+          "detail": [
+            "style new-york、rsc false、Tailwind 指向 src/index.css、baseColor neutral、cssVariables true；别名映射 @/ 路径，图标库 lucide。"
+          ],
+          "rel": [
+            "desktop/src/index.css"
+          ],
+          "tags": [
+            "config"
+          ]
+        },
+        "index.html": {
+          "kind": "file",
+          "desc": "Vite HTML 壳页面",
+          "detail": [
+            "lang=zh，标题 Obsidian Export，favicon 引 /vite.svg，挂载点 #root，加载 /src/main.tsx。"
+          ],
+          "rel": [
+            "desktop/public/vite.svg",
+            "desktop/src/main.tsx"
+          ],
+          "tags": [
+            "frontend"
+          ]
+        },
+        "package.json": {
+          "kind": "file",
+          "desc": "前端包清单与脚本定义",
+          "detail": [
+            "包名 obsidian-export-desktop；scripts：dev(vite)/build(tsc && vite build)/preview/tauri/sync-sidecar。依赖 React 19、@tauri-apps/api 与 plugin-dialog/opener、六个 radix 包、lucide-react、cva/clsx/tailwind-merge；dev 依赖 Tailwind v4、Tauri CLI、TS 5.8、Vite 7。"
+          ],
+          "rel": [
+            "desktop/scripts/sync-sidecar.mjs"
+          ],
+          "tags": [
+            "config",
+            "tauri"
+          ]
+        },
+        "pnpm-lock.yaml": {
+          "kind": "file",
+          "desc": "pnpm 依赖锁文件",
+          "detail": [
+            "pnpm 自动生成的依赖锁文件，锁定前端依赖版本。"
+          ],
+          "rel": [
+            "desktop/package.json"
+          ],
+          "tags": [
+            "config",
+            "generated"
+          ]
+        },
+        "pnpm-workspace.yaml": {
+          "kind": "file",
+          "desc": "pnpm 构建许可白名单",
+          "detail": [
+            "仅 allowBuilds: esbuild: true，允许 esbuild 执行安装期构建脚本。"
+          ],
+          "tags": [
+            "config"
+          ]
+        },
+        "public": {
+          "kind": "dir",
+          "desc": "Vite 静态资源目录",
+          "detail": [
+            "模板自带的两个 logo SVG。"
+          ],
+          "tags": [
+            "frontend"
+          ],
+          "children": {
+            "tauri.svg": {
+              "kind": "file",
+              "desc": "Tauri 官方 logo 图标",
+              "detail": [
+                "模板自带的 Tauri 标志 SVG，静态资源，未被 index.html 引用。"
+              ],
+              "tags": [
+                "frontend"
+              ]
+            },
+            "vite.svg": {
+              "kind": "file",
+              "desc": "Vite logo（favicon）",
+              "detail": [
+                "模板自带的 Vite 标志 SVG，被 index.html 以 /vite.svg 引用为图标。"
+              ],
+              "rel": [
+                "desktop/index.html"
+              ],
+              "tags": [
+                "frontend"
+              ]
+            }
+          }
+        },
+        "README.md": {
+          "kind": "file",
+          "desc": "Tauri 模板遗留说明",
+          "detail": [
+            "Tauri+React+TS 模板 README，推荐 VS Code + tauri 插件 + rust-analyzer；无项目特有内容。"
+          ],
+          "rel": [
+            "desktop/.vscode/extensions.json"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "scripts": {
+          "kind": "dir",
+          "desc": "前端辅助脚本目录",
+          "detail": [
+            "含 sync-sidecar.mjs 一个脚本。"
+          ],
+          "tags": [
+            "tauri"
+          ],
+          "children": {
+            "sync-sidecar.mjs": {
+              "kind": "file",
+              "desc": "构建 CLI 并同步为 Tauri 边车",
+              "detail": [
+                "纯 Node 跨终端脚本：rustc -vV 读取 host triple，仓库根 cargo build --release --bin obsidian-export，把 target/release 产物复制到 desktop/src-tauri/binaries/obsidian-export-<triple>[.exe]；由 pnpm sync-sidecar 调用。"
+              ],
+              "rel": [
+                "desktop/src-tauri/binaries",
+                "Justfile"
+              ],
+              "tags": [
+                "sidecar",
+                "tauri"
+              ]
+            }
+          }
+        },
+        "src": {
+          "kind": "dir",
+          "desc": "桌面端前端源码（React/TS）",
+          "detail": [
+            "React 19 + Tailwind v4 前端：组件、i18n 字典、lib 封装层与入口。"
+          ],
+          "tags": [
+            "frontend"
+          ],
+          "children": {
+            "App.tsx": {
+              "kind": "file",
+              "desc": "应用根组件，串联三阶段导出流程",
+              "detail": [
+                "管理 phase(setup/running/result) 与 view(main/options) 状态机、路径/选项 localStorage 持久化（remember-paths/source/destination/keep-root 四键）、foldEvent 折叠导出事件流；内嵌 ThemeToggle、LanguageMenu、WindowControls（无边框窗口控制）。监听 sidecar-event/exit/error 与 check-event/exit/error 六个 Tauri 事件；导出成功且 linkCheckEnabled 时自动触发 startCheck。"
+              ],
+              "rel": [
+                "desktop/src/lib/options.ts",
+                "desktop/src/lib/sidecar.ts"
+              ],
+              "tags": [
+                "frontend"
+              ]
+            },
+            "components": {
+              "kind": "dir",
+              "desc": "视图组件目录",
+              "detail": [
+                "导出流程各视图组件；仅 App.tsx 直接调用 Tauri API，其余为纯展示组件。"
+              ],
+              "tags": [
+                "frontend"
+              ],
+              "children": {
+                "ExportDialog.tsx": {
+                  "kind": "file",
+                  "desc": "导出前确认对话框",
+                  "detail": [
+                    "props：open/onOpenChange/keepRootFolder/onKeepRootFolderChange/source/destination/options/onEditOptions/onStart；展示源→目标路径、summarizeOptions 生成的生效选项摘要、「保留根文件夹」勾选及开始/取消按钮；纯展示组件。"
+                  ],
+                  "rel": [
+                    "desktop/src/lib/options.ts"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
+                "ExportResultView.tsx": {
+                  "kind": "file",
+                  "desc": "导出结果汇总卡片",
+                  "detail": [
+                    "props：progress/exit/cancelled/onRestart；按 cancelled/未收到 end 事件（异常终止）/有失败/全成功四态渲染标题，统计 done/skipped/失败/警告，失败项 details 可展开显示错误信息。"
+                  ],
+                  "rel": [
+                    "desktop/src/lib/sidecar.ts"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
+                "ExportRunView.tsx": {
+                  "kind": "file",
+                  "desc": "导出进行中的进度与日志视图",
+                  "detail": [
+                    "props：progress/onCancel；渲染 Progress 进度条（(done+skipped)/total 百分比）、三色计数与自动滚动的等宽日志列表（✓/–/✗/⚠/! 前缀）、取消按钮；数据由 App 折叠后传入。"
+                  ],
+                  "rel": [
+                    "desktop/src/App.tsx"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
+                "LinkCheckPanel.tsx": {
+                  "kind": "file",
+                  "desc": "链接检查面板与状态折叠逻辑",
+                  "detail": [
+                    "导出 LinkCheckPanel、LinkCheckState/LinkReportEntry/LinkCheckSummary 类型、applyCheckEvents（批量折叠 check 事件，计数增量维护）、isBroken；filter 三页签（broken/all/skipped）、渲染上限 300 条兜底、状态文案经 statusText/kindLabel 本地化。"
+                  ],
+                  "rel": [
+                    "desktop/src/App.tsx",
+                    "desktop/src/lib/sidecar.ts"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
+                "OptionsView.tsx": {
+                  "kind": "file",
+                  "desc": "分页式转换选项设置面板",
+                  "detail": [
+                    "props：options/onOptionsChange/onBack；page 状态分 conversion/filtering/process/linkCheck 四页（侧边 tab 导航，窄窗降级横排）；内部组件 EnumChoice（RadioGroup 单选卡）、SwitchRow、FieldLabel；改动经 patch 即时回传持久化，支持一键恢复 DEFAULT_OPTIONS；过滤页复用 PathPicker/TagInput。"
+                  ],
+                  "rel": [
+                    "desktop/src/lib/options.ts"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
+                "PathPicker.tsx": {
+                  "kind": "file",
+                  "desc": "目录路径输入加浏览选择器",
+                  "detail": [
+                    "props：label/placeholder/value/onChange/hint；可手动输入，浏览按钮经 @tauri-apps/plugin-dialog 的 open({directory:true}) 选目录后回传。"
+                  ],
+                  "rel": [
+                    "desktop/src/components/OptionsView.tsx"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
+                "TagInput.tsx": {
+                  "kind": "file",
+                  "desc": "多标签芯片输入编辑器",
+                  "detail": [
+                    "props：value(string[])/onChange/placeholder；Enter/中英文逗号提交并去 # 前缀、Backspace 删末尾芯片、× 删除单个；composingRef 处理 IME 组合期（拼音候选确认不误提交）；用于 skip-tags/only-tags。"
+                  ],
+                  "rel": [
+                    "desktop/src/components/OptionsView.tsx"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
+                "ui": {
+                  "kind": "dir",
+                  "desc": "手搭 shadcn 基础组件层",
+                  "detail": [
+                    "shadcn CLI 与当前 Node 生态冲突而手写的 ui 组件（部分封装 radix）；CLI 修复后可迁移。"
+                  ],
+                  "rel": [
+                    "desktop/components.json"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ],
+                  "children": {
+                    "button.tsx": {
+                      "kind": "file",
+                      "desc": "基础按钮组件（cva 变体）",
+                      "detail": [
+                        "基于 class-variance-authority 的 Button 与 buttonVariants：variant 分 default/secondary/ghost/destructive/outline、size 分 default/sm/lg/icon；不依赖 radix。"
+                      ],
+                      "rel": [
+                        "desktop/src/lib/utils.ts"
+                      ],
+                      "tags": [
+                        "frontend"
+                      ]
+                    },
+                    "card.tsx": {
+                      "kind": "file",
+                      "desc": "卡片及其分区容器组件",
+                      "detail": [
+                        "纯 div 组合的 Card/CardHeader/CardTitle/CardDescription/CardContent/CardFooter（各套 cn）；不依赖 radix。"
+                      ],
+                      "rel": [
+                        "desktop/src/lib/utils.ts"
+                      ],
+                      "tags": [
+                        "frontend"
+                      ]
+                    },
+                    "checkbox.tsx": {
+                      "kind": "file",
+                      "desc": "手写复选框，支持半选态",
+                      "detail": [
+                        "无 radix 依赖的自制 role=checkbox 按钮，受控 checked + 可选 indeterminate（aria-checked=mixed），lucide 图标显示勾/减号。"
+                      ],
+                      "rel": [
+                        "desktop/src/lib/utils.ts"
+                      ],
+                      "tags": [
+                        "frontend"
+                      ]
+                    },
+                    "dialog.tsx": {
+                      "kind": "file",
+                      "desc": "基于 radix 的模态对话框",
+                      "detail": [
+                        "封装 @radix-ui/react-dialog，导出 Dialog/Trigger/Portal/Close/Overlay/Content/Header/Footer/Title/Description；右上角关闭按钮文案取自 useI18n。"
+                      ],
+                      "rel": [
+                        "desktop/src/i18n/index.tsx",
+                        "desktop/src/lib/utils.ts"
+                      ],
+                      "tags": [
+                        "frontend"
+                      ]
+                    },
+                    "dropdown-menu.tsx": {
+                      "kind": "file",
+                      "desc": "基于 radix 的下拉菜单",
+                      "detail": [
+                        "封装 @radix-ui/react-dropdown-menu，导出 DropdownMenu/Trigger/Content/Item；含进出动画与样式。"
+                      ],
+                      "rel": [
+                        "desktop/src/lib/utils.ts"
+                      ],
+                      "tags": [
+                        "frontend"
+                      ]
+                    },
+                    "input.tsx": {
+                      "kind": "file",
+                      "desc": "单行文本输入框组件",
+                      "detail": [
+                        "原生 input 包 cn 样式（等宽字体、focus 高亮、禁用态）；不依赖 radix。"
+                      ],
+                      "rel": [
+                        "desktop/src/lib/utils.ts"
+                      ],
+                      "tags": [
+                        "frontend"
+                      ]
+                    },
+                    "label.tsx": {
+                      "kind": "file",
+                      "desc": "基于 radix 的表单标签",
+                      "detail": [
+                        "封装 @radix-ui/react-label 的 Label 组件。"
+                      ],
+                      "rel": [
+                        "desktop/src/lib/utils.ts"
+                      ],
+                      "tags": [
+                        "frontend"
+                      ]
+                    },
+                    "progress.tsx": {
+                      "kind": "file",
+                      "desc": "基于 radix 的进度条",
+                      "detail": [
+                        "封装 @radix-ui/react-progress，Indicator 以 translateX 呈现 value 百分比。"
+                      ],
+                      "rel": [
+                        "desktop/src/lib/utils.ts"
+                      ],
+                      "tags": [
+                        "frontend"
+                      ]
+                    },
+                    "radio-group.tsx": {
+                      "kind": "file",
+                      "desc": "基于 radix 的单选组",
+                      "detail": [
+                        "封装 @radix-ui/react-radio-group，导出 RadioGroup/RadioGroupItem，选中态用 CircleIcon 指示。"
+                      ],
+                      "rel": [
+                        "desktop/src/lib/utils.ts"
+                      ],
+                      "tags": [
+                        "frontend"
+                      ]
+                    },
+                    "switch.tsx": {
+                      "kind": "file",
+                      "desc": "基于 radix 的开关",
+                      "detail": [
+                        "封装 @radix-ui/react-switch 的 Switch，含 Thumb 滑块与明暗两套配色。"
+                      ],
+                      "rel": [
+                        "desktop/src/lib/utils.ts"
+                      ],
+                      "tags": [
+                        "frontend"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "i18n": {
+              "kind": "dir",
+              "desc": "界面国际化目录",
+              "detail": [
+                "字典结构基准 zh、宽化出的 Dict 类型与 I18nProvider 上下文。"
+              ],
+              "tags": [
+                "frontend",
+                "i18n"
+              ],
+              "children": {
+                "en.ts": {
+                  "kind": "file",
+                  "desc": "英文字典，键型受 Dict 约束",
+                  "detail": [
+                    "导出 en: Dict（从 zh.ts 派生），结构与 zh 完全对齐（common/window/theme/language/app/options/dialog/run/result/linkCheck/tagInput），含 {name} 占位符模板；漏键/多键/结构漂移在编译期报错。"
+                  ],
+                  "rel": [
+                    "desktop/src/i18n/zh.ts"
+                  ],
+                  "tags": [
+                    "frontend",
+                    "i18n"
+                  ]
+                },
+                "index.tsx": {
+                  "kind": "file",
+                  "desc": "i18n 上下文与语言偏好分发",
+                  "detail": [
+                    "导出 I18nProvider（项目首个 React Context）、useI18n、fmt（{name} 占位符替换）、LanguagePreference/ResolvedLanguage、LANGUAGE_ORDER；偏好存 localStorage 键 obsidian-export-language，system 时经 navigator.languages 中文判定（zh* → zh 否则 en），同步 document.documentElement.lang。"
+                  ],
+                  "rel": [
+                    "desktop/src/lib/theme.ts"
+                  ],
+                  "tags": [
+                    "frontend",
+                    "i18n"
+                  ]
+                },
+                "zh.ts": {
+                  "kind": "file",
+                  "desc": "中文字典并定义 Dict 类型基准",
+                  "detail": [
+                    "导出 zh 字典（as const，全 UI 文案、选项双语文案、linkCheck 状态本地化）与类型 Widen<T>（叶字面量宽化为 string）及 Dict = Widen<typeof zh>，作为所有字典的形状基准。"
+                  ],
+                  "rel": [
+                    "desktop/src/i18n/en.ts",
+                    "desktop/src/i18n/index.tsx"
+                  ],
+                  "tags": [
+                    "frontend",
+                    "i18n"
+                  ]
+                }
+              }
+            },
+            "index.css": {
+              "kind": "file",
+              "desc": "Obsidian 风格主题变量与全局样式",
+              "detail": [
+                "Tailwind v4 入口（@import tailwindcss + tw-animate-css，@custom-variant dark）；:root/.dark 定义镜像 Obsidian 命名的调色板变量，@theme inline 派生 shadcn 语义 token 与字体圆角；@layer base 设 body 禁 user-select、Obsidian 式滚动条与选区配色。"
+              ],
+              "rel": [
+                "desktop/src/components/ui/button.tsx"
+              ],
+              "tags": [
+                "frontend"
+              ]
+            },
+            "lib": {
+              "kind": "dir",
+              "desc": "前端工具与封装层目录",
+              "detail": [
+                "选项模型、Tauri 命令/事件封装、主题 hook、cn 工具。"
+              ],
+              "tags": [
+                "frontend"
+              ],
+              "children": {
+                "options.ts": {
+                  "kind": "file",
+                  "desc": "导出选项类型、校验与摘要",
+                  "detail": [
+                    "定义 ExportOptions（镜像 src-tauri sidecar.rs 的 camelCase 结构）、FrontmatterStrategy/MissingSectionStrategy/LinkCheckTarget、DEFAULT_OPTIONS 与三个值域常量；saveOptions/loadOptions（localStorage 键 obsidian-export-options，逐字段 sanitizeOptions，损坏载荷降级默认）、旧键 obsidian-export-missing-section 一次性迁移、summarizeOptions（列出偏离默认的选项）。"
+                  ],
+                  "rel": [
+                    "desktop/src-tauri/src/sidecar.rs"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
+                "sidecar.ts": {
+                  "kind": "file",
+                  "desc": "Tauri 命令调用与事件封装层",
+                  "detail": [
+                    "定义 SidecarEvent/CheckEvent/LinkKind/CheckStatus/SidecarExit 类型（镜像 src-tauri events.rs 的 schema v1）；invoke 封装 checkSidecar/startExport（返回实际目标路径）/startCheck/cancelExport，事件监听 onSidecarEvent/onSidecarExit/onCheckEvent/onCheckExit/onCheckError/onSidecarError，及 baseName 工具。"
+                  ],
+                  "rel": [
+                    "desktop/src-tauri/src/events.rs",
+                    "desktop/src/App.tsx"
+                  ],
+                  "tags": [
+                    "frontend",
+                    "sidecar"
+                  ]
+                },
+                "theme.ts": {
+                  "kind": "file",
+                  "desc": "主题偏好 Hook，支持跟随系统",
+                  "detail": [
+                    "导出 ThemePreference/ResolvedTheme、THEME_ORDER、initialThemePreference、useTheme（[preference, resolved, setPreference]）；偏好存 localStorage 键 obsidian-export-theme，system 时监听 prefers-color-scheme 实时切换，toggle documentElement 的 dark 类。"
+                  ],
+                  "rel": [
+                    "desktop/src/index.css"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
+                "utils.ts": {
+                  "kind": "file",
+                  "desc": "cn 类名合并工具函数",
+                  "detail": [
+                    "导出 cn(...inputs)：clsx 组合 + tailwind-merge 去重，供全部 ui 组件使用。"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                }
+              }
+            },
+            "main.tsx": {
+              "kind": "file",
+              "desc": "React 入口（含 i18n）",
+              "detail": [
+                "ReactDOM.createRoot 渲染 StrictMode + I18nProvider + App，引入全局样式 index.css；无其他逻辑。"
+              ],
+              "rel": [
+                "desktop/src/App.tsx",
+                "desktop/src/i18n/index.tsx"
+              ],
+              "tags": [
+                "frontend"
+              ]
+            },
+            "vite-env.d.ts": {
+              "kind": "file",
+              "desc": "Vite 客户端类型引用",
+              "detail": [
+                "仅一行 /// <reference types=\"vite/client\" />，为 Vite 环境提供类型声明。"
+              ],
+              "tags": [
+                "frontend"
+              ]
+            }
+          }
+        },
+        "src-tauri": {
+          "kind": "dir",
+          "desc": "Tauri Rust 后端",
+          "detail": [
+            "桌面端 Rust 后端：自持 [workspace] 与独立 Cargo.lock，不影响根 crate 与 cargo-dist；边车进程编排（spawn/事件流/取消）所在地。"
+          ],
+          "tags": [
+            "rust",
+            "tauri"
+          ],
+          "children": {
+            ".cargo": {
+              "kind": "dir",
+              "desc": "cargo 配置目录",
+              "detail": [
+                "含 config.toml 一个文件。"
+              ],
+              "tags": [
+                "config",
+                "tauri"
+              ],
+              "children": {
+                "config.toml": {
+                  "kind": "file",
+                  "desc": "MSRV 感知的依赖解析配置",
+                  "detail": [
+                    "resolver.incompatible-rust-versions = fallback：依赖解析器优先选择 MSRV 兼容仓库锁定工具链（根 rust-toolchain.toml 固定 1.87.0，级联到本 crate）的版本，免手工钉传递依赖；工具链锁本身在仓库根。"
+                  ],
+                  "rel": [
+                    "rust-toolchain.toml"
+                  ],
+                  "tags": [
+                    "config",
+                    "tauri"
+                  ]
+                }
+              }
+            },
+            ".gitignore": {
+              "kind": "file",
+              "desc": "后端构建产物忽略规则",
+              "detail": [
+                "忽略 /target/（Cargo 编译产物）与 /gen/schemas（Tauri 自动生成的 schema）；binaries/ 的忽略写在仓库根 .gitignore。"
+              ],
+              "rel": [
+                ".gitignore",
+                "desktop/src-tauri/binaries"
+              ],
+              "tags": [
+                "config",
+                "tauri"
+              ]
+            },
+            "binaries": {
+              "kind": "dir",
+              "desc": "边车二进制落位目录（不入库）",
+              "detail": [
+                "被根 .gitignore 忽略、构建时生成的落位目录：desktop/scripts/sync-sidecar.mjs 把 obsidian-export CLI 产物按 Tauri 约定命名 obsidian-export-<target-triple>[.exe] 复制到此，供 externalBin 捆绑；just clean scope=sidecar 会删除它；改动 CLI 后必须重跑同步。"
+              ],
+              "rel": [
+                "desktop/scripts/sync-sidecar.mjs",
+                "desktop/src-tauri/tauri.conf.json",
+                "Justfile"
+              ],
+              "tags": [
+                "sidecar",
+                "tauri"
+              ],
+              "children": {}
+            },
+            "build.rs": {
+              "kind": "file",
+              "desc": "标准 tauri-build 构建脚本",
+              "detail": [
+                "仅 3 行，调用 tauri_build::build() 生成 Tauri 上下文/资源；sidecar 二进制的同步由仓库 Justfile/desktop/scripts/sync-sidecar.mjs 等外部流程完成，不在此处理。"
+              ],
+              "rel": [
+                "desktop/src-tauri/Cargo.toml"
+              ],
+              "tags": [
+                "rust",
+                "tauri"
+              ]
+            },
+            "capabilities": {
+              "kind": "dir",
+              "desc": "Tauri 权限能力声明目录",
+              "detail": [
+                "含 default.json 一个文件。"
+              ],
+              "tags": [
+                "config",
+                "tauri"
+              ],
+              "children": {
+                "default.json": {
+                  "kind": "file",
+                  "desc": "主窗口权限能力声明",
+                  "detail": [
+                    "identifier default，作用于 windows:[main]。权限：core:default、opener:default、dialog:default、窗口操作（minimize/toggle-maximize/close/start-dragging，配合无边框窗口），及受限的 shell:allow-execute——仅允许执行 name=binaries/obsidian-export 的 sidecar（sidecar:true, args:true），边车是唯一可执行的外部程序。"
+                  ],
+                  "rel": [
+                    "desktop/src-tauri/src/sidecar.rs",
+                    "desktop/src-tauri/tauri.conf.json"
+                  ],
+                  "tags": [
+                    "config",
+                    "sidecar",
+                    "tauri"
+                  ]
+                }
+              }
+            },
+            "Cargo.lock": {
+              "kind": "file",
+              "desc": "桌面 workspace 依赖锁文件",
+              "detail": [
+                "Cargo 自动生成（version 4 格式），固定桌面 workspace（obsidian-export-desktop 及 Tauri 依赖树，477 个包）的依赖版本；版本号由 just set-version 以 sed 修补（build script 依赖已同步的 sidecar 二进制，clean 后 cargo check 不可用）。"
+              ],
+              "rel": [
+                "desktop/src-tauri/Cargo.toml"
+              ],
+              "tags": [
+                "config",
+                "generated"
+              ]
+            },
+            "Cargo.toml": {
+              "kind": "file",
+              "desc": "桌面 crate 清单（独立 ws）",
+              "detail": [
+                "package obsidian-export-desktop，edition 2021，含 [workspace] 空表自成 workspace 根（与 CLI 发布管线隔离）；lib 名 desktop_lib，crate-type staticlib/cdylib/rlib（Windows lib/bin 名冲突问题）。依赖 tauri 2 + tauri-plugin-dialog/opener/shell、serde、serde_json；build-dependencies 仅 tauri-build 2。"
+              ],
+              "rel": [
+                "desktop/src-tauri/src/main.rs"
+              ],
+              "tags": [
+                "config",
+                "rust",
+                "tauri"
+              ]
+            },
+            "icons": {
+              "kind": "dir",
+              "desc": "Tauri 全平台应用图标集",
+              "detail": [
+                "Tauri 默认生成的全平台图标集（粗粒度收录）：32/64/128/128@2x PNG、icon.ico（Windows）、icon.icns（macOS）、icon.png、app-icon-source.png 源图、Square*Logo/StoreLogo 系列，及 android/、ios/ 子目录；被 tauri.conf.json 的 bundle.icon 引用。"
+              ],
+              "rel": [
+                "desktop/src-tauri/tauri.conf.json"
+              ],
+              "tags": [
+                "tauri"
+              ],
+              "children": {}
+            },
+            "src": {
+              "kind": "dir",
+              "desc": "后端源码（4 个模块）",
+              "detail": [
+                "main（bin 薄壳）、lib（Builder 装配）、sidecar（编排核心）、events（事件解析）。"
+              ],
+              "tags": [
+                "rust",
+                "tauri"
+              ],
+              "children": {
+                "events.rs": {
+                  "kind": "file",
+                  "desc": "JSON Lines 事件解析",
+                  "detail": [
+                    "SUPPORTED_SCHEMA_VERSION = 1。导出方言 SidecarEvent 7 变体（Schema/Start/FileDone/FileSkipped/FileFailed/Warning/End）；check 方言 CheckEvent 4 变体（Schema/CheckStart/LinkReport/CheckEnd）+ LinkKind + CheckStatus。parse_line/parse_check_line：空行与未知类型返回 Ignored（向前兼容），非法 JSON 或 schema 版本不符返回 Err；两种方言事件集不相交，互认对方事件为未知。"
+                  ],
+                  "rel": [
+                    "desktop/src-tauri/src/sidecar.rs",
+                    "src/main.rs"
+                  ],
+                  "tags": [
+                    "rust",
+                    "sidecar",
+                    "tauri"
+                  ]
+                },
+                "lib.rs": {
+                  "kind": "file",
+                  "desc": "Tauri Builder 装配",
+                  "detail": [
+                    "声明 mod events、mod sidecar；pub fn run() 构建 tauri::Builder，注册 opener/dialog/shell 三插件，manage(sidecar::ExportState)，invoke_handler 注册 5 个 command：check_sidecar、start_export、start_check、cancel_export、export_running。"
+                  ],
+                  "rel": [
+                    "desktop/src-tauri/src/events.rs",
+                    "desktop/src-tauri/src/sidecar.rs"
+                  ],
+                  "tags": [
+                    "rust",
+                    "tauri"
+                  ]
+                },
+                "main.rs": {
+                  "kind": "file",
+                  "desc": "Tauri 应用二进制入口",
+                  "detail": [
+                    "仅 6 行：release 下设 windows_subsystem=windows 隐藏 Windows 控制台，然后调用 desktop_lib::run()；所有逻辑在 lib crate。"
+                  ],
+                  "rel": [
+                    "desktop/src-tauri/src/lib.rs"
+                  ],
+                  "tags": [
+                    "rust",
+                    "tauri"
+                  ]
+                },
+                "sidecar.rs": {
+                  "kind": "file",
+                  "desc": "CLI 边车进程编排核心",
+                  "detail": [
+                    "spawn 捆绑的 obsidian-export 边车（--progress json），自身不含转换逻辑。5 个 #[tauri::command]：check_sidecar（--version 握手）、start_export（路径解析 + keep_root_folder 目的地解析 + build_args + spawn，返回实际目标路径）、start_check（链接检查子命令，build_check_args）、cancel_export（kill）、export_running。核心类型：ExportState（Mutex<Option<CommandChild>>，导出与检查共用槽位）、ExportOptions（camelCase 反序列化，仅非默认值转 CLI flag）、resolve_destination、StreamDialect（Export/Check 两方言决定解析函数与前端事件通道）、pump_sidecar（按字节缓冲到完整行再 lossy 解码防 UTF-8 截断，转发事件，Terminated 时释放槽位并 emit {code,stderr}）。含大量单元测试。"
+                  ],
+                  "rel": [
+                    "desktop/src-tauri/src/events.rs",
+                    "docs/sidecar-events.md",
+                    "src/main.rs"
+                  ],
+                  "tags": [
+                    "rust",
+                    "sidecar",
+                    "tauri"
+                  ]
+                }
+              }
+            },
+            "tauri.conf.json": {
+              "kind": "file",
+              "desc": "Tauri 应用与打包配置",
+              "detail": [
+                "productName Obsidian Export、identifier dev.suian.obsidian-export；build 走 pnpm dev/build，devUrl localhost:1420，frontendDist ../dist；主窗口 760x520（min 560x480）、decorations:false 无边框、csp:null；bundle targets all，externalBin [binaries/obsidian-export] 声明捆绑边车，多尺寸 icon 列表与 NSIS installerIcon。"
+              ],
+              "rel": [
+                "desktop/src-tauri/binaries",
+                "desktop/src-tauri/capabilities/default.json"
+              ],
+              "tags": [
+                "config",
+                "sidecar",
+                "tauri"
+              ]
+            }
+          }
+        },
+        "tsconfig.json": {
+          "kind": "file",
+          "desc": "前端 TS 主编译配置",
+          "detail": [
+            "target ES2020、bundler 模块解析、noEmit、jsx react-jsx；别名 @/* → ./src/*；strict 全开；include [src] 并引用 tsconfig.node.json。"
+          ],
+          "rel": [
+            "desktop/tsconfig.node.json"
+          ],
+          "tags": [
+            "config"
+          ]
+        },
+        "tsconfig.node.json": {
+          "kind": "file",
+          "desc": "Vite 配置文件的 TS 子项目",
+          "detail": [
+            "composite 项目，仅 include vite.config.ts，bundler 解析 + allowSyntheticDefaultImports。"
+          ],
+          "rel": [
+            "desktop/vite.config.ts"
+          ],
+          "tags": [
+            "config"
+          ]
+        },
+        "vite.config.ts": {
+          "kind": "file",
+          "desc": "Vite 配置，适配 Tauri 开发",
+          "detail": [
+            "插件 react + tailwindcss；别名 @ → ./src；server 固定端口 1420（strictPort），支持 TAURI_DEV_HOST 的 ws HMR(1421)，watch 忽略 src-tauri。"
+          ],
+          "rel": [
+            "desktop/tsconfig.json"
+          ],
+          "tags": [
+            "config",
+            "frontend"
+          ]
+        }
+      }
+    },
+    "dist-workspace.toml": {
+      "kind": "file",
+      "desc": "cargo-dist 发布工作区配置",
+      "detail": [
+        "members 仅 [cargo:.]（桌面端不在 dist 范围）。[dist]：cargo-dist-version 0.28.0，CI 后端 github，installers shell/powershell，目标 linux/mac/windows 三平台，publish-jobs [./publish-crate]，install-path CARGO_HOME，无 updater；因 release.yml 的 tag 触发模式被手工修正过而设 allow-dirty = [ci] 放行漂移检查。"
+      ],
+      "rel": [
+        ".github/workflows/release.yml",
+        "Cargo.toml"
+      ],
+      "tags": [
+        "ci",
+        "config"
+      ]
+    },
+    "docs": {
+      "kind": "dir",
+      "desc": "项目文档（mdBook+fork）",
+      "detail": [
+        "上游 mdBook 章节源文档、本 fork 新增的桌面端文档与边车事件契约，以及 README 生成链（generate.sh + _combined.md）。"
+      ],
+      "tags": [
+        "docs"
+      ],
+      "children": {
+        ".obsidian": {
+          "kind": "dir",
+          "desc": "Obsidian 编辑器工作区配置",
+          "detail": [
+            "Obsidian 打开 docs 目录的编辑器配置：config（核心插件开关与主题）、workspace（布局与打开文件，含历史遗留状态）、workspaces.json（空对象）。"
+          ],
+          "tags": [
+            "docs"
+          ],
+          "children": {}
+        },
+        "_combined.md": {
+          "kind": "file",
+          "desc": "README 生成的章节嵌入清单",
+          "detail": [
+            "源文件而非产物：一串 Obsidian 嵌入引用（_edit-warning、intro、installation、usage-basic、usage-advanced、usage-library、desktop、contribute、license、changes），定义各文档拼入 README 的顺序。"
+          ],
+          "rel": [
+            "docs/_edit-warning.md",
+            "docs/generate.sh"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "_edit-warning.md": {
+          "kind": "file",
+          "desc": "勿直接编辑 README 的警告块",
+          "detail": [
+            "纯 HTML 注释：警告 README.md 由 docs 目录自动生成，应改 docs 下文件并跑 generate.sh；作为首个嵌入出现在 README 顶部。"
+          ],
+          "rel": [
+            "docs/_combined.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "BUILD.md": {
+          "kind": "file",
+          "desc": "中文构建指南（CLI 与桌面端）",
+          "detail": [
+            "本 fork 新增中文文档：环境要求（Rust 1.87 / pnpm / just 1.53.x）、cargo 命令、just desktop-dev/test/build 与边车同步机制、just clean 清理范围、图标替换、Windows 坑、维护者发布流程；不进 README 生成列表。"
+          ],
+          "rel": [
+            "docs/desktop.md",
+            "docs/sidecar-events.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "CHANGELOG.md": {
+          "kind": "file",
+          "desc": "指向根变更日志的指针文件",
+          "detail": [
+            "内容仅一行文本 ../CHANGELOG.md（非软链接）：让 _combined.md 的 ![[CHANGELOG]] 嵌入可解析，在生成的 README 中留下指向根 CHANGELOG 的路径。"
+          ],
+          "rel": [
+            "docs/changes.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "changes.md": {
+          "kind": "file",
+          "desc": "更新日志引导页",
+          "detail": [
+            "上游 mdBook 源文档，两行：以 wikilink [[CHANGELOG]] 指向变更日志，作为 README 的 Changelog 章节。"
+          ],
+          "rel": [
+            "docs/_combined.md",
+            "docs/CHANGELOG.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "contribute.md": {
+          "kind": "file",
+          "desc": "贡献引导页",
+          "detail": [
+            "上游 mdBook 源文档，两行：欢迎符合项目范围的贡献，跳转 CONTRIBUTING.md 详情；作为 README 的 Contributing 章节。"
+          ],
+          "rel": [
+            "docs/_combined.md",
+            "docs/CONTRIBUTING.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "CONTRIBUTING.md": {
+          "kind": "file",
+          "desc": "指向根贡献指南的指针文件",
+          "detail": [
+            "内容仅一行文本 ../CONTRIBUTING.md，与 CHANGELOG.md 同构：供 ![[CONTRIBUTING]] 嵌入解析并指向仓库根 CONTRIBUTING.md。"
+          ],
+          "rel": [
+            "docs/contribute.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "desktop.md": {
+          "kind": "file",
+          "desc": "Tauri 桌面端功能介绍",
+          "detail": [
+            "本 fork 新增：桌面应用以 sidecar 子进程包裹同一 CLI；特性含明暗主题、中英双语 UI、路径记忆、全量 CLI 选项视图、导出前摘要、实时进度/失败链/取消；指向 BUILD.md。进入 README 生成列表。"
+          ],
+          "rel": [
+            "docs/BUILD.md",
+            "docs/sidecar-events.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "generate.sh": {
+          "kind": "file",
+          "desc": "由 docs 生成 README 的脚本",
+          "detail": [
+            "切到仓库根，用 cargo run（obsidian-export 自身）把 docs 导出到临时目录，展开嵌入后的 _combined.md 复制为根 README.md；README.md 是其产物。"
+          ],
+          "rel": [
+            "docs/_combined.md",
+            "README.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "installation.md": {
+          "kind": "file",
+          "desc": "安装与升级指南",
+          "detail": [
+            "上游 mdBook 源文档：预编译二进制下载（GitHub Releases / cargo-binstall）、cargo install 源码构建、旧版本升级三种方式。"
+          ],
+          "rel": [
+            "docs/_combined.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "intro.md": {
+          "kind": "file",
+          "desc": "项目简介与核心特性列表",
+          "detail": [
+            "上游 mdBook 源文档：介绍 obsidian-export 是导出 Obsidian vault 到 CommonMark 的 CLI 与 Rust 库，列出 wikilink 解析、.export-ignore、跨平台等特性。"
+          ],
+          "rel": [
+            "docs/_combined.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "license.md": {
+          "kind": "file",
+          "desc": "许可证说明",
+          "detail": [
+            "上游 mdBook 源文档：BSD-2-Clause Plus Patent License（宽松、GPLv2 兼容、含专利授权），指向根 LICENSE 全文。"
+          ],
+          "rel": [
+            "docs/_combined.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "Release-checklist.md": {
+          "kind": "file",
+          "desc": "发布流程检查清单",
+          "detail": [
+            "上游维护者文档：三项 checklist——运行 just make-new-release、推送 release commit/tag、等待 CI 变绿；不进 README 生成列表。"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "sidecar-events.md": {
+          "kind": "file",
+          "desc": "边车 JSON 事件流契约文档",
+          "detail": [
+            "本 fork 新增中文文档（文件头自述不进 _combined.md）：面向 GUI 开发者定义 --progress json 契约——stdout JSON Lines 事件、退出码约定、终止协议、路径约定，及 check 子命令的第二种事件方言。"
+          ],
+          "rel": [
+            "docs/BUILD.md",
+            "docs/usage-advanced.md"
+          ],
+          "tags": [
+            "docs",
+            "sidecar"
+          ]
+        },
+        "usage-advanced.md": {
+          "kind": "file",
+          "desc": "CLI 高级选项与技巧",
+          "detail": [
+            "上游结构 + 本 fork 扩展：--frontmatter 策略、--missing-section（含块引用与同文件嵌入语义）、--fail-fast、--progress json 事件流、.export-ignore 语法、递归嵌入、Hugo render hooks 兼容。"
+          ],
+          "rel": [
+            "docs/_combined.md",
+            "docs/sidecar-events.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "usage-basic.md": {
+          "kind": "file",
+          "desc": "CLI 基本用法说明",
+          "detail": [
+            "上游 mdBook 源文档：最简调用（源+目标）、单文件导出的引用不解析限制、--start-at 部分导出、UTF-8 编码假设。"
+          ],
+          "rel": [
+            "docs/_combined.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "usage-library.md": {
+          "kind": "file",
+          "desc": "Rust 库使用指引",
+          "detail": [
+            "上游 mdBook 源文档，仅数行：CLI 功能均以 obsidian_export crate 形式提供，链接 crates.io 与 docs.rs（Exporter）文档。"
+          ],
+          "rel": [
+            "docs/_combined.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        }
+      }
+    },
+    "Justfile": {
+      "kind": "file",
+      "desc": "核心任务入口（桌面端+发布）",
+      "detail": [
+        "windows-shell 设 powershell。recipe：desktop-sync-sidecar（构建 CLI 拷入桌面端 sidecar 位，改动 CLI 后必须重跑）、desktop-dev/desktop-build/desktop-test（均先同步 sidecar）、clean scope（target/desktop/sidecar/all 四档清理）、add-changelog/preview-changelog（towncrier 片段）、set-version（一次对齐根 crate 与桌面端 6 处版本号，需 cargo-edit）、make-new-release（干净校验→set-version→towncrier→docs/generate.sh→提交打 tag）、_get-next-version-number（yy.mm.N 规则）。Git Bash 下 make-new-release 因 just_executable() 反斜杠路径失败，须手动分步执行（AGENTS.md 发布登记）。"
+      ],
+      "rel": [
+        "changelog.d",
+        "desktop",
+        "towncrier.toml"
+      ],
+      "tags": [
+        "config"
+      ]
+    },
+    "LICENSE": {
+      "kind": "file",
+      "desc": "上游许可证全文",
+      "detail": [
+        "上游许可证全文：宽松、GPLv2 兼容、含专利授权；docs/license.md 是其简介。"
+      ],
+      "rel": [
+        "docs/license.md"
+      ],
+      "tags": [
+        "docs"
+      ]
+    },
+    "README.md": {
+      "kind": "file",
+      "desc": "项目自述（generate.sh 产物）",
+      "detail": [
+        "由 docs/generate.sh 用 obsidian-export 自身展开 docs/_combined.md 的嵌入生成，顶部带勿直接编辑警告；修改须改 docs 下文件再重新生成。"
+      ],
+      "rel": [
+        "docs/_combined.md",
+        "docs/generate.sh"
+      ],
+      "tags": [
+        "docs",
+        "generated"
+      ]
+    },
+    "rust-toolchain.toml": {
+      "kind": "file",
+      "desc": "固定 Rust 工具链版本",
+      "detail": [
+        "channel = 1.87.0，profile = default；renovate 经 regex manager 自动更新此版本号；桌面端经 .cargo/config.toml 级联锁定。"
+      ],
+      "rel": [
+        ".github/renovate.json5",
+        "desktop/src-tauri/.cargo/config.toml"
+      ],
+      "tags": [
+        "config"
+      ]
+    },
+    "rustfmt.toml": {
+      "kind": "file",
+      "desc": "代码格式化规则（需 nightly）",
+      "detail": [
+        "nightly-only 选项集：comment_width=120、format_code_in_doc_comments、group_imports=StdExternalCrate、imports_granularity=Module 等；pre-commit 与 CI 均以 cargo +nightly fmt 执行。"
+      ],
+      "rel": [
+        ".github/workflows/ci.yml",
+        ".pre-commit-config.yaml"
+      ],
+      "tags": [
+        "config"
+      ]
+    },
+    "src": {
+      "kind": "dir",
+      "desc": "Rust 源码（CLI 与库）",
+      "detail": [
+        "lib（obsidian_export）与 bin（obsidian-export）双目标：导出引擎、引用解析、链接检查、遍历与 CLI 入口。"
+      ],
+      "tags": [
+        "rust"
+      ],
+      "children": {
+        "context.rs": {
+          "kind": "file",
+          "desc": "笔记解析上下文与嵌套追踪",
+          "detail": [
+            "pub struct Context：file_tree（嵌入嵌套链，供 NOTE_RECURSION_LIMIT=10 递归上限检测）、destination、frontmatter 三字段；方法 new/from_parent/current_file/root_file/note_depth；把可修改的 frontmatter 与目标路径暴露给 postprocessor。"
+          ],
+          "rel": [
+            "src/frontmatter.rs",
+            "src/lib.rs"
+          ],
+          "tags": [
+            "rust"
+          ]
+        },
+        "frontmatter.rs": {
+          "kind": "file",
+          "desc": "frontmatter 类型与序列化",
+          "detail": [
+            "pub type Frontmatter = serde_yaml::Mapping；frontmatter_from_str/frontmatter_to_str（带 --- 定界符编解码）；FrontmatterStrategy { Auto, Always, Never }；尾部 3 个单元测试。"
+          ],
+          "rel": [
+            "src/context.rs",
+            "src/lib.rs"
+          ],
+          "tags": [
+            "rust"
+          ]
+        },
+        "lib.rs": {
+          "kind": "file",
+          "desc": "库核心：Exporter 导出引擎",
+          "detail": [
+            "库入口（crate obsidian_export，约 2800 行）：mod context/frontmatter/linkcheck/references/walker 与 pub mod postprocessors，并 re-export pulldown_cmark 与 serde_yaml（yaml_serde 包改名）。核心类型：Exporter（run() 并行导出、start_at/frontmatter_strategy/walk_options/preserve_mtime/missing_section_strategy/fail_fast/on_event/add_postprocessor）、ExportError、ExportEvent（Start/FileDone/FileSkipped/FileFailed/Warning/End）、PostprocessorResult、MissingSectionStrategy、VaultIndex（后缀索引 O(1) wikilink 解析）、RawNoteRef。内部：parse_raw_note_with_refs（wikilink 规范成五事件并记录源偏移）、expand_references、embed_file/embed_same_file、make_link_to_file、reduce_to_section/reduce_to_block（章节/块引用切片）、format_anchor（GitHub 风格锚点）。文件后半为单元测试。"
+          ],
+          "rel": [
+            "src/linkcheck.rs",
+            "src/main.rs",
+            "src/walker.rs",
+            "tests/export_test.rs"
+          ],
+          "tags": [
+            "rust"
+          ]
+        },
+        "linkcheck.rs": {
+          "kind": "file",
+          "desc": "链接完整性检查（check 后端）",
+          "detail": [
+            "实现不写文件只验链接：LinkKind（WikiLink/WikiEmbed/MarkdownLink/MarkdownImage）、LinkCheckStatus（Ok/MissingFile/OutOfBounds/MissingSection/MissingBlock/FileUnreadable/ExternalSkipped）、LinkCheckReport、CheckSummary；Exporter::check() rayon 并行逐文件检查，含 LineIndex（字节偏移转行号）与 TargetCache（标题锚点缓存）。规则：逃逸检查根的链接即使磁盘存在也判 broken，外部 URL 跳过；wikilink 锚点按 Obsidian 原文语义，标准 md 链接锚点按 slug 语义。尾部 11 个单元测试。"
+          ],
+          "rel": [
+            "src/lib.rs",
+            "src/main.rs",
+            "tests/cli_test.rs"
+          ],
+          "tags": [
+            "rust"
+          ]
+        },
+        "main.rs": {
+          "kind": "file",
+          "desc": "CLI 二进制入口与参数解析",
+          "detail": [
+            "bin obsidian-export：gumdrop 定义 Opts（source/destination、--frontmatter、--start-at、--no-recursive-embeds、--preserve-mtime、--missing-section、--fail-fast、--progress、--hard-linebreaks 等）与 CheckOpts；main() 手动派发首参数 check 子命令（gumdrop 不允许 free+command 混用），run_check() 逐链接报告并按 broken 数决定退出码（0/1/2）。--progress json 输出 JSON Lines 事件流（JSON_EVENT_SCHEMA_VERSION=1，与桌面端 events.rs 各持一份须同步）。"
+          ],
+          "rel": [
+            "desktop/src-tauri/src/sidecar.rs",
+            "src/lib.rs",
+            "tests/cli_test.rs"
+          ],
+          "tags": [
+            "rust",
+            "sidecar"
+          ]
+        },
+        "postprocessors.rs": {
+          "kind": "file",
+          "desc": "官方内置后处理器集合",
+          "detail": [
+            "pub mod，两个公开后处理器：softbreaks_to_hardbreaks（SoftBreak→HardBreak，模拟 Obsidian Strict line breaks）与 filter_by_tags(skip_tags, only_tags)（读 frontmatter tags，兼容标量/逗号串，命中排除或不满足 only 时 StopAndSkipNote）。含单元测试。"
+          ],
+          "rel": [
+            "src/main.rs",
+            "tests/postprocessors_test.rs"
+          ],
+          "tags": [
+            "rust"
+          ]
+        },
+        "references.rs": {
+          "kind": "file",
+          "desc": "Obsidian 引用解析器与状态机",
+          "detail": [
+            "pub struct ObsidianNoteReference { file/section/label }：静态正则 from_str 解析（处理 note|、# 等退化输入），Display 生成 file > section 标签；RefParserState（六状态）与 RefParser、RefType（Link/Embed）构成逐事件扫描 [[..]]/![[..]] 的状态机。含 rstest 参数化测试。"
+          ],
+          "rel": [
+            "src/lib.rs"
+          ],
+          "tags": [
+            "rust"
+          ]
+        },
+        "walker.rs": {
+          "kind": "file",
+          "desc": "库文件遍历与忽略规则",
+          "detail": [
+            "pub struct WalkOptions（ignore_filename 默认 .export-ignore、ignore_hidden 默认 true、honor_gitignore 默认 true、可选 filter_fn），build_walker 基于 ignore::WalkBuilder 组装；vault_contents 返回可导出文件列表并排序保证跨平台确定性。"
+          ],
+          "rel": [
+            "src/lib.rs",
+            "src/main.rs"
+          ],
+          "tags": [
+            "rust"
+          ]
+        }
+      }
+    },
+    "tests": {
+      "kind": "dir",
+      "desc": "集成测试目录",
+      "detail": [
+        "cli_test（CLI 契约）、export_test（库级导出）、postprocessors_test（后处理器）三个文件 + testdata fixtures。"
+      ],
+      "tags": [
+        "test"
+      ],
+      "children": {
+        "cli_test.rs": {
+          "kind": "file",
+          "desc": "CLI 契约测试（供桌面端依赖）",
+          "detail": [
+            "约 700 行：经 CARGO_BIN_EXE_obsidian-export 子进程运行二进制，锁定参数/退出码/stdout 与 stderr 行为（头部注释明确为桌面端 sidecar 驱动 CLI 提供契约保障）。覆盖 --version/--help、参数错误 exit 2、--progress json 事件流、--fail-fast、start-at 越界、非 UTF-8 参数、check 子命令（逐链接判决文本与 JSON、无源参数 usage、目录遮蔽警告）。"
+          ],
+          "rel": [
+            "docs/sidecar-events.md",
+            "src/linkcheck.rs",
+            "src/main.rs"
+          ],
+          "tags": [
+            "sidecar",
+            "test"
+          ]
+        },
+        "export_test.rs": {
+          "kind": "file",
+          "desc": "库级导出功能集成测试",
+          "detail": [
+            "约 1150 行（37 个测试函数）：直接调用 Exporter API，对照 testdata/input 与 expected 黄金树全量断言。覆盖默认导出与 frontmatter 三策略、.export-ignore、单文件导出、start_at、错误路径、无限递归与 --no-recursive-embeds、mtime 保留、非 ASCII 文件名、错误聚合与 fail-fast、事件流回调、中文标题锚点、章节匹配变体、标题内 wikilink、图片尺寸回退、相对路径图片、missing-section 三策略、块引用与同文件嵌入、格式标记保留、同名文件歧义消解。"
+          ],
+          "rel": [
+            "src/lib.rs",
+            "tests/testdata/expected",
+            "tests/testdata/input"
+          ],
+          "tags": [
+            "test"
+          ]
+        },
+        "postprocessors_test.rs": {
+          "kind": "file",
+          "desc": "后处理器行为测试",
+          "detail": [
+            "约 330 行（12 个测试函数）：自定义 foo_to_bar/append_frontmatter 对照 expected、StopHere 短路、StopAndSkipNote 跳过、修改目标路径、有状态回调、embed postprocessor 与上下文隔离、softbreaks_to_hardbreaks、跳过时 mtime 行为、filter_by_tags。"
+          ],
+          "rel": [
+            "src/context.rs",
+            "src/postprocessors.rs"
+          ],
+          "tags": [
+            "test"
+          ]
+        },
+        "testdata": {
+          "kind": "dir",
+          "desc": "测试 vault fixtures",
+          "detail": [
+            "input/（20 个场景目录）与 expected/（8 个黄金输出树，与同名 input 配对）；场景目录粗粒度收录。"
+          ],
+          "rel": [
+            "tests/export_test.rs"
+          ],
+          "tags": [
+            "fixture"
+          ],
+          "children": {
+            "expected": {
+              "kind": "dir",
+              "desc": "黄金输出树（8 个场景）",
+              "detail": [
+                "与 input 同名配对的期望导出结果，供测试全量比对；场景目录粗粒度收录。"
+              ],
+              "tags": [
+                "fixture"
+              ],
+              "children": {
+                "filter-by-tags": {
+                  "kind": "dir",
+                  "desc": "标签过滤黄金输出树",
+                  "detail": [
+                    "input/filter-by-tags 经 tag 过滤导出后的期望文件树，被 postprocessors_test 全量比对。"
+                  ],
+                  "rel": [
+                    "tests/testdata/input/filter-by-tags"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "infinite-recursion": {
+                  "kind": "dir",
+                  "desc": "循环嵌入降级输出树",
+                  "detail": [
+                    "--no-recursive-embeds 下 Note A/B 的期望输出（环降级为链接）。"
+                  ],
+                  "rel": [
+                    "tests/testdata/input/infinite-recursion"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "main-samples": {
+                  "kind": "dir",
+                  "desc": "主样例黄金输出树",
+                  "detail": [
+                    "input/main-samples 默认选项导出的期望文件集，被 test_main_variants_with_default_options 遍历比对。"
+                  ],
+                  "rel": [
+                    "tests/testdata/input/main-samples"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "non-ascii": {
+                  "kind": "dir",
+                  "desc": "非 ASCII 黄金输出树",
+                  "detail": [
+                    "input/non-ascii 导出后的期望文件树。"
+                  ],
+                  "rel": [
+                    "tests/testdata/input/non-ascii"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "postprocessors": {
+                  "kind": "dir",
+                  "desc": "后处理器黄金输出树",
+                  "detail": [
+                    "input/postprocessors 经示例后处理器处理后的期望输出。"
+                  ],
+                  "rel": [
+                    "tests/testdata/input/postprocessors"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "same-filename-different-directories": {
+                  "kind": "dir",
+                  "desc": "同名消解黄金输出树",
+                  "detail": [
+                    "同名歧义消解后期望的 Note.md（三处目录各一份）。"
+                  ],
+                  "rel": [
+                    "tests/testdata/input/same-filename-different-directories"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "single-file": {
+                  "kind": "dir",
+                  "desc": "单文件黄金输出树",
+                  "detail": [
+                    "单文件导出的期望 note.md。"
+                  ],
+                  "rel": [
+                    "tests/testdata/input/single-file"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "start-at": {
+                  "kind": "dir",
+                  "desc": "start-at 黄金输出树",
+                  "detail": [
+                    "按 start_at 限制导出后期望的 subdir/Note B.md 等文件。"
+                  ],
+                  "rel": [
+                    "tests/testdata/input/start-at"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                }
+              }
+            },
+            "input": {
+              "kind": "dir",
+              "desc": "测试输入 vault（20 个场景）",
+              "detail": [
+                "按测试场景分组的输入笔记目录，场景目录粗粒度收录。"
+              ],
+              "tags": [
+                "fixture"
+              ],
+              "children": {
+                "block-refs": {
+                  "kind": "dir",
+                  "desc": "块引用嵌入定位数据",
+                  "detail": [
+                    "供 test_block_refs_embed_located_block 与同文件块嵌入测试：![[note#^block-id]] 跨文件与同文件块引用嵌入。"
+                  ],
+                  "rel": [
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "block-refs-edge": {
+                  "kind": "dir",
+                  "desc": "块引用边界情况数据",
+                  "detail": [
+                    "供 test_block_refs_edge_cases：块位于代码块、嵌套结构、引用条目等边界情形。"
+                  ],
+                  "rel": [
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "block-refs-self-loop": {
+                  "kind": "dir",
+                  "desc": "块自引用循环数据",
+                  "detail": [
+                    "供 test_same_file_self_referencing_block_terminates：块嵌入自引用，验证降级为链接终止而非无限递归。"
+                  ],
+                  "rel": [
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "chinese-anchor": {
+                  "kind": "dir",
+                  "desc": "中文标题锚点数据",
+                  "detail": [
+                    "供 test_chinese_section_anchor 及多个 CLI check 测试：CJK 标题锚点原样保留、全角标点剥离；无死链，用作 check 健康样例。"
+                  ],
+                  "rel": [
+                    "tests/cli_test.rs",
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "embed-order": {
+                  "kind": "dir",
+                  "desc": "嵌入切片先于展开数据",
+                  "detail": [
+                    "供 test_embed_section_cut_before_expansion（root→middle→target 三层）：章节切片在嵌套嵌入展开之前执行。"
+                  ],
+                  "rel": [
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "filter-by-tags": {
+                  "kind": "dir",
+                  "desc": "标签过滤数据",
+                  "detail": [
+                    "供 cli_test 的 --skip-tags/--only-tags 与 postprocessors_test 的 test_filter_by_tags：按 frontmatter tags 决定包含/排除。"
+                  ],
+                  "rel": [
+                    "tests/cli_test.rs",
+                    "tests/postprocessors_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "formatting-refs": {
+                  "kind": "dir",
+                  "desc": "带格式标记 wikilink 数据",
+                  "detail": [
+                    "供 test_wikilink_formatting_markers_preserved：引用文本含 __file__ 等标记时按源码原样保留。"
+                  ],
+                  "rel": [
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "heading-wikilink": {
+                  "kind": "dir",
+                  "desc": "标题含 wikilink 嵌入数据",
+                  "detail": [
+                    "供 test_heading_wikilink_section_embeds：标题内含 wikilink（note→mid→target）时的章节嵌入与链接生成。"
+                  ],
+                  "rel": [
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "image-size": {
+                  "kind": "dir",
+                  "desc": "图片尺寸语法数据",
+                  "detail": [
+                    "供 test_numeric_image_size_label_falls_back_to_filename：![[img.png|300]] 纯数字标签（尺寸语法）回退为文件名 alt。"
+                  ],
+                  "rel": [
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "infinite-recursion": {
+                  "kind": "dir",
+                  "desc": "循环嵌入测试数据",
+                  "detail": [
+                    "供 test_infinite_recursion 与 test_no_recursive_embeds：Note A/B 互相嵌入成环，验证递归上限报错与降级为链接。"
+                  ],
+                  "rel": [
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "main-samples": {
+                  "kind": "dir",
+                  "desc": "主样例库（多测试复用）",
+                  "detail": [
+                    "最常用样例 vault：默认选项全量比对、frontmatter 三策略、.export-ignore 排除及多个 CLI 测试复用；含 frontmatter 笔记、嵌入等典型样例。"
+                  ],
+                  "rel": [
+                    "tests/cli_test.rs",
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "missing-sections": {
+                  "kind": "dir",
+                  "desc": "缺失章节策略数据",
+                  "detail": [
+                    "供 missing-section skip/embed/fail 三测试：嵌入指向不存在章节/块时验证三种 MissingSectionStrategy。"
+                  ],
+                  "rel": [
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "mixed-health": {
+                  "kind": "dir",
+                  "desc": "混合健康度笔记数据",
+                  "detail": [
+                    "good.md、broken-link.md（引用不存在笔记）、bad-frontmatter.md（frontmatter 语法错误）：供错误聚合、fail-fast、事件流上报及 CLI --progress json 失败/跳过上报测试。"
+                  ],
+                  "rel": [
+                    "tests/cli_test.rs",
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "non-ascii": {
+                  "kind": "dir",
+                  "desc": "非 ASCII 文件名数据",
+                  "detail": [
+                    "供 test_non_ascii_filenames 及 start-at 相关测试：Unicode 文件名导出与 wikilink 解析（大小写不敏感 + NFC 归一化）。"
+                  ],
+                  "rel": [
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "postprocessors": {
+                  "kind": "dir",
+                  "desc": "后处理器测试数据",
+                  "detail": [
+                    "供 postprocessors_test 多数测试：Note.md 等笔记上运行自定义后处理器并对照 expected。"
+                  ],
+                  "rel": [
+                    "tests/postprocessors_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "relative-references": {
+                  "kind": "dir",
+                  "desc": "相对路径引用数据",
+                  "detail": [
+                    "供 test_embedded_images_with_relative_paths：notes/ 与 assets/ 分层目录下嵌入图片生成链接的相对路径正确性。"
+                  ],
+                  "rel": [
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "same-filename-different-directories": {
+                  "kind": "dir",
+                  "desc": "同名文件歧义消解数据",
+                  "detail": [
+                    "供 test_same_filename_different_directories：不同目录同名 Note.md，裸名 wikilink 按最少路径组件、字典序平局确定性消歧。"
+                  ],
+                  "rel": [
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "section-variants": {
+                  "kind": "dir",
+                  "desc": "章节匹配变体数据",
+                  "detail": [
+                    "供 test_section_matching_variants：标题含行内代码（按纯文本匹配）与嵌套同名标题（首匹配切到文末不重启）。"
+                  ],
+                  "rel": [
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "single-file": {
+                  "kind": "dir",
+                  "desc": "单文件导出数据",
+                  "detail": [
+                    "供 test_single_file_to_dir/to_file：单 note.md 为源、目标为目录或具体文件两种形态。"
+                  ],
+                  "rel": [
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "start-at": {
+                  "kind": "dir",
+                  "desc": "start-at 子路径数据",
+                  "detail": [
+                    "供 start_at 子目录/单文件及越界报错测试：仅导出 subdir 子路径。"
+                  ],
+                  "rel": [
+                    "tests/cli_test.rs",
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "towncrier.toml": {
+      "kind": "file",
+      "desc": "towncrier 变更日志配置",
+      "detail": [
+        "片段目录 changelog.d，输出 CHANGELOG.md，标题链接指向上游 tag 与 issue；六种片段类型 new/change/fix/breaking/deprecation/misc。片段命名必须为新式 <issue>.<type>.md，旧式不被识别且静默跳过（AGENTS.md 发布登记）。"
+      ],
+      "rel": [
+        "changelog.d",
+        "CHANGELOG.md",
+        "Justfile"
+      ],
+      "tags": [
+        "config"
+      ]
+    }
+  }
+}

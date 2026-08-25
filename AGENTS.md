@@ -77,41 +77,202 @@
 - 事件流消费遵守 `docs/sidecar-events.md` 契约（导出与 check 两种事件方言）；schema 版本常量在 `desktop/src-tauri/src/events.rs` 与 CLI 的 `main.rs` 各有一份，升级时同步改。
 - 设置视图为分页式（`OptionsView`：左侧导航四页「转换行为 / 内容过滤 / 文件与过程 / 链接检查」，窄窗降级横排页签）。链接检查：导出成功且开关开启时前端自动 invoke `start_check`，检查 vault 源时由 Rust 侧 `build_check_args` 转发与导出一致的非默认过滤项（walk 集对齐；tag 后处理不参与 check），检查导出产物时恒传 `--no-git` 并使 `--hidden` 与导出一致（CLI 默认值本身是过滤——产物目录在 git 仓库内会被 gitignore 静默排除成假阴性）；check 与导出共用 child 槽，`cancel_export` 通杀，`start_export` 返回实际落点供「检查产物」定位；check 流的解析/IO 错误走独立 `check-error` 通道（导出日志视图在检查期已卸载，混入 sidecar-error 会不可见）。
 
-## 文件树
+## 文件树（简版速览）
 
-```text
-obsidian-export/
-├── src/                 # Rust 源码（CLI 与库）
-│   ├── main.rs          # CLI 入口（bin）：参数解析、JSON 事件流输出与错误报告
-│   ├── lib.rs           # 库入口：导出流程、事件回调、错误聚合与 VaultIndex
-│   ├── context.rs       # 导出上下文与配置
-│   ├── frontmatter.rs   # frontmatter 的解析与剥离
-│   ├── linkcheck.rs     # 链接完整性检查（Exporter::check）：存在性/越界/锚点有效性 + 逐条报告
-│   ├── postprocessors.rs# 后处理器：对导出结果再加工
-│   ├── references.rs    # 引用解析：wikilink、嵌入等链接形式
-│   └── walker.rs        # vault 的递归遍历
-├── tests/               # 集成测试：export_test（导出行为）、cli_test（CLI 契约）、postprocessors_test
-├── tests/testdata/      # 测试 vault fixtures（section-variants、image-size 等按场景分组）
-├── desktop/             # Tauri 2 桌面端（前端 React/TS + src-tauri Rust 后端，独立 workspace）
-│   ├── src/components/  # 视图组件：OptionsView（分页式设置）、ExportRunView/ExportResultView（进度与结果）、LinkCheckPanel（链接检查报告）等
-│   └── src-tauri/
-│       ├── src/events.rs  # sidecar JSON Lines 事件解析（schema v1，导出与 check 两种方言，单元测试锁定）
-│       ├── src/sidecar.rs # 边车编排：版本握手 / spawn / 事件转发（共享 pump）/ 取消 / 导出落点解析 / start_check 链接检查 / 参数构建（build_args·build_check_args 仅传非默认值）
-│       ├── icons/         # Tauri 全平台应用图标及 1024px 透明主图
-│       └── binaries/      # sidecar 二进制（just 同步，不入库）
-├── docs/                # 项目文档：sidecar-events.md（事件契约）、BUILD.md（构建指南）、desktop.md（README 的桌面端章节）
-├── changelog.d/         # towncrier 的 changelog 片段（发布时收集进 CHANGELOG.md）
-├── .github/             # CI 工作流
-├── AGENTS.md            # 本文件：项目规则单一事实源
-├── CLAUDE.md            # Claude 专属补充规则（@AGENTS.md 导入）
-├── Cargo.toml           # crate 清单
-├── .gitattributes       # 换行符规范：全库 LF 检出，二进制资源标记
-├── Justfile             # 常用任务命令（just）
-├── dist-workspace.toml  # cargo-dist 发布打包配置
-├── cliff.toml           # git-cliff 生成 changelog 的配置
-├── towncrier.toml       # changelog 片段管理配置
-├── deny.toml            # cargo-deny 依赖许可与安全审计
-└── rust-toolchain.toml  # 固定的 Rust 工具链版本
+```
+<!-- file-tree:tree:begin 由脚本渲染，禁止手改 -->
+obsidian-export-desktop/
+├── .agents/                # agent 技能目录
+│   └── skills/ # 已部署技能目录
+│       └── file-tree/ # 文件树技能（唯一数据源）
+│           ├── agents/   # 技能元数据目录
+│           │   └── openai.yaml # Codex 技能元数据
+│           ├── scripts/  # 技能脚本目录
+│           │   ├── tree_tool.py      # 文件树唯一维护脚本
+│           │   └── tree_tool_test.py # tree_tool 契约测试
+│           ├── SKILL.md  # 技能主入口与命令速查
+│           └── tree.json # 文件树数据（唯一数据源）
+├── .gitattributes          # 换行符规范
+├── .github/                # GitHub 配置目录
+│   ├── actions/       # 复合动作目录
+│   │   ├── cargo-binstall/ # cargo 二进制安装动作
+│   │   │   └── action.yaml # 复合动作：装 cargo 二进制
+│   │   └── setup-ci/       # CI 环境准备动作
+│   │       └── action.yaml # 复合动作：装工具链与缓存
+│   ├── FUNDING.yml    # GitHub 赞助配置
+│   ├── renovate.json5 # Renovate 依赖更新机器人配置
+│   └── workflows/     # CI 工作流目录
+│       ├── ci.yml            # CI 测试工作流
+│       ├── publish-crate.yml # 可复用发布到 crates.io 工作流
+│       └── release.yml       # cargo-dist 自动发布工作流
+├── .gitignore              # 根忽略规则
+├── .pre-commit-config.yaml # 本地与 CI 共用提交钩子
+├── AGENTS.md               # 项目规则单一事实源
+├── Cargo.lock              # 根 crate 依赖锁文件
+├── Cargo.toml              # 主 crate 清单（lib+bin）
+├── changelog.d/            # towncrier 变更片段目录
+│   └── .gitignore # 片段目录占位忽略文件
+├── CHANGELOG.md            # 变更日志（towncrier 生成）
+├── CLAUDE.md               # Claude 专属补充规则
+├── cliff.toml              # git-cliff 备用变更日志配置
+├── CONTRIBUTING.md         # 贡献指南（上游）
+├── deny.toml               # cargo-deny 依赖审计配置
+├── desktop/                # Tauri 2 桌面端
+│   ├── .gitignore          # 前端目录 Git 忽略规则
+│   ├── .vscode/            # VS Code 配置目录
+│   │   └── extensions.json # VS Code 推荐扩展列表
+│   ├── components.json     # shadcn/ui CLI 配置
+│   ├── index.html          # Vite HTML 壳页面
+│   ├── package.json        # 前端包清单与脚本定义
+│   ├── pnpm-lock.yaml      # pnpm 依赖锁文件
+│   ├── pnpm-workspace.yaml # pnpm 构建许可白名单
+│   ├── public/             # Vite 静态资源目录
+│   │   ├── tauri.svg # Tauri 官方 logo 图标
+│   │   └── vite.svg  # Vite logo（favicon）
+│   ├── README.md           # Tauri 模板遗留说明
+│   ├── scripts/            # 前端辅助脚本目录
+│   │   └── sync-sidecar.mjs # 构建 CLI 并同步为 Tauri 边车
+│   ├── src/                # 桌面端前端源码（React/TS）
+│   │   ├── App.tsx       # 应用根组件，串联三阶段导出流程
+│   │   ├── components/   # 视图组件目录
+│   │   │   ├── ExportDialog.tsx     # 导出前确认对话框
+│   │   │   ├── ExportResultView.tsx # 导出结果汇总卡片
+│   │   │   ├── ExportRunView.tsx    # 导出进行中的进度与日志视图
+│   │   │   ├── LinkCheckPanel.tsx   # 链接检查面板与状态折叠逻辑
+│   │   │   ├── OptionsView.tsx      # 分页式转换选项设置面板
+│   │   │   ├── PathPicker.tsx       # 目录路径输入加浏览选择器
+│   │   │   ├── TagInput.tsx         # 多标签芯片输入编辑器
+│   │   │   └── ui/                  # 手搭 shadcn 基础组件层
+│   │   │       ├── button.tsx        # 基础按钮组件（cva 变体）
+│   │   │       ├── card.tsx          # 卡片及其分区容器组件
+│   │   │       ├── checkbox.tsx      # 手写复选框，支持半选态
+│   │   │       ├── dialog.tsx        # 基于 radix 的模态对话框
+│   │   │       ├── dropdown-menu.tsx # 基于 radix 的下拉菜单
+│   │   │       ├── input.tsx         # 单行文本输入框组件
+│   │   │       ├── label.tsx         # 基于 radix 的表单标签
+│   │   │       ├── progress.tsx      # 基于 radix 的进度条
+│   │   │       ├── radio-group.tsx   # 基于 radix 的单选组
+│   │   │       └── switch.tsx        # 基于 radix 的开关
+│   │   ├── i18n/         # 界面国际化目录
+│   │   │   ├── en.ts     # 英文字典，键型受 Dict 约束
+│   │   │   ├── index.tsx # i18n 上下文与语言偏好分发
+│   │   │   └── zh.ts     # 中文字典并定义 Dict 类型基准
+│   │   ├── index.css     # Obsidian 风格主题变量与全局样式
+│   │   ├── lib/          # 前端工具与封装层目录
+│   │   │   ├── options.ts # 导出选项类型、校验与摘要
+│   │   │   ├── sidecar.ts # Tauri 命令调用与事件封装层
+│   │   │   ├── theme.ts   # 主题偏好 Hook，支持跟随系统
+│   │   │   └── utils.ts   # cn 类名合并工具函数
+│   │   ├── main.tsx      # React 入口（含 i18n）
+│   │   └── vite-env.d.ts # Vite 客户端类型引用
+│   ├── src-tauri/          # Tauri Rust 后端
+│   │   ├── .cargo/         # cargo 配置目录
+│   │   │   └── config.toml # MSRV 感知的依赖解析配置
+│   │   ├── .gitignore      # 后端构建产物忽略规则
+│   │   ├── binaries/       # 边车二进制落位目录（不入库）
+│   │   ├── build.rs        # 标准 tauri-build 构建脚本
+│   │   ├── capabilities/   # Tauri 权限能力声明目录
+│   │   │   └── default.json # 主窗口权限能力声明
+│   │   ├── Cargo.lock      # 桌面 workspace 依赖锁文件
+│   │   ├── Cargo.toml      # 桌面 crate 清单（独立 ws）
+│   │   ├── icons/          # Tauri 全平台应用图标集
+│   │   ├── src/            # 后端源码（4 个模块）
+│   │   │   ├── events.rs  # JSON Lines 事件解析
+│   │   │   ├── lib.rs     # Tauri Builder 装配
+│   │   │   ├── main.rs    # Tauri 应用二进制入口
+│   │   │   └── sidecar.rs # CLI 边车进程编排核心
+│   │   └── tauri.conf.json # Tauri 应用与打包配置
+│   ├── tsconfig.json       # 前端 TS 主编译配置
+│   ├── tsconfig.node.json  # Vite 配置文件的 TS 子项目
+│   └── vite.config.ts      # Vite 配置，适配 Tauri 开发
+├── dist-workspace.toml     # cargo-dist 发布工作区配置
+├── docs/                   # 项目文档（mdBook+fork）
+│   ├── .obsidian/           # Obsidian 编辑器工作区配置
+│   ├── _combined.md         # README 生成的章节嵌入清单
+│   ├── _edit-warning.md     # 勿直接编辑 README 的警告块
+│   ├── BUILD.md             # 中文构建指南（CLI 与桌面端）
+│   ├── CHANGELOG.md         # 指向根变更日志的指针文件
+│   ├── changes.md           # 更新日志引导页
+│   ├── contribute.md        # 贡献引导页
+│   ├── CONTRIBUTING.md      # 指向根贡献指南的指针文件
+│   ├── desktop.md           # Tauri 桌面端功能介绍
+│   ├── generate.sh          # 由 docs 生成 README 的脚本
+│   ├── installation.md      # 安装与升级指南
+│   ├── intro.md             # 项目简介与核心特性列表
+│   ├── license.md           # 许可证说明
+│   ├── Release-checklist.md # 发布流程检查清单
+│   ├── sidecar-events.md    # 边车 JSON 事件流契约文档
+│   ├── usage-advanced.md    # CLI 高级选项与技巧
+│   ├── usage-basic.md       # CLI 基本用法说明
+│   └── usage-library.md     # Rust 库使用指引
+├── Justfile                # 核心任务入口（桌面端+发布）
+├── LICENSE                 # 上游许可证全文
+├── README.md               # 项目自述（generate.sh 产物）
+├── rust-toolchain.toml     # 固定 Rust 工具链版本
+├── rustfmt.toml            # 代码格式化规则（需 nightly）
+├── src/                    # Rust 源码（CLI 与库）
+│   ├── context.rs        # 笔记解析上下文与嵌套追踪
+│   ├── frontmatter.rs    # frontmatter 类型与序列化
+│   ├── lib.rs            # 库核心：Exporter 导出引擎
+│   ├── linkcheck.rs      # 链接完整性检查（check 后端）
+│   ├── main.rs           # CLI 二进制入口与参数解析
+│   ├── postprocessors.rs # 官方内置后处理器集合
+│   ├── references.rs     # Obsidian 引用解析器与状态机
+│   └── walker.rs         # 库文件遍历与忽略规则
+├── tests/                  # 集成测试目录
+│   ├── cli_test.rs            # CLI 契约测试（供桌面端依赖）
+│   ├── export_test.rs         # 库级导出功能集成测试
+│   ├── postprocessors_test.rs # 后处理器行为测试
+│   └── testdata/              # 测试 vault fixtures
+│       ├── expected/ # 黄金输出树（8 个场景）
+│       │   ├── filter-by-tags/                      # 标签过滤黄金输出树
+│       │   ├── infinite-recursion/                  # 循环嵌入降级输出树
+│       │   ├── main-samples/                        # 主样例黄金输出树
+│       │   ├── non-ascii/                           # 非 ASCII 黄金输出树
+│       │   ├── postprocessors/                      # 后处理器黄金输出树
+│       │   ├── same-filename-different-directories/ # 同名消解黄金输出树
+│       │   ├── single-file/                         # 单文件黄金输出树
+│       │   └── start-at/                            # start-at 黄金输出树
+│       └── input/    # 测试输入 vault（20 个场景）
+│           ├── block-refs/                          # 块引用嵌入定位数据
+│           ├── block-refs-edge/                     # 块引用边界情况数据
+│           ├── block-refs-self-loop/                # 块自引用循环数据
+│           ├── chinese-anchor/                      # 中文标题锚点数据
+│           ├── embed-order/                         # 嵌入切片先于展开数据
+│           ├── filter-by-tags/                      # 标签过滤数据
+│           ├── formatting-refs/                     # 带格式标记 wikilink 数据
+│           ├── heading-wikilink/                    # 标题含 wikilink 嵌入数据
+│           ├── image-size/                          # 图片尺寸语法数据
+│           ├── infinite-recursion/                  # 循环嵌入测试数据
+│           ├── main-samples/                        # 主样例库（多测试复用）
+│           ├── missing-sections/                    # 缺失章节策略数据
+│           ├── mixed-health/                        # 混合健康度笔记数据
+│           ├── non-ascii/                           # 非 ASCII 文件名数据
+│           ├── postprocessors/                      # 后处理器测试数据
+│           ├── relative-references/                 # 相对路径引用数据
+│           ├── same-filename-different-directories/ # 同名文件歧义消解数据
+│           ├── section-variants/                    # 章节匹配变体数据
+│           ├── single-file/                         # 单文件导出数据
+│           └── start-at/                            # start-at 子路径数据
+└── towncrier.toml          # towncrier 变更日志配置
+<!-- file-tree:tree:end -->
 ```
 
-> 文件树摘要基于文件名与 README 归纳，随改造推进持续维护；新增桌面端代码后应在此登记。
+## 文件树标签词表
+
+<!-- file-tree:tags:begin 由脚本渲染，禁止手改 -->
+| 标签 | 说明 |
+| --- | --- |
+| `ci` | CI/CD 与发布流水线 |
+| `config` | 构建/工具链/项目配置 |
+| `docs` | 文档 |
+| `fixture` | 测试 vault 数据（场景目录粗粒度收录） |
+| `frontend` | 桌面端前端 TS/TSX/CSS |
+| `generated` | 生成产物，禁止手改 |
+| `i18n` | 界面国际化 |
+| `meta` | 项目规则与技能自身 |
+| `rust` | Rust 源码（根 crate 或 src-tauri） |
+| `sidecar` | 边车（CLI 进程）编排与契约 |
+| `tauri` | Tauri 桌面端（Rust 后端） |
+| `test` | 测试代码 |
+<!-- file-tree:tags:end -->
