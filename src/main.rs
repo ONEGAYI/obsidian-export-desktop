@@ -1,4 +1,5 @@
 use std::env;
+use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -288,19 +289,7 @@ fn main() {
     // `check` it takes no free arguments, so there is no directory-shadowing
     // concern worth warning about.
     if argv.first().is_some_and(|arg| arg == "update") {
-        let rest = argv.get(1..).unwrap_or(&[]);
-        if rest
-            .first()
-            .is_some_and(|arg| arg == "-v" || arg == "--version")
-        {
-            print_line(&format!("obsidian-export {VERSION}"));
-            std::process::exit(0);
-        }
-        let update_opts = UpdateOpts::parse_args_default(rest).unwrap_or_else(|err| {
-            eprintln!("Error: {err}\n\n{}", UpdateOpts::usage());
-            std::process::exit(2);
-        });
-        run_update(update_opts);
+        run_update_dispatch(&argv);
     }
 
     let args = Opts::parse_args_default(&argv).unwrap_or_else(|err| {
@@ -481,12 +470,31 @@ fn run_check(opts: CheckOpts) -> ! {
     std::process::exit(0);
 }
 
+/// First-position dispatch for the `update` subcommand (same shape as the
+/// `check` dispatch in `main`): version must work without any options
+/// present, parse errors exit 2.
+fn run_update_dispatch(argv: &[String]) -> ! {
+    let rest = argv.get(1..).unwrap_or(&[]);
+    if rest
+        .first()
+        .is_some_and(|arg| arg == "-v" || arg == "--version")
+    {
+        print_line(&format!("obsidian-export {VERSION}"));
+        std::process::exit(0);
+    }
+    let opts = UpdateOpts::parse_args_default(rest).unwrap_or_else(|err| {
+        eprintln!("Error: {err}\n\n{}", UpdateOpts::usage());
+        std::process::exit(2);
+    });
+    run_update(&opts)
+}
+
 /// Run `obsidian-export update`: check GitHub for a newer release and
 /// optionally download the matching asset. Exits 0 when the check succeeds
 /// (regardless of whether an update exists — scripts must not treat "new
 /// version available" as a failure), 1 when the check/download/save itself
 /// fails.
-fn run_update(opts: UpdateOpts) -> ! {
+fn run_update(opts: &UpdateOpts) -> ! {
     if opts.help {
         print_line(&format!(
             "Usage: obsidian-export update [OPTIONS]\n\n{}",
@@ -560,30 +568,13 @@ fn run_update(opts: UpdateOpts) -> ! {
                     .to_string(),
                 );
             } else {
-                print_line(&format!("Current version: {VERSION}"));
-                print_line(&format!("Latest version:  {version}"));
-                print_line(&format!("Release page:    {html_url}"));
-                if let Some(notes) = notes {
-                    print_line("Notes:");
-                    for line in notes.lines() {
-                        print_line(&format!("  {line}"));
-                    }
-                }
-                match asset {
-                    Some(asset) => {
-                        print_line(&format!(
-                            "Asset:           {} ({})",
-                            asset.name,
-                            format_bytes(asset.size)
-                        ));
-                        if !opts.download {
-                            print_line("\nRun with --download to fetch it.");
-                        }
-                    }
-                    None => {
-                        print_line("\nNo asset matches this platform/target; download manually from the release page above.");
-                    }
-                }
+                print_available_text(
+                    version,
+                    html_url,
+                    notes.as_deref(),
+                    asset.as_ref(),
+                    !opts.download,
+                );
             }
             if !opts.download {
                 std::process::exit(0);
@@ -593,7 +584,7 @@ fn run_update(opts: UpdateOpts) -> ! {
                 // nothing further to do without a matching asset.
                 std::process::exit(0);
             };
-            download_update_asset(&client, asset, &opts, json_mode);
+            download_update_asset(&client, asset, opts, json_mode);
         }
         // UpdateStatus is #[non_exhaustive]: a future variant from a newer
         // library build degrades to "nothing to report" instead of failing
@@ -617,15 +608,13 @@ fn download_update_asset(
         );
         std::process::exit(1);
     }
-    let dir = match opts.output.clone() {
-        Some(dir) => dir,
-        None => match env::current_dir() {
-            Ok(dir) => dir,
-            Err(err) => {
-                eprintln!("Error: cannot determine current directory: {err}");
-                std::process::exit(1);
-            }
-        },
+    let Some(dir) = opts
+        .output
+        .clone()
+        .or_else(|| env::current_dir().ok())
+    else {
+        eprintln!("Error: no --output given and the current directory is unavailable");
+        std::process::exit(1);
     };
     if !dir.is_dir() {
         eprintln!("Error: output directory does not exist: {}", dir.display());
@@ -642,7 +631,14 @@ fn download_update_asset(
             })
             .to_string(),
         );
-    } else if !reporter.enabled {
+    } else if reporter.enabled {
+        // Interactive progress starts with a zero frame right away.
+        reporter.report(DownloadProgress {
+            downloaded_bytes: 0,
+            total_bytes: (asset.size > 0).then_some(asset.size),
+            bytes_per_second: 0,
+        });
+    } else {
         eprintln!("Downloading {}...", asset.name);
     }
 
@@ -677,6 +673,42 @@ fn download_update_asset(
             reporter.finish_line();
             eprintln!("Error: download failed: {}", err.full_message());
             std::process::exit(1);
+        }
+    }
+}
+
+/// Human-readable report of an available update (text mode). `download_hint`
+/// adds the "run with --download" line when the current invocation is only
+/// checking.
+fn print_available_text(
+    version: &str,
+    html_url: &str,
+    notes: Option<&str>,
+    asset: Option<&obsidian_export::ReleaseAsset>,
+    download_hint: bool,
+) {
+    print_line(&format!("Current version: {VERSION}"));
+    print_line(&format!("Latest version:  {version}"));
+    print_line(&format!("Release page:    {html_url}"));
+    if let Some(notes) = notes {
+        print_line("Notes:");
+        for line in notes.lines() {
+            print_line(&format!("  {line}"));
+        }
+    }
+    match asset {
+        Some(asset) => {
+            print_line(&format!(
+                "Asset:           {} ({})",
+                asset.name,
+                format_bytes(asset.size)
+            ));
+            if download_hint {
+                print_line("\nRun with --download to fetch it.");
+            }
+        }
+        None => {
+            print_line("\nNo asset matches this platform/target; download manually from the release page above.");
         }
     }
 }
@@ -728,14 +760,12 @@ impl DownloadProgressReporter for CliProgressReporter {
         let width = line.chars().count();
         let padding = self.previous_width.get().saturating_sub(width);
         eprint!("\r{line}{:padding$}", "");
-        use std::io::Write;
         let _ = std::io::stderr().flush();
         self.previous_width.set(width);
     }
 }
 
 fn stderr_is_terminal() -> bool {
-    use std::io::IsTerminal;
     std::io::stderr().is_terminal()
 }
 
@@ -743,20 +773,23 @@ fn stderr_is_terminal() -> bool {
 fn format_text_progress(progress: DownloadProgress) -> String {
     let downloaded = format_bytes(progress.downloaded_bytes);
     let speed = format!("{}/s", format_bytes(progress.bytes_per_second));
-    match progress.total_bytes.filter(|total| *total > 0) {
-        Some(total) => {
-            // 整数百分比即可：仅展示用途
-            #[allow(clippy::integer_division, clippy::arithmetic_side_effects)]
-            let percent = progress.downloaded_bytes.saturating_mul(100) / total;
-            format!("Downloading... {downloaded} / {} · {speed} · {percent}%", format_bytes(total))
-        }
-        None => format!("Downloading... {downloaded} · {speed}"),
-    }
+    progress
+        .total_bytes
+        .filter(|total| *total > 0)
+        .map_or_else(
+            || format!("Downloading... {downloaded} · {speed}"),
+            |total| {
+                // 整数百分比即可：仅展示用途
+                #[allow(clippy::integer_division, clippy::arithmetic_side_effects)]
+                let percent = progress.downloaded_bytes.saturating_mul(100) / total;
+                format!("Downloading... {downloaded} / {} · {speed} · {percent}%", format_bytes(total))
+            },
+        )
 }
 
 /// Format a byte count as B/KB/MB/GB with one decimal for scaled units.
-/// Fixed-point via u128 keeps the lints (as_conversions, float lints) clean
-/// while staying exact for every value a download can report.
+/// Fixed-point via `u128` keeps the lints (`as_conversions`, float lints)
+/// clean while staying exact for every value a download can report.
 #[allow(clippy::integer_division, clippy::arithmetic_side_effects)]
 fn format_bytes(value: u64) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
@@ -769,10 +802,11 @@ fn format_bytes(value: u64) -> String {
     }
     let whole = scaled / 10;
     let tenths = scaled % 10;
+    let unit_label = UNITS.get(unit).copied().unwrap_or("B");
     if unit == 0 {
         format!("{whole} B")
     } else {
-        format!("{whole}.{tenths} {}", UNITS[unit])
+        format!("{whole}.{tenths} {unit_label}")
     }
 }
 

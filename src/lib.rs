@@ -1527,7 +1527,7 @@ impl VaultIndex {
                         .join("/");
                     let replace = map
                         .get(key.as_str())
-                        .map_or(true, |existing| new_key < lookup_tiebreak_key(existing));
+                        .is_none_or(|existing| new_key < lookup_tiebreak_key(existing));
                     if replace {
                         map.insert(key, path.clone());
                     }
@@ -1546,7 +1546,7 @@ impl VaultIndex {
         let mut best: Option<&PathBuf> = None;
         for spelling in spellings {
             if let Some(candidate) = self.map.get(spelling.as_str()) {
-                let better = best.map_or(true, |current| {
+                let better = best.is_none_or(|current| {
                     lookup_tiebreak_key(candidate) < lookup_tiebreak_key(current)
                 });
                 if better {
@@ -1791,13 +1791,16 @@ fn collapsed_ref_display(events: &[Event<'_>], i: usize, opener: &str) -> Option
     if opener != "[" && opener != "![" {
         return None;
     }
-    let slice = events.get(i..i + 5)?;
+    let slice = i.checked_add(5).and_then(|end| events.get(i..end))?;
     // The collapsed shape is `[`/`![`, `[`, <literal>, `]`, `]`.
-    let (second, literal, close, end) = match (&slice[1], &slice[2], &slice[3], &slice[4]) {
-        (Event::Text(second), Event::Text(literal), Event::Text(close), Event::Text(end)) => {
-            (second, literal, close, end)
-        }
-        _ => return None,
+    let (
+        Some(Event::Text(second)),
+        Some(Event::Text(literal)),
+        Some(Event::Text(close)),
+        Some(Event::Text(end)),
+    ) = (slice.get(1), slice.get(2), slice.get(3), slice.get(4))
+    else {
+        return None;
     };
     if second.as_ref() != "[" || close.as_ref() != "]" || end.as_ref() != "]" {
         return None;
@@ -1837,7 +1840,9 @@ fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<Markdown
 
     let mut i = 0;
     while i < events.len() {
-        let event = &events[i];
+        let Some(event) = events.get(i) else {
+            break;
+        };
         if matches!(event, Event::Start(Tag::Heading { .. })) {
             heading_start_idx = filtered_events.len();
         }
@@ -1857,10 +1862,11 @@ fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<Markdown
                         // and are skipped below; they are neither container
                         // nor heading events, so the loop bookkeeping is
                         // unaffected.
-                        for ev in &events[i + 1..=i + 4] {
+                        let (tail_start, tail_end) = (i.saturating_add(1), i.saturating_add(4));
+                        for ev in events.get(tail_start..=tail_end).into_iter().flatten() {
                             filtered_events.push(ev.clone());
                         }
-                        i += 4;
+                        i = i.saturating_add(4);
                     } else {
                         heading_text.push_str(cowstr);
                     }
@@ -1938,7 +1944,7 @@ fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<Markdown
             }
             return Some(filtered_events);
         }
-        i += 1;
+        i = i.saturating_add(1);
     }
     target_section_encountered.then_some(filtered_events)
 }
@@ -2739,7 +2745,7 @@ content.",
             "]".to_owned(),
             "]".to_owned(),
         ]
-        .into_iter()
+        .iter()
         .map(|text| Event::Text(CowStr::from(text.clone())))
         .collect()
     }

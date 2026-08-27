@@ -83,7 +83,7 @@ pub struct ReleaseAsset {
 /// Content-Length，调用方应展示不定总量进度；速率为从本次下载开始
 /// 计算的平均字节/秒。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[non_exhaustive]
+#[allow(clippy::exhaustive_structs)]
 pub struct DownloadProgress {
     pub downloaded_bytes: u64,
     pub total_bytes: Option<u64>,
@@ -157,11 +157,7 @@ pub trait UpdateClient {
     /// GET 一个 URL 并返回 `(HTTP 状态码, 响应体文本)`。网络层失败
     /// （连接/超时/TLS）返回 [`UpdateError::Network`]；任何 HTTP 状态
     /// （含 4xx/5xx）都正常返回，由调用方解释。
-    fn get_text(
-        &self,
-        url: &str,
-        headers: &[(&str, &str)],
-    ) -> Result<(u16, String), UpdateError>;
+    fn get_text(&self, url: &str, headers: &[(&str, &str)]) -> Result<(u16, String), UpdateError>;
 
     /// 流式下载字节，进度经 `reporter` 回调（含首帧与终态）。
     fn download(
@@ -243,8 +239,7 @@ pub fn pick_asset(assets: &[ReleaseAsset], target: AssetTarget) -> Option<Releas
             assets
                 .iter()
                 .find(|a| {
-                    a.name.starts_with(&prefix)
-                        && !a.name.to_ascii_lowercase().ends_with(".sha256")
+                    a.name.starts_with(&prefix) && !a.name.to_ascii_lowercase().ends_with(".sha256")
                 })
                 .cloned()
         }
@@ -284,7 +279,10 @@ fn releases_latest_url_with_base(base: Option<&str>) -> String {
     base.map(str::trim)
         .filter(|b| b.starts_with("http"))
         .map_or_else(official, |b| {
-            format!("{}/repos/{GITHUB_REPO}/releases/latest", b.trim_end_matches('/'))
+            format!(
+                "{}/repos/{GITHUB_REPO}/releases/latest",
+                b.trim_end_matches('/')
+            )
         })
 }
 
@@ -406,11 +404,7 @@ impl UreqUpdateClient {
 }
 
 impl UpdateClient for UreqUpdateClient {
-    fn get_text(
-        &self,
-        url: &str,
-        headers: &[(&str, &str)],
-    ) -> Result<(u16, String), UpdateError> {
+    fn get_text(&self, url: &str, headers: &[(&str, &str)]) -> Result<(u16, String), UpdateError> {
         let mut request = self.check_agent.get(url);
         for (name, value) in headers {
             request = request.set(name, value);
@@ -432,11 +426,7 @@ impl UpdateClient for UreqUpdateClient {
         url: &str,
         reporter: &dyn DownloadProgressReporter,
     ) -> Result<Vec<u8>, UpdateError> {
-        let resp = self
-            .download_agent
-            .get(url)
-            .call()
-            .map_err(map_ureq_err)?;
+        let resp = self.download_agent.get(url).call().map_err(map_ureq_err)?;
         let total_bytes = resp
             .header("Content-Length")
             .and_then(|v| v.parse::<u64>().ok());
@@ -462,9 +452,9 @@ impl UpdateClient for UreqUpdateClient {
         });
 
         loop {
-            let n = reader.read(&mut chunk).map_err(|e| {
-                UpdateError::Network(format!("download interrupted: {e}"))
-            })?;
+            let n = reader
+                .read(&mut chunk)
+                .map_err(|e| UpdateError::Network(format!("download interrupted: {e}")))?;
             if n == 0 {
                 break;
             }
@@ -613,7 +603,10 @@ mod tests {
                 .iter()
                 .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
                 .collect();
-            self.captured.lock().unwrap().push((url.to_owned(), owned_headers));
+            self.captured
+                .lock()
+                .unwrap()
+                .push((url.to_owned(), owned_headers));
             if self.fail {
                 return Err(UpdateError::Network("mock network down".to_owned()));
             }
@@ -706,10 +699,10 @@ mod tests {
         assert_eq!(picked.name, name);
 
         // 无本平台产物 → None（引导发布页）
-        let foreign = vec![asset_named("obsidian-export-riscv64-unknown-linux-gnu.tar.gz")];
-        assert!(
-            triple == "unsupported" || pick_asset(&foreign, AssetTarget::Cli).is_none()
-        );
+        let foreign = vec![asset_named(
+            "obsidian-export-riscv64-unknown-linux-gnu.tar.gz",
+        )];
+        assert!(triple == "unsupported" || pick_asset(&foreign, AssetTarget::Cli).is_none());
     }
 
     #[test]
@@ -771,10 +764,7 @@ mod tests {
         let (url, headers) = {
             let captured = http.captured.lock().unwrap();
             assert_eq!(captured.len(), 1, "应恰好捕获一个请求");
-            captured
-                .first()
-                .expect("断言已保证非空")
-                .clone()
+            captured.first().expect("断言已保证非空").clone()
         };
         assert!(
             url.contains(&format!("repos/{GITHUB_REPO}/releases/latest")),
@@ -784,13 +774,15 @@ mod tests {
         assert!(
             headers
                 .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case("User-Agent") && v == &format!("obsidian-export/{VERSION}")),
-            "GitHub API 必需 UA：{:?}", headers
+                .any(|(k, v)| k.eq_ignore_ascii_case("User-Agent")
+                    && v == &format!("obsidian-export/{VERSION}")),
+            "GitHub API 必需 UA：{:?}",
+            headers
         );
         assert!(
-            headers
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case("Accept") && v == "application/vnd.github+json"),
+            headers.iter().any(
+                |(k, v)| k.eq_ignore_ascii_case("Accept") && v == "application/vnd.github+json"
+            ),
             "vnd Accept 头缺失：{:?}",
             headers
         );
@@ -798,11 +790,8 @@ mod tests {
 
     #[test]
     fn check_update_404_means_no_release() {
-        let status = check_update(
-            &MockClient::status_with_body(404, ""),
-            AssetTarget::Cli,
-        )
-        .unwrap();
+        let status =
+            check_update(&MockClient::status_with_body(404, ""), AssetTarget::Cli).unwrap();
         assert_eq!(status, UpdateStatus::NoRelease, "当前仓库无 release");
     }
 
@@ -848,7 +837,11 @@ mod tests {
             r#"{"message":"API rate limit exceeded for 1.2.3.4. (But here's the good news: Authenticated requests get a higher rate limit.)","documentation_url":"https://docs.github.com"}"#,
         );
         let err = check_update(&http, AssetTarget::Cli).unwrap_err();
-        let UpdateError::HttpStatus { status_text, detail } = &err else {
+        let UpdateError::HttpStatus {
+            status_text,
+            detail,
+        } = &err
+        else {
             panic!("非 200/404 应为 HttpStatus 变体：{:?}", err);
         };
         assert_eq!(status_text, "HTTP 403");
@@ -874,11 +867,8 @@ mod tests {
     #[test]
     fn check_update_status_error_without_message_falls_back() {
         for body in ["", "<html>blocked</html>", r#"{"message":"  "}"#] {
-            let err = check_update(
-                &MockClient::status_with_body(403, body),
-                AssetTarget::Cli,
-            )
-            .unwrap_err();
+            let err = check_update(&MockClient::status_with_body(403, body), AssetTarget::Cli)
+                .unwrap_err();
             let UpdateError::HttpStatus { detail, .. } = &err else {
                 panic!("应仍为 HttpStatus 变体：{:?}", err);
             };
@@ -927,9 +917,7 @@ mod tests {
             let mut request = [0_u8; 1024];
             let _ = stream.read(&mut request);
             stream
-                .write_all(
-                    b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nDATA",
-                )
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nDATA")
                 .unwrap();
         });
 
@@ -973,12 +961,17 @@ mod tests {
             let mut request = [0_u8; 1024];
             let _ = stream.read(&mut request);
             stream
-                .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
                 .unwrap();
         });
 
         let err = UreqUpdateClient::new()
-            .download(&format!("http://{addr}/missing.exe"), &RecordingProgress::default())
+            .download(
+                &format!("http://{addr}/missing.exe"),
+                &RecordingProgress::default(),
+            )
             .unwrap_err();
         server.join().unwrap();
         assert!(err.is_transient());
@@ -1012,10 +1005,7 @@ mod tests {
 
     #[test]
     fn speed_uses_elapsed_time_and_handles_zero_duration() {
-        assert_eq!(
-            bytes_per_second(1_500, Duration::from_millis(500)),
-            3_000
-        );
+        assert_eq!(bytes_per_second(1_500, Duration::from_millis(500)), 3_000);
         assert_eq!(bytes_per_second(1_500, Duration::ZERO), 0);
     }
 
@@ -1028,7 +1018,11 @@ mod tests {
         let path = dir.join("setup.zip");
         let payload = vec![0x50_u8, 0x4b, 0x00, 0xff, 0x01];
         write_atomic_bytes(&path, &payload).unwrap();
-        assert_eq!(std::fs::read(&path).unwrap(), payload, "二进制原样（含 0x00）");
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            payload,
+            "二进制原样（含 0x00）"
+        );
         let has_tmp_leftover = std::fs::read_dir(&dir)
             .unwrap()
             .filter_map(Result::ok)
@@ -1039,7 +1033,9 @@ mod tests {
 
     #[test]
     fn validate_asset_name_rejects_path_shapes() {
-        assert!(validate_asset_name("obsidian-export-x86_64-pc-windows-msvc.zip"));
+        assert!(validate_asset_name(
+            "obsidian-export-x86_64-pc-windows-msvc.zip"
+        ));
         assert!(validate_asset_name("Obsidian.Export_26.9.0_x64-setup.exe"));
         assert!(!validate_asset_name(""));
         assert!(!validate_asset_name("..\\..\\evil.exe"), "反斜杠上跳");

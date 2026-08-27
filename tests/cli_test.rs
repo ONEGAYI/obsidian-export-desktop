@@ -2,6 +2,17 @@
 //! binary (arguments, exit codes, stdout/stderr usage) which the future desktop app
 //! will rely on when driving it as a sidecar process.
 
+// serde_json's `Value` indexing is panic-free (out-of-shape access yields Null)
+// and integer literals compared against `Value` pick their type from the
+// comparison; both are intended here.
+#![allow(
+    clippy::indexing_slicing,
+    clippy::default_numeric_fallback,
+    clippy::uninlined_format_args
+)]
+
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -27,6 +38,14 @@ fn run_cli(args: &[&str]) -> CliOutput {
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         code: output.status.code(),
     }
+}
+
+/// Index one parsed event with a clear panic message (events are asserted
+/// to exist; a missing one should fail loudly, not with an opaque slice panic).
+fn event_at(events: &[Value], index: usize) -> &Value {
+    events
+        .get(index)
+        .unwrap_or_else(|| panic!("event {} missing: {:?}", index, events))
 }
 
 fn parse_json_lines(stdout: &str) -> Vec<Value> {
@@ -613,10 +632,10 @@ fn check_progress_json_emits_event_stream() {
     assert_eq!(out.code, Some(1_i32), "broken links keep the exit contract");
 
     let events = parse_json_lines(&out.stdout);
-    assert_eq!(events[0]["type"], "schema", "schema line comes first");
-    assert_eq!(events[0]["version"], 1);
-    assert_eq!(events[1]["type"], "check-start");
-    assert_eq!(events[1]["files"], 19, "file count, got: {:?}", events[1]);
+    assert_eq!(event_at(&events, 0)["type"], "schema", "schema line comes first");
+    assert_eq!(event_at(&events, 0)["version"], 1);
+    assert_eq!(event_at(&events, 1)["type"], "check-start");
+    assert_eq!(event_at(&events, 1)["files"], 19, "file count, got: {:?}", event_at(&events, 1));
 
     let end = events.last().expect("non-empty output");
     assert_eq!(end["type"], "check-end", "check-end comes last");
@@ -648,13 +667,14 @@ fn check_progress_json_emits_event_stream() {
 
     // Every report carries the full field set, whatever the verdict.
     for report in &reports {
-        assert!(report["source"].is_string(), "source, got: {report}");
-        assert!(report["line"].is_u64(), "line, got: {report}");
-        assert!(report["raw"].is_string(), "raw, got: {report}");
-        assert!(report["kind"].is_string(), "kind, got: {report}");
+        assert!(report["source"].is_string(), "source, got: {}", report);
+        assert!(report["line"].is_u64(), "line, got: {}", report);
+        assert!(report["raw"].is_string(), "raw, got: {}", report);
+        assert!(report["kind"].is_string(), "kind, got: {}", report);
         assert!(
             report["status"]["type"].is_string(),
-            "status type, got: {report}"
+            "status type, got: {}",
+            report
         );
     }
 }
@@ -669,7 +689,7 @@ fn check_progress_json_healthy_vault_exits_zero() {
     ]);
     assert_eq!(out.code, Some(0_i32));
     let events = parse_json_lines(&out.stdout);
-    assert_eq!(events[0]["type"], "schema");
+    assert_eq!(event_at(&events, 0)["type"], "schema");
     let end = events.last().expect("non-empty output");
     assert_eq!(end["type"], "check-end");
     assert_eq!(end["broken"], 0);
@@ -703,19 +723,16 @@ fn check_progress_json_failure_reports_on_stderr_without_end() {
         "only the schema line, no check-end on failure, got: {:?}",
         events
     );
-    assert_eq!(events[0]["type"], "schema");
+    assert_eq!(event_at(&events, 0)["type"], "schema");
 }
 
 // ---- update 子命令（本地 HTTP mock 服务覆盖检测/下载闭环） -------------------
 //
 // 集成测试的 BIN 是 dev profile 构建（debug_assertions 开启），因此可以通过
 // OBSIDIAN_EXPORT_UPDATE_API_BASE 环境变量把 GitHub API 指到本地 mock；
-// release 二进制不含该读取路径（见 src/update.rs 的 releases_latest_url）。
+// release 二进制不含该读取路径（见 `src/update.rs` 的 `releases_latest_url`）。
 
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener};
-
-/// 一条 mock 路由：请求路径含 `path` 片段即应答 (status, content_type, body)。
+/// 一条 mock 路由：请求路径含 `path` 片段即应答 (`status`, `content_type`, `body`)。
 struct MockRoute {
     path: &'static str,
     status: u16,
@@ -741,7 +758,7 @@ fn spawn_update_mock(
             let route = routes
                 .iter()
                 .find(|r| request_line.contains(r.path))
-                .unwrap_or_else(|| panic!("no mock route matches request: {request_line}"));
+                .unwrap_or_else(|| panic!("no mock route matches request: {}", request_line));
             let reason = match route.status {
                 200 => "OK",
                 403 => "Forbidden",
@@ -828,7 +845,7 @@ fn main_usage_lists_all_three_invocations() {
         "obsidian-export check [OPTIONS] SOURCE",
         "obsidian-export update [OPTIONS]",
     ] {
-        assert!(out.stdout.contains(usage_line), "missing: {usage_line}");
+        assert!(out.stdout.contains(usage_line), "missing: {}", usage_line);
     }
 }
 
@@ -849,22 +866,22 @@ fn update_available_json_event_contract() {
     assert_eq!(out.code, Some(0_i32), "「有更新」不是失败：{}", out.stderr);
     let events = parse_json_lines(&out.stdout);
     assert_eq!(events.len(), 2, "schema + update-result：{events:?}");
-    assert_eq!(events[0]["type"], "schema");
-    assert_eq!(events[0]["version"], 1, "与导出/check 共享 schema v1");
-    assert_eq!(events[1]["type"], "update-result");
-    assert_eq!(events[1]["outcome"], "available");
-    assert_eq!(events[1]["version"], "99.0.0", "版本号去掉 v 前缀");
+    assert_eq!(event_at(&events, 0)["type"], "schema");
+    assert_eq!(event_at(&events, 0)["version"], 1, "与导出/check 共享 schema v1");
+    assert_eq!(event_at(&events, 1)["type"], "update-result");
+    assert_eq!(event_at(&events, 1)["outcome"], "available");
+    assert_eq!(event_at(&events, 1)["version"], "99.0.0", "版本号去掉 v 前缀");
     assert_eq!(
-        events[1]["htmlUrl"],
+        event_at(&events, 1)["htmlUrl"],
         "https://github.com/ONEGAYI/obsidian-export-desktop/releases/v99.0.0"
     );
-    assert_eq!(events[1]["notes"], "release notes");
+    assert_eq!(event_at(&events, 1)["notes"], "release notes");
     // Windows 测试环境：cli 意图应挑本平台 zip 而非 sha256 副产物
     assert_eq!(
-        events[1]["assetName"],
+        event_at(&events, 1)["assetName"],
         "obsidian-export-x86_64-pc-windows-msvc.zip"
     );
-    assert_eq!(events[1]["assetSize"], 4);
+    assert_eq!(event_at(&events, 1)["assetSize"], 4);
 }
 
 #[test]
@@ -907,14 +924,14 @@ fn update_desktop_asset_picks_setup_exe() {
 
     assert_eq!(out.code, Some(0_i32));
     let events = parse_json_lines(&out.stdout);
-    assert_eq!(events[1]["assetName"], "Obsidian.Export_99.0.0_x64-setup.exe");
+    assert_eq!(event_at(&events, 1)["assetName"], "Obsidian.Export_99.0.0_x64-setup.exe");
 }
 
 #[test]
 fn update_up_to_date_json() {
     let current = env!("CARGO_PKG_VERSION");
     let (addr, server) = spawn_update_mock(
-        |base| vec![MockRoute {
+        |_base| vec![MockRoute {
             path: "/repos/",
             status: 200,
             content_type: "application/json",
@@ -927,14 +944,14 @@ fn update_up_to_date_json() {
     assert_eq!(out.code, Some(0_i32));
     let events = parse_json_lines(&out.stdout);
     assert_eq!(events.len(), 2);
-    assert_eq!(events[1]["type"], "update-result");
-    assert_eq!(events[1]["outcome"], "up-to-date");
+    assert_eq!(event_at(&events, 1)["type"], "update-result");
+    assert_eq!(event_at(&events, 1)["outcome"], "up-to-date");
 }
 
 #[test]
 fn update_no_release_json() {
     let (addr, server) = spawn_update_mock(
-        |base| vec![MockRoute {
+        |_base| vec![MockRoute {
             path: "/repos/",
             status: 404,
             content_type: "application/json",
@@ -947,14 +964,14 @@ fn update_no_release_json() {
     assert_eq!(out.code, Some(0_i32));
     let events = parse_json_lines(&out.stdout);
     assert_eq!(events.len(), 2);
-    assert_eq!(events[1]["outcome"], "no-release");
+    assert_eq!(event_at(&events, 1)["outcome"], "no-release");
 }
 
 #[test]
 fn update_check_failure_exits_one_without_result_event() {
     // 限流 403：stderr 报错（含响应体 message），stdout 只有 schema 行
     let (addr, server) = spawn_update_mock(
-        |base| vec![MockRoute {
+        |_base| vec![MockRoute {
             path: "/repos/",
             status: 403,
             content_type: "application/json",
@@ -979,7 +996,7 @@ fn update_check_failure_exits_one_without_result_event() {
 #[test]
 fn update_bad_release_json_is_deterministic_failure() {
     let (addr, server) = spawn_update_mock(
-        |base| vec![MockRoute {
+        |_base| vec![MockRoute {
             path: "/repos/",
             status: 200,
             content_type: "application/json",
@@ -1036,9 +1053,9 @@ fn update_download_json_stream_and_saved_bytes() {
     assert_eq!(types[2], "download-start");
     assert_eq!(types.last(), Some(&"download-end"));
     let progress_count = types.iter().filter(|t| **t == "download-progress").count();
-    assert!(progress_count >= 2, "事件序列：{events:?}");
+    assert!(progress_count >= 2, "事件序列：{:?}", events);
 
-    let start = &events[2];
+    let start = &event_at(&events, 2);
     // start 的 total 来自 release 元数据的 size（此处故意与实际字节不同，
     // 锁定两者来源：元数据预告 vs Content-Length 实测）
     assert_eq!(start["total"], 4, "download-start 携带 release 资产大小");
@@ -1062,7 +1079,7 @@ fn update_download_rejects_path_shaped_asset_name() {
     // 态：落盘前必须拒绝（exit 1），不得逃出输出目录。
     let evil = r#"{"tag_name":"v99.0.0","html_url":"u","assets":[{"name":"obsidian-export-x86_64-pc-windows-msvc.zip/../../evil.exe","browser_download_url":"http://MOCKHOST/evil","size":1}]}"#;
     let (addr, server) = spawn_update_mock(
-        |base| vec![MockRoute {
+        |_base| vec![MockRoute {
             path: "/repos/",
             status: 200,
             content_type: "application/json",
@@ -1101,7 +1118,7 @@ fn update_download_missing_output_dir_exits_one() {
 fn update_without_matching_asset_still_exits_zero() {
     let no_asset = r#"{"tag_name":"v99.0.0","html_url":"https://x","assets":[]}"#;
     let (addr, server) = spawn_update_mock(
-        |base| vec![MockRoute {
+        |_base| vec![MockRoute {
             path: "/repos/",
             status: 200,
             content_type: "application/json",

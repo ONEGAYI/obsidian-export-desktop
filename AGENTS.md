@@ -40,7 +40,8 @@
 - [x] 桌面端技术栈：**Tauri 2 + React/TypeScript**（跨平台、轻量、Obsidian 风格 UI）。UI 主题复刻 Obsidian 变量命名与色板（明暗双主题，默认暗色）；`--missing-section` 放导出前确认选单并持久化选择。
 - [x] 桌面端完整选项面板：独立设置视图（`OptionsView`）暴露全部 CLI 选项，按「转换行为 / 内容过滤 / 文件与过程」分组；选项持久化于 localStorage（`obsidian-export-options`），Rust 侧 `build_args` 仅将非默认值传给边车（默认值语义始终以 CLI 为准）。
 - [x] 导出后自动链接检查：已完成——check 子命令支持 `--progress json`（独立 check 事件方言、共享 schema 版本常量，契约见 `docs/sidecar-events.md` 的 check 章节）；桌面端 `start_check` 编排复用导出的 child 槽（同时仅一个边车进程），导出成功（exit 0）且开关开启时由前端自动触发；开关与检查目标（默认 vault 源，可选导出产物——两者语义不等价：死链 wikilink 导出后已塌缩为纯文本，查产物抓不到）持久化为 GUI 偏好字段（`linkCheckEnabled`/`linkCheckTarget`），不进 build_args；`LinkCheckPanel` 展示逐条报告（结构化判定本地化 + 筛选页签 + 渲染上限兜底）。
-- [ ] 桌面端后续迭代：打包分发流水线（`tauri build`，与 cargo-dist 互不干扰）、自动更新。
+- [x] 检查更新与下载（双端）：已完成——根 crate `src/update.rs` 承载全部业务（GitHub `releases/latest` 检测、三段版本比较（CalVer 兼容，tag 不规范宁可不提示）、双意图资产挑选（cli 按编译期平台 triple 匹配 cargo-dist 产物并排除 `.sha256`；desktop 挑含 `setup` 的 NSIS 安装包）、ureq 2.12 流式下载（2.x 维护分支，MSRV 1.71；3.x 需 1.85 不可用，代理走环境变量）与原子落盘、资产名纯文件名校验；debug 构建支持 `OBSIDIAN_EXPORT_UPDATE_API_BASE` 注入本地 mock（release 无此路径））。CLI `update` 子命令（首位关键字分流，`--download`/`--output`/`--asset cli|desktop`/`--progress json`）输出第三方言（`update-result`/`download-start`/`download-progress`/`download-end`，共享 schema v1，契约见 `docs/sidecar-events.md` 的 update 章节）；**「有更新」退出码仍为 0**（GUI 按 update-result 事件判定，脚本不受扰）。桌面端 `start_update(action)` 编排复用导出 child 槽（恒传 `--asset desktop`，download 模式落盘 `%TEMP%/obsidian-export/Downloads` 并预创建+symlink 防逃逸），`run_installer` 双层路径校验后 spawn NSIS 并 `app.exit(0)` 解锁自身文件（UAC 由安装器 manifest 处理，capabilities 零改动）；前端 OptionsView 第五页「关于与更新」（`UpdatePanel` 状态外置 + 纯折叠函数，照 LinkCheckPanel 模式）与启动自动检查（`autoCheckUpdates` 偏好默认开，24h 节流存独立键 `obsidian-export-update-state`）。**已知限制**：Windows-only 桌面安装包（macOS/Linux 桌面端无资产，引导发布页）；下载与安装不校验哈希（GitHub release 资产信任模型，与手动下载等同）。
+- [ ] 桌面端后续迭代：打包分发流水线（`tauri build`，与 cargo-dist 互不干扰）。
 - [x] 块引用内容提取增强：已完成——`![[note#^block-id]]` 真实定位标记块（reduce_to_block：行尾 id 标记所在段落/列表项/引用块，独立行 id 标记上方紧邻块，嵌入副本剥离 id 标记），未命中回退 `--missing-section` 三策略；同文件嵌入（`![[#Heading]]` / `![[#^id]]`）一并支持，防环靠「嵌入副本剥离 id」天然终止 + 嵌入公共入口的深度限制兜底。
 - [x] 嵌入展开与 section 切分的顺序重排：已完成——parse_raw_note（raw 事件收集 + 引用规范化为五事件形态）与 expand_references（引用展开）两阶段拆分，section 切分在目标文件自己的事件流上进行后再展开内层嵌入；embed_postprocessors「看到合并嵌入后内容」的契约保持。
 - [x] wikilink 格式标记与容器内标题的既有解析边界：已完成——引用文本在 raw 层以 source offset 切片保留原拼写（`__dunder__` 不再突变为 `**dunder**`，锚点/文件查找/section 匹配三处下游一致）；reduce_to_section 维护容器配对栈，blockquote（含 callout）内标题切分后事件流保持平衡。
@@ -74,8 +75,8 @@
 - 前端：Tailwind v4 + 手搭 shadcn 层（shadcn CLI 与当前 Node 生态冲突，组件手写在 `src/components/ui/`；CLI 修复后可迁移）。主题三态（light/dark/system，`src/lib/theme.ts`）；用户偏好存 localStorage：路径记忆、「保留根文件夹」（`obsidian-export-*` 逐项键）与转换选项（`obsidian-export-options` 单键 JSON，见 `src/lib/options.ts`）。
 - i18n：界面文案抽离为字典（`src/i18n/`，zh 为结构基准、`Widen` 宽化出 `Dict` 类型锁两份字典键一致），运行时经项目首个 React Context（`I18nProvider`）分发；语言三态 zh/en/system（跟随系统按 `navigator.languages` 是否含 zh 前缀判定），偏好存 `obsidian-export-language`，生效语言同步 `document.documentElement.lang`；标题栏下拉（`LanguageMenu`，radix dropdown-menu）三态互转。Rust/CLI 侧英文技术错误原文透传，不进字典。
 - 版本号统一由 `just set-version X.Y.Z` 控制：一次对齐六处——根 crate（`Cargo.toml` + `Cargo.lock`）与桌面端三处（`desktop/package.json`、`desktop/src-tauri/tauri.conf.json`、`desktop/src-tauri/Cargo.toml` + 其 `Cargo.lock`），避免安装包文件名与 release 版本错位（26.8.2 起对齐）。`make-new-release` 已接入该目标。依赖 cargo-edit（仓库工具链锁 1.87 而 cargo-edit 0.13.13 要求 1.92，**须在仓库外目录用 stable 工具链安装 0.13.10**：`rustup run stable cargo install cargo-edit --version 0.13.10 --locked`）；`cargo set-version` 拒绝降级（发布防呆，误 bump 的还原属手动操作）。桌面端 lock 由脚本 sed 直接修补——桌面 workspace 的 build script 依赖已同步的 sidecar 二进制，`cargo check` 在 clean 后不可用。
-- 事件流消费遵守 `docs/sidecar-events.md` 契约（导出与 check 两种事件方言）；schema 版本常量在 `desktop/src-tauri/src/events.rs` 与 CLI 的 `main.rs` 各有一份，升级时同步改。
-- 设置视图为分页式（`OptionsView`：左侧导航四页「转换行为 / 内容过滤 / 文件与过程 / 链接检查」，窄窗降级横排页签）。链接检查：导出成功且开关开启时前端自动 invoke `start_check`，检查 vault 源时由 Rust 侧 `build_check_args` 转发与导出一致的非默认过滤项（walk 集对齐；tag 后处理不参与 check），检查导出产物时恒传 `--no-git` 并使 `--hidden` 与导出一致（CLI 默认值本身是过滤——产物目录在 git 仓库内会被 gitignore 静默排除成假阴性）；check 与导出共用 child 槽，`cancel_export` 通杀，`start_export` 返回实际落点供「检查产物」定位；check 流的解析/IO 错误走独立 `check-error` 通道（导出日志视图在检查期已卸载，混入 sidecar-error 会不可见）。
+- 事件流消费遵守 `docs/sidecar-events.md` 契约（导出 / check / update 三种事件方言）；schema 版本常量在 `desktop/src-tauri/src/events.rs` 与 CLI 的 `main.rs` 各有一份，升级时同步改。
+- 设置视图为分页式（`OptionsView`：左侧导航五页「转换行为 / 内容过滤 / 文件与过程 / 链接检查 / 关于与更新」，窄窗降级横排页签）。链接检查：导出成功且开关开启时前端自动 invoke `start_check`，检查 vault 源时由 Rust 侧 `build_check_args` 转发与导出一致的非默认过滤项（walk 集对齐；tag 后处理不参与 check），检查导出产物时恒传 `--no-git` 并使 `--hidden` 与导出一致（CLI 默认值本身是过滤——产物目录在 git 仓库内会被 gitignore 静默排除成假阴性）；check 与导出共用 child 槽，`cancel_export` 通杀，`start_export` 返回实际落点供「检查产物」定位；check 流的解析/IO 错误走独立 `check-error` 通道（导出日志视图在检查期已卸载，混入 sidecar-error 会不可见）。
 
 ## 文件树（简版速览）
 
@@ -142,17 +143,18 @@ obsidian-export-desktop/
 │   │   │   ├── OptionsView.tsx      # 分页式转换选项设置面板
 │   │   │   ├── PathPicker.tsx       # 目录路径输入加浏览选择器
 │   │   │   ├── TagInput.tsx         # 多标签芯片输入编辑器
-│   │   │   └── ui/                  # 手搭 shadcn 基础组件层
-│   │   │       ├── button.tsx        # 基础按钮组件（cva 变体）
-│   │   │       ├── card.tsx          # 卡片及其分区容器组件
-│   │   │       ├── checkbox.tsx      # 手写复选框，支持半选态
-│   │   │       ├── dialog.tsx        # 基于 radix 的模态对话框
-│   │   │       ├── dropdown-menu.tsx # 基于 radix 的下拉菜单
-│   │   │       ├── input.tsx         # 单行文本输入框组件
-│   │   │       ├── label.tsx         # 基于 radix 的表单标签
-│   │   │       ├── progress.tsx      # 基于 radix 的进度条
-│   │   │       ├── radio-group.tsx   # 基于 radix 的单选组
-│   │   │       └── switch.tsx        # 基于 radix 的开关
+│   │   │   ├── ui/                  # 手搭 shadcn 基础组件层
+│   │   │   │   ├── button.tsx        # 基础按钮组件（cva 变体）
+│   │   │   │   ├── card.tsx          # 卡片及其分区容器组件
+│   │   │   │   ├── checkbox.tsx      # 手写复选框，支持半选态
+│   │   │   │   ├── dialog.tsx        # 基于 radix 的模态对话框
+│   │   │   │   ├── dropdown-menu.tsx # 基于 radix 的下拉菜单
+│   │   │   │   ├── input.tsx         # 单行文本输入框组件
+│   │   │   │   ├── label.tsx         # 基于 radix 的表单标签
+│   │   │   │   ├── progress.tsx      # 基于 radix 的进度条
+│   │   │   │   ├── radio-group.tsx   # 基于 radix 的单选组
+│   │   │   │   └── switch.tsx        # 基于 radix 的开关
+│   │   │   └── UpdatePanel.tsx      # 关于与更新页（状态外置）
 │   │   ├── i18n/         # 界面国际化目录
 │   │   │   ├── en.ts     # 英文字典，键型受 Dict 约束
 │   │   │   ├── index.tsx # i18n 上下文与语言偏好分发
@@ -218,6 +220,7 @@ obsidian-export-desktop/
 │   ├── main.rs           # CLI 二进制入口与参数解析
 │   ├── postprocessors.rs # 官方内置后处理器集合
 │   ├── references.rs     # Obsidian 引用解析器与状态机
+│   ├── update.rs         # 更新检测与下载（双端共享）
 │   └── walker.rs         # 库文件遍历与忽略规则
 ├── tests/                  # 集成测试目录
 │   ├── cli_test.rs            # CLI 契约测试（供桌面端依赖）

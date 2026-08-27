@@ -740,15 +740,17 @@ mod tests {
 
     #[test]
     fn nondefault_enum_and_bool_flags_are_passed() {
-        let mut options = ExportOptions::default();
-        options.frontmatter = FrontmatterChoice::Always;
-        options.missing_section = MissingSectionChoice::Fail;
-        options.hidden = true;
-        options.no_git = true;
-        options.no_recursive_embeds = true;
-        options.preserve_mtime = true;
-        options.fail_fast = true;
-        options.hard_linebreaks = true;
+        let options = ExportOptions {
+            frontmatter: FrontmatterChoice::Always,
+            missing_section: MissingSectionChoice::Fail,
+            hidden: true,
+            no_git: true,
+            no_recursive_embeds: true,
+            preserve_mtime: true,
+            fail_fast: true,
+            hard_linebreaks: true,
+            ..ExportOptions::default()
+        };
         let args = build_args(&options, "SRC", "DST");
         assert_eq!(
             args,
@@ -775,9 +777,7 @@ mod tests {
     fn explicit_default_enums_are_omitted() {
         // frontmatter=auto / missing-section=skip match the CLI defaults; even
         // when the frontend sends them explicitly they must not reach the argv.
-        let mut options = ExportOptions::default();
-        options.frontmatter = FrontmatterChoice::Auto;
-        options.missing_section = MissingSectionChoice::Skip;
+        let options = ExportOptions::default();
         let args = build_args(&options, "S", "D");
         assert!(!args.iter().any(|a| a == "--frontmatter"));
         assert!(!args.iter().any(|a| a == "--missing-section"));
@@ -785,11 +785,13 @@ mod tests {
 
     #[test]
     fn value_options_and_repeated_tag_flags() {
-        let mut options = ExportOptions::default();
-        options.start_at = Some(r"D:\vaults\lib".to_owned());
-        options.ignore_file = Some(".custom-ignore".to_owned());
-        options.skip_tags = vec!["draft".to_owned(), "private".to_owned()];
-        options.only_tags = vec!["published".to_owned()];
+        let options = ExportOptions {
+            start_at: Some(r"D:\vaults\lib".to_owned()),
+            ignore_file: Some(".custom-ignore".to_owned()),
+            skip_tags: vec!["draft".to_owned(), "private".to_owned()],
+            only_tags: vec!["published".to_owned()],
+            ..ExportOptions::default()
+        };
         let args = build_args(&options, "S", "D");
         assert_eq!(
             args,
@@ -879,14 +881,15 @@ mod tests {
     fn check_args_source_target_inherits_export_filters() {
         // Checking the vault source must walk the same file set as the
         // export: every non-default filter flag is forwarded.
-        let mut options = ExportOptions::default();
-        options.start_at = Some(r"D:\vaults\lib".to_owned());
-        options.ignore_file = Some(".custom-ignore".to_owned());
-        options.hidden = true;
-        options.no_git = true;
-        // Export-only flags must not leak into the check argv.
-        options.frontmatter = FrontmatterChoice::Always;
-        options.fail_fast = true;
+        let options = ExportOptions {
+            start_at: Some(r"D:\vaults\lib".to_owned()),
+            ignore_file: Some(".custom-ignore".to_owned()),
+            hidden: true,
+            no_git: true,
+            frontmatter: FrontmatterChoice::Always,
+            fail_fast: true,
+            ..ExportOptions::default()
+        };
         let args = build_check_args(&options, LinkCheckTarget::Source, "SRC");
         assert_eq!(
             args,
@@ -912,10 +915,12 @@ mod tests {
         // output folder inside a git repository, and dot-files produced
         // under `--hidden` would be skipped. Vault-only filters (start-at,
         // ignore-file) stay off.
-        let mut options = ExportOptions::default();
-        options.start_at = Some("sub".to_owned());
-        options.ignore_file = Some(".custom-ignore".to_owned());
-        options.hidden = true;
+        let options = ExportOptions {
+            start_at: Some("sub".to_owned()),
+            ignore_file: Some(".custom-ignore".to_owned()),
+            hidden: true,
+            ..ExportOptions::default()
+        };
         let args = build_check_args(&options, LinkCheckTarget::Destination, "OUT");
         assert_eq!(
             args,

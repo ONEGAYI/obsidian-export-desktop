@@ -878,6 +878,16 @@
                       ]
                     }
                   }
+                },
+                "UpdatePanel.tsx": {
+                  "kind": "file",
+                  "desc": "关于与更新页（状态外置）",
+                  "detail": [
+                    "更新状态机与纯折叠函数、启动节流 helpers、设置视图第五页面板"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
                 }
               }
             },
@@ -1773,6 +1783,16 @@
           ],
           "rel": [
             "src/lib.rs"
+          ],
+          "tags": [
+            "rust"
+          ]
+        },
+        "update.rs": {
+          "kind": "file",
+          "desc": "更新检测与下载（双端共享）",
+          "detail": [
+            "GitHub release 检测、版本比较、双意图资产挑选、ureq 流式下载与原子落盘"
           ],
           "tags": [
             "rust"
