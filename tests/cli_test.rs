@@ -632,10 +632,19 @@ fn check_progress_json_emits_event_stream() {
     assert_eq!(out.code, Some(1_i32), "broken links keep the exit contract");
 
     let events = parse_json_lines(&out.stdout);
-    assert_eq!(event_at(&events, 0)["type"], "schema", "schema line comes first");
+    assert_eq!(
+        event_at(&events, 0)["type"],
+        "schema",
+        "schema line comes first"
+    );
     assert_eq!(event_at(&events, 0)["version"], 1);
     assert_eq!(event_at(&events, 1)["type"], "check-start");
-    assert_eq!(event_at(&events, 1)["files"], 19, "file count, got: {:?}", event_at(&events, 1));
+    assert_eq!(
+        event_at(&events, 1)["files"],
+        19,
+        "file count, got: {:?}",
+        event_at(&events, 1)
+    );
 
     let end = events.last().expect("non-empty output");
     assert_eq!(end["type"], "check-end", "check-end comes last");
@@ -811,7 +820,8 @@ fn update_help_exits_zero() {
     let out = run_cli(&["update", "--help"]);
     assert_eq!(out.code, Some(0_i32));
     assert!(
-        out.stdout.contains("Usage: obsidian-export update [OPTIONS]"),
+        out.stdout
+            .contains("Usage: obsidian-export update [OPTIONS]"),
         "stdout: {:?}",
         out.stdout
     );
@@ -822,11 +832,7 @@ fn update_help_exits_zero() {
 fn update_bad_option_exits_two() {
     let out = run_cli(&["update", "--no-such-flag"]);
     assert_eq!(out.code, Some(2_i32));
-    assert!(
-        out.stderr.contains("Error"),
-        "stderr: {:?}",
-        out.stderr
-    );
+    assert!(out.stderr.contains("Error"), "stderr: {:?}", out.stderr);
 }
 
 #[test]
@@ -852,12 +858,14 @@ fn main_usage_lists_all_three_invocations() {
 #[test]
 fn update_available_json_event_contract() {
     let (addr, server) = spawn_update_mock(
-        |base| vec![MockRoute {
-            path: "/repos/",
-            status: 200,
-            content_type: "application/json",
-            body: release_json("v99.0.0", base).into_bytes(),
-        }],
+        |base| {
+            vec![MockRoute {
+                path: "/repos/",
+                status: 200,
+                content_type: "application/json",
+                body: release_json("v99.0.0", base).into_bytes(),
+            }]
+        },
         1,
     );
     let out = run_update_cli(&["update", "--progress", "json"], &format!("http://{addr}"));
@@ -867,10 +875,18 @@ fn update_available_json_event_contract() {
     let events = parse_json_lines(&out.stdout);
     assert_eq!(events.len(), 2, "schema + update-result：{events:?}");
     assert_eq!(event_at(&events, 0)["type"], "schema");
-    assert_eq!(event_at(&events, 0)["version"], 1, "与导出/check 共享 schema v1");
+    assert_eq!(
+        event_at(&events, 0)["version"],
+        1,
+        "与导出/check 共享 schema v1"
+    );
     assert_eq!(event_at(&events, 1)["type"], "update-result");
     assert_eq!(event_at(&events, 1)["outcome"], "available");
-    assert_eq!(event_at(&events, 1)["version"], "99.0.0", "版本号去掉 v 前缀");
+    assert_eq!(
+        event_at(&events, 1)["version"],
+        "99.0.0",
+        "版本号去掉 v 前缀"
+    );
     assert_eq!(
         event_at(&events, 1)["htmlUrl"],
         "https://github.com/ONEGAYI/obsidian-export-desktop/releases/v99.0.0"
@@ -887,12 +903,14 @@ fn update_available_json_event_contract() {
 #[test]
 fn update_available_text_output_mentions_asset_and_url() {
     let (addr, server) = spawn_update_mock(
-        |base| vec![MockRoute {
-            path: "/repos/",
-            status: 200,
-            content_type: "application/json",
-            body: release_json("v99.0.0", base).into_bytes(),
-        }],
+        |base| {
+            vec![MockRoute {
+                path: "/repos/",
+                status: 200,
+                content_type: "application/json",
+                body: release_json("v99.0.0", base).into_bytes(),
+            }]
+        },
         1,
     );
     let out = run_update_cli(&["update"], &format!("http://{addr}"));
@@ -902,18 +920,22 @@ fn update_available_text_output_mentions_asset_and_url() {
     assert!(out.stdout.contains("99.0.0"), "stdout: {:?}", out.stdout);
     assert!(out.stdout.contains("releases/v99.0.0"));
     assert!(out.stdout.contains("--download"), "应提示下载方式");
-    assert!(out.stdout.contains("obsidian-export-x86_64-pc-windows-msvc.zip"));
+    assert!(out
+        .stdout
+        .contains("obsidian-export-x86_64-pc-windows-msvc.zip"));
 }
 
 #[test]
 fn update_desktop_asset_picks_setup_exe() {
     let (addr, server) = spawn_update_mock(
-        |base| vec![MockRoute {
-            path: "/repos/",
-            status: 200,
-            content_type: "application/json",
-            body: release_json("v99.0.0", base).into_bytes(),
-        }],
+        |base| {
+            vec![MockRoute {
+                path: "/repos/",
+                status: 200,
+                content_type: "application/json",
+                body: release_json("v99.0.0", base).into_bytes(),
+            }]
+        },
         1,
     );
     let out = run_update_cli(
@@ -924,19 +946,24 @@ fn update_desktop_asset_picks_setup_exe() {
 
     assert_eq!(out.code, Some(0_i32));
     let events = parse_json_lines(&out.stdout);
-    assert_eq!(event_at(&events, 1)["assetName"], "Obsidian.Export_99.0.0_x64-setup.exe");
+    assert_eq!(
+        event_at(&events, 1)["assetName"],
+        "Obsidian.Export_99.0.0_x64-setup.exe"
+    );
 }
 
 #[test]
 fn update_up_to_date_json() {
     let current = env!("CARGO_PKG_VERSION");
     let (addr, server) = spawn_update_mock(
-        |_base| vec![MockRoute {
-            path: "/repos/",
-            status: 200,
-            content_type: "application/json",
-            body: format!(r#"{{"tag_name":"v{current}","assets":[]}}"#).into_bytes(),
-        }],
+        |_base| {
+            vec![MockRoute {
+                path: "/repos/",
+                status: 200,
+                content_type: "application/json",
+                body: format!(r#"{{"tag_name":"v{current}","assets":[]}}"#).into_bytes(),
+            }]
+        },
         1,
     );
     let out = run_update_cli(&["update", "--progress", "json"], &format!("http://{addr}"));
@@ -951,12 +978,14 @@ fn update_up_to_date_json() {
 #[test]
 fn update_no_release_json() {
     let (addr, server) = spawn_update_mock(
-        |_base| vec![MockRoute {
-            path: "/repos/",
-            status: 404,
-            content_type: "application/json",
-            body: Vec::new(),
-        }],
+        |_base| {
+            vec![MockRoute {
+                path: "/repos/",
+                status: 404,
+                content_type: "application/json",
+                body: Vec::new(),
+            }]
+        },
         1,
     );
     let out = run_update_cli(&["update", "--progress", "json"], &format!("http://{addr}"));
@@ -971,12 +1000,14 @@ fn update_no_release_json() {
 fn update_check_failure_exits_one_without_result_event() {
     // 限流 403：stderr 报错（含响应体 message），stdout 只有 schema 行
     let (addr, server) = spawn_update_mock(
-        |_base| vec![MockRoute {
-            path: "/repos/",
-            status: 403,
-            content_type: "application/json",
-            body: br#"{"message":"API rate limit exceeded for 1.2.3.4."}"#.to_vec(),
-        }],
+        |_base| {
+            vec![MockRoute {
+                path: "/repos/",
+                status: 403,
+                content_type: "application/json",
+                body: br#"{"message":"API rate limit exceeded for 1.2.3.4."}"#.to_vec(),
+            }]
+        },
         1,
     );
     let out = run_update_cli(&["update", "--progress", "json"], &format!("http://{addr}"));
@@ -996,12 +1027,14 @@ fn update_check_failure_exits_one_without_result_event() {
 #[test]
 fn update_bad_release_json_is_deterministic_failure() {
     let (addr, server) = spawn_update_mock(
-        |_base| vec![MockRoute {
-            path: "/repos/",
-            status: 200,
-            content_type: "application/json",
-            body: b"not json".to_vec(),
-        }],
+        |_base| {
+            vec![MockRoute {
+                path: "/repos/",
+                status: 200,
+                content_type: "application/json",
+                body: b"not json".to_vec(),
+            }]
+        },
         1,
     );
     let out = run_update_cli(&["update"], &format!("http://{addr}"));
@@ -1014,20 +1047,22 @@ fn update_bad_release_json_is_deterministic_failure() {
 fn update_download_json_stream_and_saved_bytes() {
     let payload: &[u8] = b"ZIPDATA";
     let (addr, server) = spawn_update_mock(
-        |base| vec![
-            MockRoute {
-                path: "/repos/",
-                status: 200,
-                content_type: "application/json",
-                body: release_json("v99.0.0", base).into_bytes(),
-            },
-            MockRoute {
-                path: "/cli.zip",
-                status: 200,
-                content_type: "application/octet-stream",
-                body: payload.to_vec(),
-            },
-        ],
+        |base| {
+            vec![
+                MockRoute {
+                    path: "/repos/",
+                    status: 200,
+                    content_type: "application/json",
+                    body: release_json("v99.0.0", base).into_bytes(),
+                },
+                MockRoute {
+                    path: "/cli.zip",
+                    status: 200,
+                    content_type: "application/octet-stream",
+                    body: payload.to_vec(),
+                },
+            ]
+        },
         2,
     );
     let dir = TempDir::new().expect("tempdir");
@@ -1066,8 +1101,11 @@ fn update_download_json_stream_and_saved_bytes() {
     let saved_path = end["path"].as_str().expect("download-end.path");
     assert!(saved_path.ends_with("obsidian-export-x86_64-pc-windows-msvc.zip"));
     assert_eq!(
-        std::fs::read(dir.path().join("obsidian-export-x86_64-pc-windows-msvc.zip"))
-            .expect("下载文件应落盘"),
+        std::fs::read(
+            dir.path()
+                .join("obsidian-export-x86_64-pc-windows-msvc.zip")
+        )
+        .expect("下载文件应落盘"),
         payload,
         "字节原样"
     );
@@ -1079,30 +1117,37 @@ fn update_download_rejects_path_shaped_asset_name() {
     // 态：落盘前必须拒绝（exit 1），不得逃出输出目录。
     let evil = r#"{"tag_name":"v99.0.0","html_url":"u","assets":[{"name":"obsidian-export-x86_64-pc-windows-msvc.zip/../../evil.exe","browser_download_url":"http://MOCKHOST/evil","size":1}]}"#;
     let (addr, server) = spawn_update_mock(
-        |_base| vec![MockRoute {
-            path: "/repos/",
-            status: 200,
-            content_type: "application/json",
-            body: evil.as_bytes().to_vec(),
-        }],
+        |_base| {
+            vec![MockRoute {
+                path: "/repos/",
+                status: 200,
+                content_type: "application/json",
+                body: evil.as_bytes().to_vec(),
+            }]
+        },
         1,
     );
     let out = run_update_cli(&["update", "--download"], &format!("http://{addr}"));
     server.join().expect("mock server panicked");
     assert_eq!(out.code, Some(1_i32));
     assert!(out.stderr.contains("refusing"), "stderr: {:?}", out.stderr);
-    assert!(!std::path::Path::new("evil.exe").exists(), "不得逃出输出目录");
+    assert!(
+        !std::path::Path::new("evil.exe").exists(),
+        "不得逃出输出目录"
+    );
 }
 
 #[test]
 fn update_download_missing_output_dir_exits_one() {
     let (addr, server) = spawn_update_mock(
-        |base| vec![MockRoute {
-            path: "/repos/",
-            status: 200,
-            content_type: "application/json",
-            body: release_json("v99.0.0", base).into_bytes(),
-        }],
+        |base| {
+            vec![MockRoute {
+                path: "/repos/",
+                status: 200,
+                content_type: "application/json",
+                body: release_json("v99.0.0", base).into_bytes(),
+            }]
+        },
         1,
     );
     let out = run_update_cli(
@@ -1111,19 +1156,25 @@ fn update_download_missing_output_dir_exits_one() {
     );
     server.join().expect("mock server panicked");
     assert_eq!(out.code, Some(1_i32));
-    assert!(out.stderr.contains("does not exist"), "stderr: {:?}", out.stderr);
+    assert!(
+        out.stderr.contains("does not exist"),
+        "stderr: {:?}",
+        out.stderr
+    );
 }
 
 #[test]
 fn update_without_matching_asset_still_exits_zero() {
     let no_asset = r#"{"tag_name":"v99.0.0","html_url":"https://x","assets":[]}"#;
     let (addr, server) = spawn_update_mock(
-        |_base| vec![MockRoute {
-            path: "/repos/",
-            status: 200,
-            content_type: "application/json",
-            body: no_asset.as_bytes().to_vec(),
-        }],
+        |_base| {
+            vec![MockRoute {
+                path: "/repos/",
+                status: 200,
+                content_type: "application/json",
+                body: no_asset.as_bytes().to_vec(),
+            }]
+        },
         1,
     );
     let out = run_update_cli(&["update", "--download"], &format!("http://{addr}"));
@@ -1131,4 +1182,3 @@ fn update_without_matching_asset_still_exits_zero() {
     assert_eq!(out.code, Some(0_i32), "无资产引导手动下载，不是失败");
     assert!(out.stdout.contains("manually"), "stdout: {:?}", out.stdout);
 }
-

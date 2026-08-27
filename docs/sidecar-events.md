@@ -130,8 +130,8 @@ GUI 的状态机因此可以单一判定：**收到 `end` 即本次运行终结*
 | `schema` | `version: number` | 同导出流，当前为 `1` |
 | `update-result` | `outcome: string`, `version?`, `htmlUrl?`, `notes?`, `assetName?`, `assetSize?` | 一次检测的结论。`outcome` 取 `available` / `up-to-date` / `no-release`（未来未知值消费端应降级处理）；仅 `available` 时携带其余字段，`notes` 为 release 正文（可为 null），`assetName`/`assetSize` 为按 `--asset` 意图挑中的资产（无匹配时为 null，端侧引导 `htmlUrl` 手动下载） |
 | `download-start` | `total: number` | 开始下载。`total` 为 release 元数据宣称的大小 |
-| `download-progress` | `downloaded: number`, `total: number\|null`, `bytesPerSecond: number` | 进度帧（≥200ms 节流）。`total` 来自响应的 Content-Length，与 `download-start` 的元数据值可能不同，以进度帧为准；服务器未给长度时为 null |
-| `download-end` | `path: string` | 下载完成，安装包已原子落盘到该绝对路径 |
+| `download-progress` | `downloaded: number`, `total: number\|null`, `bytesPerSecond: number` | 进度帧（中间帧 ≥200ms 节流；首帧（0 字节）与终帧不受节流约束，恒发）。`total` 来自响应的 Content-Length，与 `download-start` 的元数据值可能不同，以进度帧为准；服务器未给长度时为 null |
+| `download-end` | `path: string` | 下载完成，安装包已原子落盘到以 `--output` 为基的完整路径（GUI 恒传绝对目录时即绝对路径；CLI 相对 `--output` 时为相对路径） |
 
 ### update 特有语义
 
@@ -142,7 +142,7 @@ GUI 的状态机因此可以单一判定：**收到 `end` 即本次运行终结*
 - **退出码**：`0` 成功——**「发现新版本」也是 0**（脚本不得把「有更
   新」当失败；GUI 的判定依据是 `update-result` 事件而非退出码）；`1`
   检测/下载/落盘失败（原因在 stderr，stdout 只有 schema 行）；`2` 参
-  数错误（连 schema 行都没有）。
+  数错误（连 schema 行都没有）。检测阶段失败时 stdout 止于 schema 行；下载阶段失败（含资产名校验、输出目录校验、下载中断、落盘失败）时 stdout 已含 `update-result`（乃至 `download-start` 与进度帧），但绝无 `download-end`——消费端以「有无终止事件」判定完成度。
 - **检测与下载可分离**：不带 `--download` 只检测（事件止于
   `update-result`）；带 `--download` 则先重查 release 再下载（进程内
   完整序列 `schema → update-result → download-start →

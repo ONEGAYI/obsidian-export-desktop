@@ -626,17 +626,28 @@ pub async fn start_update(
     let output_dir = match action {
         UpdateAction::Download => {
             let dir = update_downloads_dir();
-            // 纵深防御：%TEMP% 是用户态任意进程可写区，目录若被预置为指向
-            // 他处的 symlink/junction，写入会跟随逃逸——检测到即拒绝
-            if std::fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_symlink()) {
-                return Err(format!(
-                    "refusing to use download directory (it is a symlink): {}",
-                    dir.display()
-                ));
-            }
+            // 纵深防御：%TEMP% 是用户态任意进程可写区，目录链上若有指
+            // 向他处的 symlink/junction（junction 无需特权且 is_symlink
+            // 探不到），写入会跟随逃逸。创建后以 canonicalize 复核：
+            // 规范化路径必须仍位于系统临时目录之下，否则拒绝。
             std::fs::create_dir_all(&dir).map_err(|err| {
                 format!("failed to create download directory '{}': {err}", dir.display())
             })?;
+            let canonical = std::fs::canonicalize(&dir).map_err(|err| {
+                format!("failed to resolve download directory '{}': {err}", dir.display())
+            })?;
+            let temp_root =
+                std::fs::canonicalize(std::env::temp_dir()).map_err(|err| {
+                    format!("failed to resolve the system temp directory: {err}")
+                })?;
+            if !canonical.starts_with(&temp_root) {
+                return Err(format!(
+                    "refusing to use download directory (it escapes the temp root): {}",
+                    dir.display()
+                ));
+            }
+            // 传给边车的是原（非 `\\?\` 规范化）形态：download-end 回报的
+            // path 与 run_installer 的 parent 比对都按此形态进行。
             dir.to_string_lossy().into_owned()
         }
         UpdateAction::Check => String::new(),

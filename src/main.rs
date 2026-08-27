@@ -526,7 +526,11 @@ fn run_update(opts: &UpdateOpts) -> ! {
         Ok(status) => status,
         Err(err) => {
             eprintln!("Error: {}", err.full_message());
-            eprintln!("\nHint: this is usually transient (rate limiting or connectivity); retry later, or configure a proxy via HTTPS_PROXY");
+            if err.is_transient() {
+                eprintln!("\nHint: this is usually transient (rate limiting or connectivity); retry later, or configure a proxy via HTTPS_PROXY");
+            } else {
+                eprintln!("\nHint: the release response was malformed; retrying will not help");
+            }
             std::process::exit(1);
         }
     };
@@ -587,9 +591,15 @@ fn run_update(opts: &UpdateOpts) -> ! {
             download_update_asset(&client, asset, opts, json_mode);
         }
         // UpdateStatus is #[non_exhaustive]: a future variant from a newer
-        // library build degrades to "nothing to report" instead of failing
-        // the command — same policy as unparsable tags (never false-alarm).
-        _ => std::process::exit(0),
+        // library build degrades to an explicit `unknown` verdict (consumers
+        // have a typed degradation path for it) instead of failing the
+        // command — same policy as unparsable tags (never false-alarm).
+        _ => {
+            if json_mode {
+                print_line(&json!({"type": "update-result", "outcome": "unknown"}).to_string());
+            }
+            std::process::exit(0);
+        }
     }
 }
 
@@ -608,11 +618,7 @@ fn download_update_asset(
         );
         std::process::exit(1);
     }
-    let Some(dir) = opts
-        .output
-        .clone()
-        .or_else(|| env::current_dir().ok())
-    else {
+    let Some(dir) = opts.output.clone().or_else(|| env::current_dir().ok()) else {
         eprintln!("Error: no --output given and the current directory is unavailable");
         std::process::exit(1);
     };
@@ -662,7 +668,9 @@ fn download_update_asset(
                 // AssetTarget is #[non_exhaustive]: future variants get the
                 // generic save hint.
                 let hint = match opts.asset {
-                    AssetTarget::Cli => "Extract the archive over the existing binary to complete the update.",
+                    AssetTarget::Cli => {
+                        "Extract the archive over the existing binary to complete the update."
+                    }
                     _ => "Run the installer to complete the update.",
                 };
                 print_line(hint);
@@ -773,18 +781,18 @@ fn stderr_is_terminal() -> bool {
 fn format_text_progress(progress: DownloadProgress) -> String {
     let downloaded = format_bytes(progress.downloaded_bytes);
     let speed = format!("{}/s", format_bytes(progress.bytes_per_second));
-    progress
-        .total_bytes
-        .filter(|total| *total > 0)
-        .map_or_else(
-            || format!("Downloading... {downloaded} · {speed}"),
-            |total| {
-                // 整数百分比即可：仅展示用途
-                #[allow(clippy::integer_division, clippy::arithmetic_side_effects)]
-                let percent = progress.downloaded_bytes.saturating_mul(100) / total;
-                format!("Downloading... {downloaded} / {} · {speed} · {percent}%", format_bytes(total))
-            },
-        )
+    progress.total_bytes.filter(|total| *total > 0).map_or_else(
+        || format!("Downloading... {downloaded} · {speed}"),
+        |total| {
+            // 整数百分比即可：仅展示用途
+            #[allow(clippy::integer_division, clippy::arithmetic_side_effects)]
+            let percent = progress.downloaded_bytes.saturating_mul(100) / total;
+            format!(
+                "Downloading... {downloaded} / {} · {speed} · {percent}%",
+                format_bytes(total)
+            )
+        },
+    )
 }
 
 /// Format a byte count as B/KB/MB/GB with one decimal for scaled units.

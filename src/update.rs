@@ -33,6 +33,10 @@ const MAX_DOWNLOAD_BYTES: usize = 512 * 1024 * 1024;
 /// 进度回调的最小间隔：再快的下载也至多每 200ms 上报一帧。
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
 
+/// 下载缓冲的预分配钳制：Content-Length 是远端声明、可被谎报，超出
+/// 部分交给 Vec 倍增策略，避免异常声明一次兑现为巨额内存预留。
+const PREALLOC_CAP: u64 = 64 * 1024 * 1024;
+
 // ---- 类型 -----------------------------------------------------------------
 
 /// 资产挑选意图：CLI 自更新挑当前平台的 cargo-dist 产物，桌面端经边车
@@ -411,10 +415,14 @@ impl UpdateClient for UreqUpdateClient {
         }
         match request.call() {
             // ureq 2.x 把非 2xx 状态也归入 Err(Error::Status)，此处与
-            // Ok 同路径展平为 (status, body) 让上层解释语义。
+            // Ok 同路径展平为 (status, body) 让上层解释语义。body 读取
+            // 失败（中断/超 10MB 上限）归网络类：重试可能成功，不得
+            // 让空串流进 JSON 解析被误分类为确定性 Parse。
             Ok(resp) | Err(ureq::Error::Status(_, resp)) => {
                 let status = resp.status();
-                let body = resp.into_string().unwrap_or_default();
+                let body = resp
+                    .into_string()
+                    .map_err(|e| UpdateError::Network(format!("failed to read body: {e}")))?;
                 Ok((status, body))
             }
             Err(e) => Err(UpdateError::Network(e.to_string())),
@@ -440,7 +448,10 @@ impl UpdateClient for UreqUpdateClient {
         }
 
         let mut reader = resp.into_reader();
-        let cap = total_bytes.unwrap_or_default().min(max_bytes);
+        let cap = total_bytes
+            .unwrap_or_default()
+            .min(max_bytes)
+            .min(PREALLOC_CAP);
         let mut bytes = Vec::with_capacity(usize::try_from(cap).unwrap_or_default());
         let mut chunk = vec![0_u8; 64 * 1024];
         let started = Instant::now();
@@ -471,6 +482,17 @@ impl UpdateClient for UreqUpdateClient {
                     bytes_per_second: bytes_per_second(downloaded, started.elapsed()),
                 });
                 last_report = Instant::now();
+            }
+        }
+
+        // 完整性终检：服务器干净断流（FIN 而非 RST）会让 reader 提前
+        // EOF 而非报错，截断的字节流不得被当作成功下载。
+        if let Some(total) = total_bytes {
+            if u64::try_from(bytes.len()).unwrap_or(u64::MAX) != total {
+                return Err(UpdateError::Network(format!(
+                    "truncated download: got {} of {total} bytes",
+                    bytes.len()
+                )));
             }
         }
 
@@ -525,7 +547,10 @@ pub fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         std::process::id(),
         SEQ.fetch_add(1, Ordering::Relaxed)
     ));
-    std::fs::write(&tmp, bytes)?;
+    if let Err(e) = std::fs::write(&tmp, bytes) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
     match std::fs::rename(&tmp, path) {
         Ok(()) => Ok(()),
         Err(e) => {
@@ -535,13 +560,49 @@ pub fn write_atomic_bytes(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     }
 }
 
-/// release 资产名写入侧校验：必须是纯文件名（不含路径分隔符/盘符冒
-/// 号，杜绝 `..\` 上跳与 NTFS ADS 形态）。扩展名不在此限定（CLI 意图
-/// 下载 `.zip`/`.tar.gz`，桌面意图下载 `.exe`，运行安装器侧另有路径
-/// 校验）。
+/// release 资产名写入侧校验：必须是「形态正常」的纯文件名。
+///
+/// 具体规则：不含路径分隔符/盘符冒号（杜绝 `..\` 上跳与 NTFS ADS 形
+/// 态）、不含控制字符、基名不是 Windows 保留设备名（`NUL`/`CON` 等，
+/// 落盘会失败）、不以点或空格结尾（Win32 会静默剥除，导致实际文件名
+/// 与上报的 path 错位）。扩展名不在此限定（CLI 意图下载 `.zip`/
+/// `.tar.gz`，桌面意图下载 `.exe`，运行安装器侧另有路径校验）。
 #[must_use]
 pub fn validate_asset_name(name: &str) -> bool {
-    !name.is_empty() && !name.contains(['/', '\\', ':'])
+    if name.is_empty()
+        || name.contains(['/', '\\', ':'])
+        || name.chars().any(char::is_control)
+        || name.ends_with(['.', ' '])
+    {
+        return false;
+    }
+    // 保留设备名按基名比较（大小写不敏感，不带扩展名形态）。
+    let stem = name.split('.').next().unwrap_or_default();
+    !matches!(
+        stem.to_ascii_uppercase().as_str(),
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+    )
 }
 
 // ---- 测试 -----------------------------------------------------------------
@@ -949,6 +1010,46 @@ mod tests {
                 bytes_per_second: 0,
             }),
             "终态：4 字节（快速完成时限速帧为 0，不据此断言速率）"
+        );
+    }
+
+    /// 契约：服务器声明 Content-Length 大于实发字节数且干净断流——
+    /// reader 提前 EOF 不报错，完整性终检必须把截断流判为失败。
+    #[test]
+    fn ureq_download_rejects_truncated_stream() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request);
+            // 声明 10 字节，实发 4 字节后关闭
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK
+Content-Length: 10
+Connection: close
+
+DATA",
+                )
+                .unwrap();
+        });
+
+        let err = UreqUpdateClient::new()
+            .download(
+                &format!("http://{addr}/setup.exe"),
+                &RecordingProgress::default(),
+            )
+            .unwrap_err();
+        server.join().unwrap();
+        // ureq 可能以读错误暴露截断（interrupted），也可能干净 EOF 后由
+        // 完整性终检抓住（truncated）——两者都必须是网络类失败。
+        assert!(err.is_transient(), "截断属网络类：{}", err);
+        let message = err.to_string();
+        assert!(
+            message.contains("truncated") || message.contains("interrupted"),
+            "错误应说明截断：{}",
+            message
         );
     }
 

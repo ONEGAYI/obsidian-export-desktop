@@ -59,7 +59,8 @@
 
 - [ ] sidecar 的 stderr 仍按 chunk 分别 lossy 解码后拼接（`pump_sidecar`，与已修复的 stdout 行切分同模式）：错误消息含非 ASCII（如中文 vault 路径）且恰跨 chunk 边界会产生 U+FFFD，概率低、仅显示层瑕疵；且 stderr 累积无上限，两者宜一并处理。
 - [ ] 窗口最小化/不可见时 WebView 暂停 rAF，check 事件持续入 buffer 不 flush：运行进度不刷新、buffer 短时驻留内存；数据不丢（check-exit 强制 flush 兜底），可选 setTimeout 兜底。
-- [ ] check 运行中取消落入 failed 态而非 cancelled 态（无 check-end 即判失败）：文案为「未能完成 + 退出码」，语义不误导，但与导出侧的 cancelled 标志不对称。
+- [ ] check 运行中取消落入 failed 态而非 cancelled 态（无 check-end 即判失败）：文案为「未能完成 + 退出码」，语义不误导，但与导出侧的 cancelled 标志不对称。update 侧同模式：下载中取消（cancel_export 通杀共享 child 槽）经 update-exit 判为 failed。
+- [ ] ureq 2.12 内部对小响应体 + 服务器截断断流的组合会 panic（exit 101，破坏边车 0/1/2 退出码契约；上游 TODO 自认）：极低概率，升级 ureq 时关注上游修复。
 - [ ] OptionsView 页签未实现 roving tabindex 与方向键导航（ARIA tabs 模式的推荐增强）：当前所有 tab 均在 Tab 序列中、原生 button 可正常操作。
 - [ ] i18n 的 `fmt` 占位符（`{name}`）与字典字符串之间无编译期校验：`Widen` 宽化只锁键结构不锁占位符，拼错时运行时输出原文模板。
 
