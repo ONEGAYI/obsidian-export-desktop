@@ -2,6 +2,21 @@
 
 <!-- towncrier release notes start -->
 
+## [26.8.6](https://github.com/zoni/obsidian-export/tree/26.8.6) - 2026-08-27
+
+This release adds update checking and downloading for both the CLI and the desktop app: a new `obsidian-export update` subcommand (with a machine-readable `--progress json` event stream) and an "About & update" settings page that checks GitHub releases on launch and can download and run the new installer.
+
+### New Features
+
+- Update check & download, for both the CLI and the desktop app
+
+  `obsidian-export update` checks GitHub for a newer release and can download it (`--download`, `--output DIR`). Assets are picked by intent: the CLI matches its own platform archive (`--asset cli`, the default) while `--asset desktop` picks the NSIS setup exe. A plain check prints the current/latest version, the release page URL and the release notes; "update available" still exits 0 so scripts are unaffected. `--progress json` emits a third event dialect (`schema → update-result → download-start → download-progress* → download-end`, contract in docs/sidecar-events.md).
+
+  The desktop app gains an "About & update" settings page: on-launch automatic checks (at most once a day, toggleable), manual checks, a release-notes card, and a download-and-install flow. The installer is fetched into the OS temp dir (with symlink-escape defenses) and launched only after a strict path validation; the app exits right after spawning it so the installer can overwrite the app's own files.
+
+  Known limits: desktop installers are Windows-only (other platforms are pointed at the release page), and downloads are not hash-verified (same trust model as a manual download). ([#6](https://github.com/ONEGAYI/obsidian-export-desktop/pull/6))
+
+
 ## [26.8.5](https://github.com/zoni/obsidian-export/tree/26.8.5) - 2026-08-27
 
 Patch release for the link checker: section anchors with a leading list-style marker (`5. Title`) are no longer mass-reported as broken (and embeds into such sections no longer collapse), and duplicate headings now verify their GitHub `-1` disambiguation suffixes.
@@ -1135,3 +1150,4 @@ notable new feature.
 - [v26.8.3](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.2...v26.8.3)
 - [v26.8.4](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.3...v26.8.4)
 - [v26.8.5](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.4...v26.8.5)
+- [v26.8.6](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.5...v26.8.6)
