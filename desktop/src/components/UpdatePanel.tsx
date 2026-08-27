@@ -84,29 +84,38 @@ function applyOne(state: UpdateState, event: UpdateEvent): UpdateState {
     case "schema":
       // The version is verified on the Rust side; nothing to fold.
       return state;
-    case "update-result":
+    case "update-result": {
       // A fresh verdict invalidates any installer downloaded for a previous
       // release; the download UI resets along with it. During a download
-      // (the CLI re-checks before downloading) the phase stays put — the
-      // following download-start re-asserts it anyway, and bouncing through
-      // "result" would flash the download button for a frame.
+      // (the CLI re-checks before transferring) the phase stays put only
+      // when the re-check still resolves to a downloadable asset — the
+      // following download-start re-asserts it anyway, and bouncing
+      // through "result" would flash the download button for a frame.
+      // Any other verdict ends the run with exit 0 right after this
+      // event, so folding to "result" keeps that exit from being misread
+      // as a failure.
+      const downloadContinues =
+        state.phase === "downloading" &&
+        event.outcome === "available" &&
+        event.assetName != null;
       return {
         ...state,
-        phase: state.phase === "downloading" ? "downloading" : "result",
+        phase: downloadContinues ? "downloading" : "result",
         outcome: event.outcome,
         version: event.version,
         htmlUrl: event.htmlUrl,
         notes: event.notes,
         assetName: event.assetName,
         assetSize: event.assetSize,
-        downloadedBytes: state.phase === "downloading" ? state.downloadedBytes : 0,
-        totalBytes: state.phase === "downloading" ? state.totalBytes : null,
-        bytesPerSecond: state.phase === "downloading" ? state.bytesPerSecond : 0,
+        downloadedBytes: downloadContinues ? state.downloadedBytes : 0,
+        totalBytes: downloadContinues ? state.totalBytes : null,
+        bytesPerSecond: downloadContinues ? state.bytesPerSecond : 0,
         downloadPath: null,
         exit: null,
         streamErrors: [],
         invokeError: null,
       };
+    }
     case "download-start":
       return {
         ...state,
@@ -209,8 +218,7 @@ export function UpdatePanel({
 
   // One-line verdict for the non-available, non-transitional outcomes; the
   // available verdict renders the detail card below instead. An `unknown`
-  // outcome (a future dialect value) degrades to the idle line rather than
-  // rendering nothing.
+  // outcome (a future dialect value) has its own line.
   const verdictLine: string | null = (() => {
     if (busy || state.phase === "failed") {
       return null;
@@ -382,7 +390,7 @@ export function UpdatePanel({
               )}
               {t.options.updateCheckNowBtn}
             </Button>
-            {available && state.assetName && state.phase === "result" && (
+            {available && state.assetName && (state.phase === "result" || state.phase === "failed") && (
               <Button size="sm" variant="outline" disabled={busy} onClick={onDownload}>
                 <DownloadIcon className="size-3.5" />
                 {t.options.updateDownload}
@@ -417,10 +425,18 @@ export function UpdatePanel({
               {t.options.updateAutoCheckHint}
             </span>
           </span>
+          {/* The name carries the state: AX-tree walkers don't render
+              ToggleState, so without it a toggle leaves the tree unchanged. */}
           <Switch
-            aria-label={t.options.updateAutoCheckTitle}
             checked={autoCheckEnabled}
             onCheckedChange={onAutoCheckChange}
+            aria-label={fmt(
+              autoCheckEnabled
+                ? t.common.statefulControl.nameOn
+                : t.common.statefulControl.nameOff,
+              { title: t.options.updateAutoCheckTitle },
+            )}
+            className="mt-0.5"
           />
         </div>
       </div>

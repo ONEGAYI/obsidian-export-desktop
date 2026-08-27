@@ -12,16 +12,29 @@ pub const SUPPORTED_SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum SidecarEvent {
-    Schema { version: u32 },
-    Start { total: u32 },
-    FileDone { path: String },
-    FileSkipped { path: String },
-    FileFailed { path: String, message: String },
+    Schema {
+        version: u32,
+    },
+    Start {
+        total: u32,
+    },
+    FileDone {
+        path: String,
+    },
+    FileSkipped {
+        path: String,
+    },
+    FileFailed {
+        path: String,
+        message: String,
+    },
     Warning {
         path: Option<String>,
         message: String,
     },
-    End { failed: Vec<String> },
+    End {
+        failed: Vec<String>,
+    },
 }
 
 /// Outcome of parsing one stdout line.
@@ -54,12 +67,26 @@ pub enum LinkKind {
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum CheckStatus {
     Ok,
-    MissingFile { target: String },
-    OutOfBounds { target: String },
-    MissingSection { target: String, section: String },
-    MissingBlock { target: String, block: String },
-    FileUnreadable { message: String },
-    ExternalSkipped { url: String },
+    MissingFile {
+        target: String,
+    },
+    OutOfBounds {
+        target: String,
+    },
+    MissingSection {
+        target: String,
+        section: String,
+    },
+    MissingBlock {
+        target: String,
+        block: String,
+    },
+    FileUnreadable {
+        message: String,
+    },
+    ExternalSkipped {
+        url: String,
+    },
     /// A status this app version doesn't know (see [`LinkKind::Unknown`]).
     Unknown,
 }
@@ -68,8 +95,12 @@ pub enum CheckStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum CheckEvent {
-    Schema { version: u32 },
-    CheckStart { files: u32 },
+    Schema {
+        version: u32,
+    },
+    CheckStart {
+        files: u32,
+    },
     LinkReport {
         source: String,
         line: u32,
@@ -110,7 +141,9 @@ pub enum UpdateOutcome {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum UpdateEvent {
-    Schema { version: u32 },
+    Schema {
+        version: u32,
+    },
     #[serde(rename_all = "camelCase")]
     UpdateResult {
         outcome: UpdateOutcome,
@@ -124,14 +157,18 @@ pub enum UpdateEvent {
     /// `total` is the size advertised by the release metadata; the actual
     /// Content-Length observed during download may differ (and progress
     /// frames carry that observed value instead).
-    DownloadStart { total: u64 },
+    DownloadStart {
+        total: u64,
+    },
     #[serde(rename_all = "camelCase")]
     DownloadProgress {
         downloaded: u64,
         total: Option<u64>,
         bytes_per_second: u64,
     },
-    DownloadEnd { path: String },
+    DownloadEnd {
+        path: String,
+    },
 }
 
 /// Outcome of parsing one stdout line of the update event stream.
@@ -196,10 +233,8 @@ pub fn parse_check_line(line: &str) -> Result<ParsedCheckLine, String> {
         serde_json::from_str(trimmed).map_err(|err| format!("invalid JSON line: {err}"))?;
 
     let event: CheckEvent = match tag.tag.as_str() {
-        "schema" | "check-start" | "link-report" | "check-end" => {
-            serde_json::from_str(trimmed)
-                .map_err(|err| format!("malformed {} event: {err}", tag.tag))?
-        }
+        "schema" | "check-start" | "link-report" | "check-end" => serde_json::from_str(trimmed)
+            .map_err(|err| format!("malformed {} event: {err}", tag.tag))?,
         _ => return Ok(ParsedCheckLine::Ignored),
     };
 
@@ -270,21 +305,29 @@ mod tests {
         );
         assert_eq!(
             parse_ok(r#"{"type":"file-done","path":"a.md"}"#),
-            SidecarEvent::FileDone { path: "a.md".into() }
+            SidecarEvent::FileDone {
+                path: "a.md".into()
+            }
         );
         assert_eq!(
             parse_ok(r#"{"type":"file-skipped","path":"b.md"}"#),
-            SidecarEvent::FileSkipped { path: "b.md".into() }
+            SidecarEvent::FileSkipped {
+                path: "b.md".into()
+            }
         );
         assert_eq!(
-            parse_ok(r#"{"type":"file-failed","path":"c.md","message":"Failed to export 'c.md': No such file or directory: x"}"#),
+            parse_ok(
+                r#"{"type":"file-failed","path":"c.md","message":"Failed to export 'c.md': No such file or directory: x"}"#
+            ),
             SidecarEvent::FileFailed {
                 path: "c.md".into(),
                 message: "Failed to export 'c.md': No such file or directory: x".into(),
             }
         );
         assert_eq!(
-            parse_ok(r#"{"type":"warning","path":"d.md","message":"Unable to find referenced note"}"#),
+            parse_ok(
+                r#"{"type":"warning","path":"d.md","message":"Unable to find referenced note"}"#
+            ),
             SidecarEvent::Warning {
                 path: Some("d.md".into()),
                 message: "Unable to find referenced note".into(),
@@ -404,7 +447,9 @@ mod tests {
         assert_eq!(status_of(r#"{"type":"ok"}"#), CheckStatus::Ok);
         assert_eq!(
             status_of(r#"{"type":"missing-file","target":"x.md"}"#),
-            CheckStatus::MissingFile { target: "x.md".into() }
+            CheckStatus::MissingFile {
+                target: "x.md".into()
+            }
         );
         assert_eq!(
             status_of(r#"{"type":"out-of-bounds","target":"../x.md"}"#),
@@ -428,7 +473,9 @@ mod tests {
         );
         assert_eq!(
             status_of(r#"{"type":"file-unreadable","message":"boom"}"#),
-            CheckStatus::FileUnreadable { message: "boom".into() }
+            CheckStatus::FileUnreadable {
+                message: "boom".into()
+            }
         );
         assert_eq!(
             status_of(r#"{"type":"external-skipped","url":"https://x"}"#),
@@ -453,10 +500,7 @@ mod tests {
             parse_line(r#"{"type":"check-start","files":2}"#).unwrap(),
             ParsedLine::Ignored
         );
-        assert_eq!(
-            parse_check_line("").unwrap(),
-            ParsedCheckLine::Ignored
-        );
+        assert_eq!(parse_check_line("").unwrap(), ParsedCheckLine::Ignored);
     }
 
     #[test]
