@@ -35,11 +35,15 @@ pulldown-cmark = "0.13.0"
 pulldown-cmark-to-cmark = "21.0.0"
 rayon = "1.10.0"
 regex = "1.10.5"
+serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.120"
 serde_yaml = { package = "yaml_serde", version = "0.10" }
 snafu = "0.8.3"
 unicode-normalization = "0.1.23"
 filetime = "0.2.23"
+# ureq 2.x 维护分支（MSRV 1.71）：3.x 需要 MSRV 1.85，超出本 crate 的
+# 1.82。仅开 rustls TLS，禁 gzip/charset 精简依赖面。
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4.0"

@@ -12,16 +12,29 @@ pub const SUPPORTED_SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum SidecarEvent {
-    Schema { version: u32 },
-    Start { total: u32 },
-    FileDone { path: String },
-    FileSkipped { path: String },
-    FileFailed { path: String, message: String },
+    Schema {
+        version: u32,
+    },
+    Start {
+        total: u32,
+    },
+    FileDone {
+        path: String,
+    },
+    FileSkipped {
+        path: String,
+    },
+    FileFailed {
+        path: String,
+        message: String,
+    },
     Warning {
         path: Option<String>,
         message: String,
     },
-    End { failed: Vec<String> },
+    End {
+        failed: Vec<String>,
+    },
 }
 
 /// Outcome of parsing one stdout line.
@@ -54,12 +67,26 @@ pub enum LinkKind {
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum CheckStatus {
     Ok,
-    MissingFile { target: String },
-    OutOfBounds { target: String },
-    MissingSection { target: String, section: String },
-    MissingBlock { target: String, block: String },
-    FileUnreadable { message: String },
-    ExternalSkipped { url: String },
+    MissingFile {
+        target: String,
+    },
+    OutOfBounds {
+        target: String,
+    },
+    MissingSection {
+        target: String,
+        section: String,
+    },
+    MissingBlock {
+        target: String,
+        block: String,
+    },
+    FileUnreadable {
+        message: String,
+    },
+    ExternalSkipped {
+        url: String,
+    },
     /// A status this app version doesn't know (see [`LinkKind::Unknown`]).
     Unknown,
 }
@@ -68,8 +95,12 @@ pub enum CheckStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum CheckEvent {
-    Schema { version: u32 },
-    CheckStart { files: u32 },
+    Schema {
+        version: u32,
+    },
+    CheckStart {
+        files: u32,
+    },
     LinkReport {
         source: String,
         line: u32,
@@ -90,6 +121,60 @@ pub enum CheckEvent {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParsedCheckLine {
     Event(CheckEvent),
+    Ignored,
+}
+
+/// Verdict of one update check; mirrors the CLI's `update-result` outcome
+/// field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UpdateOutcome {
+    Available,
+    UpToDate,
+    NoRelease,
+    /// An outcome this app version doesn't know (forward compatibility).
+    #[serde(other)]
+    Unknown,
+}
+
+/// One event from the sidecar's `update --progress json` stream.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum UpdateEvent {
+    Schema {
+        version: u32,
+    },
+    #[serde(rename_all = "camelCase")]
+    UpdateResult {
+        outcome: UpdateOutcome,
+        /// `None` for up-to-date / no-release outcomes.
+        version: Option<String>,
+        html_url: Option<String>,
+        notes: Option<String>,
+        asset_name: Option<String>,
+        asset_size: Option<u64>,
+    },
+    /// `total` is the size advertised by the release metadata; the actual
+    /// Content-Length observed during download may differ (and progress
+    /// frames carry that observed value instead).
+    DownloadStart {
+        total: u64,
+    },
+    #[serde(rename_all = "camelCase")]
+    DownloadProgress {
+        downloaded: u64,
+        total: Option<u64>,
+        bytes_per_second: u64,
+    },
+    DownloadEnd {
+        path: String,
+    },
+}
+
+/// Outcome of parsing one stdout line of the update event stream.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ParsedUpdateLine {
+    Event(UpdateEvent),
     Ignored,
 }
 
@@ -148,10 +233,8 @@ pub fn parse_check_line(line: &str) -> Result<ParsedCheckLine, String> {
         serde_json::from_str(trimmed).map_err(|err| format!("invalid JSON line: {err}"))?;
 
     let event: CheckEvent = match tag.tag.as_str() {
-        "schema" | "check-start" | "link-report" | "check-end" => {
-            serde_json::from_str(trimmed)
-                .map_err(|err| format!("malformed {} event: {err}", tag.tag))?
-        }
+        "schema" | "check-start" | "link-report" | "check-end" => serde_json::from_str(trimmed)
+            .map_err(|err| format!("malformed {} event: {err}", tag.tag))?,
         _ => return Ok(ParsedCheckLine::Ignored),
     };
 
@@ -164,6 +247,39 @@ pub fn parse_check_line(line: &str) -> Result<ParsedCheckLine, String> {
     }
 
     Ok(ParsedCheckLine::Event(event))
+}
+
+/// Parse a single line of the sidecar's stdout while running `update`.
+///
+/// Semantics mirror [`parse_line`] for the update dialect: the schema event
+/// shares the export stream's version constant, unknown event types are
+/// ignored for forward compatibility, and anything malformed is an error.
+pub fn parse_update_line(line: &str) -> Result<ParsedUpdateLine, String> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return Ok(ParsedUpdateLine::Ignored);
+    }
+
+    let tag: TypeTag =
+        serde_json::from_str(trimmed).map_err(|err| format!("invalid JSON line: {err}"))?;
+
+    let event: UpdateEvent = match tag.tag.as_str() {
+        "schema" | "update-result" | "download-start" | "download-progress" | "download-end" => {
+            serde_json::from_str(trimmed)
+                .map_err(|err| format!("malformed {} event: {err}", tag.tag))?
+        }
+        _ => return Ok(ParsedUpdateLine::Ignored),
+    };
+
+    if let UpdateEvent::Schema { version } = &event {
+        if *version != SUPPORTED_SCHEMA_VERSION {
+            return Err(format!(
+                "sidecar speaks event schema v{version}, this app supports v{SUPPORTED_SCHEMA_VERSION}"
+            ));
+        }
+    }
+
+    Ok(ParsedUpdateLine::Event(event))
 }
 
 #[cfg(test)]
@@ -189,21 +305,29 @@ mod tests {
         );
         assert_eq!(
             parse_ok(r#"{"type":"file-done","path":"a.md"}"#),
-            SidecarEvent::FileDone { path: "a.md".into() }
+            SidecarEvent::FileDone {
+                path: "a.md".into()
+            }
         );
         assert_eq!(
             parse_ok(r#"{"type":"file-skipped","path":"b.md"}"#),
-            SidecarEvent::FileSkipped { path: "b.md".into() }
+            SidecarEvent::FileSkipped {
+                path: "b.md".into()
+            }
         );
         assert_eq!(
-            parse_ok(r#"{"type":"file-failed","path":"c.md","message":"Failed to export 'c.md': No such file or directory: x"}"#),
+            parse_ok(
+                r#"{"type":"file-failed","path":"c.md","message":"Failed to export 'c.md': No such file or directory: x"}"#
+            ),
             SidecarEvent::FileFailed {
                 path: "c.md".into(),
                 message: "Failed to export 'c.md': No such file or directory: x".into(),
             }
         );
         assert_eq!(
-            parse_ok(r#"{"type":"warning","path":"d.md","message":"Unable to find referenced note"}"#),
+            parse_ok(
+                r#"{"type":"warning","path":"d.md","message":"Unable to find referenced note"}"#
+            ),
             SidecarEvent::Warning {
                 path: Some("d.md".into()),
                 message: "Unable to find referenced note".into(),
@@ -323,7 +447,9 @@ mod tests {
         assert_eq!(status_of(r#"{"type":"ok"}"#), CheckStatus::Ok);
         assert_eq!(
             status_of(r#"{"type":"missing-file","target":"x.md"}"#),
-            CheckStatus::MissingFile { target: "x.md".into() }
+            CheckStatus::MissingFile {
+                target: "x.md".into()
+            }
         );
         assert_eq!(
             status_of(r#"{"type":"out-of-bounds","target":"../x.md"}"#),
@@ -347,7 +473,9 @@ mod tests {
         );
         assert_eq!(
             status_of(r#"{"type":"file-unreadable","message":"boom"}"#),
-            CheckStatus::FileUnreadable { message: "boom".into() }
+            CheckStatus::FileUnreadable {
+                message: "boom".into()
+            }
         );
         assert_eq!(
             status_of(r#"{"type":"external-skipped","url":"https://x"}"#),
@@ -372,15 +500,125 @@ mod tests {
             parse_line(r#"{"type":"check-start","files":2}"#).unwrap(),
             ParsedLine::Ignored
         );
-        assert_eq!(
-            parse_check_line("").unwrap(),
-            ParsedCheckLine::Ignored
-        );
+        assert_eq!(parse_check_line("").unwrap(), ParsedCheckLine::Ignored);
     }
 
     #[test]
     fn check_stream_invalid_json_and_unknown_schema_are_errors() {
         assert!(parse_check_line("not json").is_err());
         assert!(parse_check_line(r#"{"type":"schema","version":2}"#).is_err());
+    }
+
+    fn parse_update_ok(line: &str) -> UpdateEvent {
+        match parse_update_line(line) {
+            Ok(ParsedUpdateLine::Event(event)) => event,
+            other => panic!("expected event, got {other:?} for line {line:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_all_five_update_event_types() {
+        assert_eq!(
+            parse_update_ok(r#"{"type":"schema","version":1}"#),
+            UpdateEvent::Schema { version: 1 }
+        );
+        // available 全字段（真实 CLI 输出形态，camelCase 字段）
+        assert_eq!(
+            parse_update_ok(
+                r#"{"type":"update-result","outcome":"available","version":"26.9.0","htmlUrl":"https://x","notes":"release notes","assetName":"Obsidian.Export_26.9.0_x64-setup.exe","assetSize":7}"#
+            ),
+            UpdateEvent::UpdateResult {
+                outcome: UpdateOutcome::Available,
+                version: Some("26.9.0".into()),
+                html_url: Some("https://x".into()),
+                notes: Some("release notes".into()),
+                asset_name: Some("Obsidian.Export_26.9.0_x64-setup.exe".into()),
+                asset_size: Some(7),
+            }
+        );
+        // 无匹配资产：assetName/assetSize 为 null（json! 宏对 None 的输出）
+        assert_eq!(
+            parse_update_ok(
+                r#"{"type":"update-result","outcome":"available","version":"26.9.0","htmlUrl":"https://x","notes":null,"assetName":null,"assetSize":null}"#
+            ),
+            UpdateEvent::UpdateResult {
+                outcome: UpdateOutcome::Available,
+                version: Some("26.9.0".into()),
+                html_url: Some("https://x".into()),
+                notes: None,
+                asset_name: None,
+                asset_size: None,
+            }
+        );
+        // up-to-date / no-release：仅 outcome 字段（Option 缺失即 None）
+        assert_eq!(
+            parse_update_ok(r#"{"type":"update-result","outcome":"up-to-date"}"#),
+            UpdateEvent::UpdateResult {
+                outcome: UpdateOutcome::UpToDate,
+                version: None,
+                html_url: None,
+                notes: None,
+                asset_name: None,
+                asset_size: None,
+            }
+        );
+        assert_eq!(
+            parse_update_ok(r#"{"type":"update-result","outcome":"no-release"}"#),
+            UpdateEvent::UpdateResult {
+                outcome: UpdateOutcome::NoRelease,
+                version: None,
+                html_url: None,
+                notes: None,
+                asset_name: None,
+                asset_size: None,
+            }
+        );
+        // 未来 outcome 值降级为 Unknown，不丢整行
+        assert_eq!(
+            parse_update_ok(r#"{"type":"update-result","outcome":"yolo"}"#),
+            UpdateEvent::UpdateResult {
+                outcome: UpdateOutcome::Unknown,
+                version: None,
+                html_url: None,
+                notes: None,
+                asset_name: None,
+                asset_size: None,
+            }
+        );
+        assert_eq!(
+            parse_update_ok(r#"{"type":"download-start","total":7}"#),
+            UpdateEvent::DownloadStart { total: 7 }
+        );
+        assert_eq!(
+            parse_update_ok(
+                r#"{"type":"download-progress","downloaded":5,"total":null,"bytesPerSecond":1024}"#
+            ),
+            UpdateEvent::DownloadProgress {
+                downloaded: 5,
+                total: None,
+                bytes_per_second: 1024,
+            }
+        );
+        assert_eq!(
+            parse_update_ok(r#"{"type":"download-end","path":"C:\\temp\\setup.exe"}"#),
+            UpdateEvent::DownloadEnd {
+                path: "C:\\temp\\setup.exe".into()
+            }
+        );
+    }
+
+    #[test]
+    fn update_stream_ignores_other_dialects_and_bad_input() {
+        assert_eq!(
+            parse_update_line(r#"{"type":"file-done","path":"a.md"}"#).unwrap(),
+            ParsedUpdateLine::Ignored
+        );
+        assert_eq!(
+            parse_update_line(r#"{"type":"check-start","files":2}"#).unwrap(),
+            ParsedUpdateLine::Ignored
+        );
+        assert_eq!(parse_update_line("").unwrap(), ParsedUpdateLine::Ignored);
+        assert!(parse_update_line("not json").is_err());
+        assert!(parse_update_line(r#"{"type":"schema","version":2}"#).is_err());
     }
 }

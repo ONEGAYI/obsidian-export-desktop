@@ -25,6 +25,8 @@ export interface ExportOptions {
   /** Run the link checker automatically after a successful export. */
   linkCheckEnabled: boolean;
   linkCheckTarget: LinkCheckTarget;
+  /** Check for app updates automatically on launch (at most once per day). */
+  autoCheckUpdates: boolean;
 }
 
 export const DEFAULT_OPTIONS: ExportOptions = {
@@ -42,6 +44,7 @@ export const DEFAULT_OPTIONS: ExportOptions = {
   hardLinebreaks: false,
   linkCheckEnabled: false,
   linkCheckTarget: "source",
+  autoCheckUpdates: true,
 };
 
 // Legal values for the string-enum options; the user-facing labels live in
@@ -101,6 +104,15 @@ function bool(value: unknown): boolean {
   return value === true;
 }
 
+/**
+ * Like `bool` but falls back to the given default when the field is absent
+ * or not a boolean — for preferences that default to on, so upgrading users
+ * (whose stored payload predates the field) keep the default.
+ */
+function boolOr(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
 /** Field-by-field validation so a corrupted payload degrades to defaults. */
 function sanitizeOptions(raw: unknown): ExportOptions {
   const value = (raw ?? {}) as Record<string, unknown>;
@@ -123,6 +135,7 @@ function sanitizeOptions(raw: unknown): ExportOptions {
       LINK_CHECK_TARGET_VALUES,
       "source",
     ),
+    autoCheckUpdates: boolOr(value.autoCheckUpdates, true),
   };
 }
 

@@ -117,3 +117,44 @@ GUI 的状态机因此可以单一判定：**收到 `end` 即本次运行终结*
   过滤**：必须恒传 `--no-git`（产物目录位于 git 仓库内时 gitignore
   会静默排除产物树，产生「全部健康」的假阴性），并使 `--hidden` 与
   导出一致（导出开启时产物含隐藏文件）。
+
+## update 子命令事件流
+
+`obsidian-export update [OPTIONS] --progress json` 输出第三种事件方言，
+**共享同一 schema 版本常量与版本协商机制**：首行同样恒为 `schema`
+（`version: 1`），在任何网络动作之前发出。三种方言的事件类型互不相
+识——消费端用各自的解析器，未知类型一律忽略（前向兼容）。
+
+| type | 字段 | 说明 |
+|------|------|------|
+| `schema` | `version: number` | 同导出流，当前为 `1` |
+| `update-result` | `outcome: string`, `version?`, `htmlUrl?`, `notes?`, `assetName?`, `assetSize?` | 一次检测的结论。`outcome` 取 `available` / `up-to-date` / `no-release`，防御性还有 `unknown`——CLI 对无法归类的结论（如新版库引入的未知状态变体）显式降级为该值，退出码仍为 `0`，不当失败处理；消费端对未知新值也应降级。仅 `available` 时携带其余字段，`notes` 为 release 正文（可为 null），`assetName`/`assetSize` 为按 `--asset` 意图挑中的资产（无匹配时为 null，端侧引导 `htmlUrl` 手动下载） |
+| `download-start` | `total: number` | 开始下载。`total` 为 release 元数据宣称的大小 |
+| `download-progress` | `downloaded: number`, `total: number\|null`, `bytesPerSecond: number` | 进度帧（中间帧 ≥200ms 节流；首帧（0 字节）与终帧不受节流约束，恒发）。`total` 来自响应的 Content-Length，与 `download-start` 的元数据值可能不同，以进度帧为准；服务器未给长度时为 null |
+| `download-end` | `path: string` | 下载完成，安装包已原子落盘到以 `--output` 为基的完整路径（GUI 恒传绝对目录时即绝对路径；CLI 相对 `--output` 时为相对路径） |
+
+### update 特有语义
+
+- **`--asset` 意图**：`cli`（默认）按编译期平台 triple 匹配
+  `obsidian-export-{triple}.` 前缀的 cargo-dist 产物（排除 `.sha256`
+  副产物）；`desktop` 挑名字含 `setup` 的 `.exe`（NSIS 安装包）。桌面
+  端编排时恒传 `--asset desktop` 并以 `--output` 指定系统临时目录。
+- **退出码**：`0` 成功——**「发现新版本」也是 0**（脚本不得把「有更
+  新」当失败；GUI 的判定依据是 `update-result` 事件而非退出码）；`1`
+  检测/下载/落盘失败（原因在 stderr；stdout 内容因失败阶段而异，见下
+  句）；`2` 参数错误（连 schema 行都没有）。检测阶段失败时 stdout 止
+  于 schema 行；下载阶段失败（含资产名校验、输出目录校验、下载中断、
+  落盘失败）时 stdout 已含 `update-result`（乃至 `download-start` 与
+  进度帧），但绝无 `download-end`——消费端以「有无终止事件」判定完
+  成度。
+- **检测与下载可分离**：不带 `--download` 只检测（事件止于
+  `update-result`）；带 `--download` 则先重查 release 再下载（进程内
+  完整序列 `schema → update-result → download-start →
+  download-progress* → download-end`）。GUI 分两次 spawn：先检测展示，
+  用户确认后再 spawn 下载。
+- **资产名安全**：落盘前校验资产名为纯文件名（不含路径分隔符/盘符冒
+  号），拒绝 `..\` 上跳与 NTFS ADS 形态；桌面端运行安装器侧另有路径
+  校验（必须直接位于下载目录内且为 `.exe`）。
+- **文本模式**（不带 `--progress json`）：stdout 打印当前版本、最新
+  版本、发布页 URL 与资产信息；下载进度在 stderr 单行 `\r` 刷新（TTY
+  判定，非 TTY 降级为完成时一行）。

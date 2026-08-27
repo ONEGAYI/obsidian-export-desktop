@@ -4,12 +4,14 @@ import {
   ArrowRightLeftIcon,
   FileCogIcon,
   FilterIcon,
+  InfoIcon,
   Link2Icon,
   RotateCcwIcon,
 } from "lucide-react";
 
 import { PathPicker } from "@/components/PathPicker";
 import { TagInput } from "@/components/TagInput";
+import { UpdatePanel, type UpdateState } from "@/components/UpdatePanel";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -34,14 +36,24 @@ import {
   type MissingSectionStrategy,
 } from "@/lib/options";
 
+/** Update actions handed down from App (the sidecar slots live there). */
+export interface UpdateHandlers {
+  state: UpdateState;
+  onCheckNow: () => void;
+  onDownload: () => void;
+  onInstall: () => void;
+  onCancelDownload: () => void;
+}
+
 interface OptionsViewProps {
   options: ExportOptions;
   onOptionsChange: (options: ExportOptions) => void;
   onBack: () => void;
+  update: UpdateHandlers;
 }
 
 /** Settings pages: each maps to one option group in the side-nav. */
-type Page = "conversion" | "filtering" | "process" | "linkCheck";
+type Page = "conversion" | "filtering" | "process" | "linkCheck" | "about";
 
 /**
  * Radio list for a string-enum option: one card with one row per choice
@@ -136,6 +148,7 @@ export function OptionsView({
   options,
   onOptionsChange,
   onBack,
+  update,
 }: OptionsViewProps) {
   const { t } = useI18n();
   const [page, setPage] = useState<Page>("conversion");
@@ -166,6 +179,7 @@ export function OptionsView({
     { id: "filtering", label: t.options.sectionFiltering, icon: <FilterIcon className="size-4 shrink-0" /> },
     { id: "process", label: t.options.sectionProcess, icon: <FileCogIcon className="size-4 shrink-0" /> },
     { id: "linkCheck", label: t.options.sectionLinkCheck, icon: <Link2Icon className="size-4 shrink-0" /> },
+    { id: "about", label: t.options.sectionAbout, icon: <InfoIcon className="size-4 shrink-0" /> },
   ];
 
   return (
@@ -377,6 +391,18 @@ export function OptionsView({
                   </div>
                 </div>
               </section>
+            )}
+
+            {page === "about" && (
+              <UpdatePanel
+                state={update.state}
+                autoCheckEnabled={options.autoCheckUpdates}
+                onAutoCheckChange={(autoCheckUpdates) => patch({ autoCheckUpdates })}
+                onCheckNow={update.onCheckNow}
+                onDownload={update.onDownload}
+                onInstall={update.onInstall}
+                onCancelDownload={update.onCancelDownload}
+              />
             )}
 
             <div className="mt-auto border-t pt-3">

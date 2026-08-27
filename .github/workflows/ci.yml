@@ -21,7 +21,7 @@ jobs:
         job:
           - rustup toolchain install nightly --profile minimal --component rustfmt && cargo +nightly fmt --all -- --check
           - cargo test --all-targets --all-features
-          - cargo clippy --all-targets --all-features -- -D warning
+          - cargo clippy --all-targets --all-features -- -D warnings
       fail-fast: false
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4

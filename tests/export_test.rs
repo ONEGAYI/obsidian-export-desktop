@@ -11,7 +11,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use obsidian_export::{
-    ExportError, ExportEvent, Exporter, FrontmatterStrategy, MissingSectionStrategy,
+    ExportError,
+    ExportEvent,
+    Exporter,
+    FrontmatterStrategy,
+    MissingSectionStrategy,
 };
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
@@ -280,9 +284,14 @@ fn test_source_no_permissions() {
 
     let mut file = File::create(&src).unwrap();
     file.write_all(b"Foo").unwrap();
+    drop(file);
     set_permissions(&src, Permissions::from_mode(0o000)).unwrap();
 
-    match Exporter::new(src, dest).run().unwrap_err() {
+    // Bind the error before matching: the temporary chain inside a tail
+    // expression trips `tail_expr_drop_order` (the Rust 2024 drop-order
+    // change) against the still-live `tmp_dir`.
+    let err = Exporter::new(src, dest).run().unwrap_err();
+    match err {
         ExportError::FileExportError { source, .. } => match *source {
             ExportError::ReadError { .. } => {}
             _ => panic!("Wrong error variant for source, got: {:?}", source),
@@ -300,11 +309,14 @@ fn test_dest_no_permissions() {
 
     let mut file = File::create(&src).unwrap();
     file.write_all(b"Foo").unwrap();
+    drop(file);
 
     create_dir(&dest).unwrap();
     set_permissions(&dest, Permissions::from_mode(0o555)).unwrap();
 
-    match Exporter::new(src, dest).run().unwrap_err() {
+    // Same tail-expression pattern as above: bind before matching.
+    let err = Exporter::new(src, dest).run().unwrap_err();
+    match err {
         ExportError::FileExportError { source, .. } => match *source {
             ExportError::WriteError { .. } => {}
             _ => panic!("Wrong error variant for source, got: {:?}", source),

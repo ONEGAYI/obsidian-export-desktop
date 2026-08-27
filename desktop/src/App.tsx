@@ -38,8 +38,16 @@ import {
   applyCheckEvents,
   type LinkCheckState,
 } from "@/components/LinkCheckPanel";
-import { OptionsView } from "@/components/OptionsView";
+import { OptionsView, type UpdateHandlers } from "@/components/OptionsView";
 import { PathPicker } from "@/components/PathPicker";
+import {
+  EMPTY_UPDATE,
+  applyUpdateEvents,
+  applyUpdateExit,
+  dueUpdateCheck,
+  markUpdateChecked,
+  type UpdateState,
+} from "@/components/UpdatePanel";
 import { fmt, LANGUAGE_ORDER, useI18n } from "@/i18n";
 import type { LanguagePreference } from "@/i18n";
 import {
@@ -60,8 +68,13 @@ import {
   onSidecarError,
   onSidecarEvent,
   onSidecarExit,
+  onUpdateError,
+  onUpdateEvent,
+  onUpdateExit,
+  runInstaller,
   startCheck,
   startExport,
+  startUpdate,
 } from "@/lib/sidecar";
 import { THEME_ORDER, useTheme, type ThemePreference } from "@/lib/theme";
 
@@ -281,6 +294,7 @@ export default function App() {
   const [sidecarBanner, setSidecarBanner] = useState<string | null>(null);
   const [sidecarError, setSidecarError] = useState<string | null>(null);
   const [check, setCheck] = useState<LinkCheckState>(EMPTY_LINK_CHECK);
+  const [update, setUpdate] = useState<UpdateState>(EMPTY_UPDATE);
   // The sidecar-exit listener below is subscribed once per language change,
   // so the trigger data it needs (latest options, last run's paths) travels
   // through refs instead of stale closures.
@@ -292,6 +306,26 @@ export default function App() {
     checkSidecar()
       .then(setSidecarBanner)
       .catch((err) => setSidecarError(String(err)));
+  }, []);
+
+  // Automatic update check on launch: at most once per day, gated by the
+  // preference, silent on failure (the verdict surfaces the next time the
+  // "About" page is opened; the panel folds whatever events arrived).
+  useEffect(() => {
+    if (!optionsRef.current.autoCheckUpdates || !dueUpdateCheck()) {
+      return;
+    }
+    // Delay past the user's first interactions: the check shares the sidecar
+    // child slot with exports, and a silent background claim right at launch
+    // would turn an immediate first export into a confusing failure.
+    const timer = window.setTimeout(() => {
+      markUpdateChecked();
+      setUpdate((s) => (s.phase === "idle" ? { ...s, phase: "checking" } : s));
+      startUpdate("check").catch(() => {
+        setUpdate((s) => (s.phase === "checking" ? EMPTY_UPDATE : s));
+      });
+    }, 2500);
+    return () => window.clearTimeout(timer);
   }, []);
 
   // Subscriptions that don't reference the active dictionary live in their
@@ -372,6 +406,20 @@ export default function App() {
           lines: [...p.lines, { kind: "error", text: message }],
         })),
       ),
+      // Update events are low-frequency (one verdict plus throttled progress
+      // frames), so they fold directly without rAF buffering.
+      onUpdateEvent((event) =>
+        setUpdate((s) => applyUpdateEvents(s, [event])),
+      ),
+      // Exit is definitive for the update stream too: a transitional phase
+      // at exit means the run failed (or was cancelled via the shared kill).
+      onUpdateExit((payload) => setUpdate((s) => applyUpdateExit(s, payload))),
+      onUpdateError((message) =>
+        setUpdate((s) => ({
+          ...s,
+          streamErrors: [...s.streamErrors.slice(-4), message],
+        })),
+      ),
     ];
     return () => {
       if (frame !== null) cancelAnimationFrame(frame);
@@ -448,6 +496,68 @@ export default function App() {
     setConfirmOpen(false);
     setView("options");
   }, []);
+
+  // ---- Update actions (sidecar slots live here, mirroring export/check) ---
+
+  const handleCheckNow = useCallback(() => {
+    markUpdateChecked();
+    setUpdate({ ...EMPTY_UPDATE, phase: "checking" });
+    startUpdate("check").catch((err) =>
+      setUpdate((s) => ({
+        ...s,
+        phase: "failed",
+        invokeError: String(err),
+      })),
+    );
+  }, []);
+
+  const handleDownload = useCallback(() => {
+    setUpdate((s) => ({
+      ...s,
+      phase: "downloading",
+      downloadedBytes: 0,
+      totalBytes: null,
+      bytesPerSecond: 0,
+      downloadPath: null,
+    }));
+    startUpdate("download").catch((err) =>
+      setUpdate((s) => ({
+        ...s,
+        phase: "failed",
+        invokeError: String(err),
+      })),
+    );
+  }, []);
+
+  const handleInstall = useCallback(() => {
+    const path = update.downloadPath;
+    if (path === null) {
+      return;
+    }
+    // On success the app exits before the promise resolves; the catch only
+    // fires when launching failed (e.g. the file is locked by antivirus).
+    runInstaller(path).catch((err) =>
+      setUpdate((s) => ({
+        ...s,
+        phase: "failed",
+        invokeError: String(err),
+      })),
+    );
+  }, [update.downloadPath]);
+
+  const handleCancelDownload = useCallback(() => {
+    // The update download shares the sidecar child slot with exports; the
+    // generic kill covers it, and update-exit folds the state to failed.
+    cancelExport().catch(() => undefined);
+  }, []);
+
+  const updateHandlers: UpdateHandlers = {
+    state: update,
+    onCheckNow: handleCheckNow,
+    onDownload: handleDownload,
+    onInstall: handleInstall,
+    onCancelDownload: handleCancelDownload,
+  };
 
   const handleStart = useCallback(async () => {
     setConfirmOpen(false);
@@ -552,6 +662,7 @@ export default function App() {
               options={options}
               onOptionsChange={handleOptionsChange}
               onBack={() => setView("main")}
+              update={updateHandlers}
             />
           )}
 

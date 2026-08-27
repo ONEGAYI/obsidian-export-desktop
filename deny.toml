@@ -16,7 +16,13 @@ db-path = "$CARGO_HOME/advisory-dbs"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 # A list of advisory IDs to ignore. Note that ignored advisories will still
 # output a note when they are encountered.
-ignore = []
+ignore = [
+    # gumdrop（CLI 参数解析，上游选型）无人维护公告：非漏洞，
+    # "No safe upgrade is available"。迁移到 clap/bpaf 会改变 CLI 行为
+    # 面（help 格式、解析细节），超出常规迭代范围，与上游保持同路，
+    # 待上游动向后跟进。
+    { id = "RUSTSEC-2026-0214", reason = "unmaintained notice, not a vulnerability; clap migration deferred until upstream moves" },
+]
 
 [licenses]
 # Opt-in to new config format - https://github.com/EmbarkStudios/cargo-deny/pull/611
@@ -25,6 +31,9 @@ version = 2
 # Licenses we accept, identified by their SPDX short identifier (+ optional
 # exception) from https://spdx.org/licenses/
 allow = [
+    "Unicode-3.0",
+    # webpki-roots（ureq 的内置根证书集）使用 CDLA-Permissive-2.0。
+    "CDLA-Permissive-2.0",
     "Apache-2.0",
     "BSD-2-Clause",
     "BSD-2-Clause-Patent",
@@ -34,9 +43,6 @@ allow = [
     "MPL-2.0",
 ]
 unused-allowed-license = "allow"
-exceptions = [
-    { allow = ["Unicode-3.0"], crate = "unicode-ident" },
-]
 
 # Default confidence is 0.8, let's require a higher confidence level for now.
 # We can lower this later if it's too pedantic.
@@ -64,6 +70,19 @@ skip = [
     #    result. We can then choose to again skip that version, or decide more
     #    drastic action is needed.
     "syn:<=1.0.109",
+    # ureq 2.x（更新检查）依赖树引入 syn 3 与 windows-* 0.53 系，与既有
+    # 0.52/2.x 并存；按惯例登记最旧版本，随依赖升级自然告警提醒清理。
+    "syn:<=2.0.106",
+    "windows-sys:<=0.52.0",
+    "windows-targets:<=0.52.6",
+    "windows_aarch64_gnullvm:<=0.52.6",
+    "windows_aarch64_msvc:<=0.52.6",
+    "windows_i686_gnu:<=0.52.6",
+    "windows_i686_gnullvm:<=0.52.6",
+    "windows_i686_msvc:<=0.52.6",
+    "windows_x86_64_gnu:<=0.52.6",
+    "windows_x86_64_gnullvm:<=0.52.6",
+    "windows_x86_64_msvc:<=0.52.6",
 ]
 wildcards = "deny"
 allow-wildcard-paths = false

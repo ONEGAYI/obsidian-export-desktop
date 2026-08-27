@@ -14,6 +14,8 @@ pub fn run() {
             sidecar::start_check,
             sidecar::cancel_export,
             sidecar::export_running,
+            sidecar::start_update,
+            sidecar::run_installer,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

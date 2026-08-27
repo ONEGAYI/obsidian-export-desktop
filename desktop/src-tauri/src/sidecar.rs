@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
-use crate::events::{self, ParsedCheckLine, ParsedLine};
+use crate::events::{self, ParsedCheckLine, ParsedLine, ParsedUpdateLine};
 
 /// Tauri event names emitted to the frontend.
 pub const EVENT_SIDECAR_EVENT: &str = "sidecar-event";
@@ -21,20 +21,110 @@ pub const EVENT_SIDECAR_EXIT: &str = "sidecar-exit";
 pub const EVENT_CHECK_EVENT: &str = "check-event";
 pub const EVENT_CHECK_ERROR: &str = "check-error";
 pub const EVENT_CHECK_EXIT: &str = "check-exit";
+pub const EVENT_UPDATE_EVENT: &str = "update-event";
+pub const EVENT_UPDATE_ERROR: &str = "update-error";
+pub const EVENT_UPDATE_EXIT: &str = "update-exit";
+
+/// Which sidecar flavor currently occupies the child slot; surfaces in the
+/// "already running" error so the UI can tell the user *what* to wait for.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OccupiedBy {
+    #[default]
+    None,
+    Export,
+    Check,
+    UpdateCheck,
+    UpdateDownload,
+}
+
+impl OccupiedBy {
+    fn describe(self) -> &'static str {
+        match self {
+            Self::None => "nothing",
+            Self::Export => "an export",
+            Self::Check => "a link check",
+            Self::UpdateCheck => "an update check",
+            Self::UpdateDownload => "an update download",
+        }
+    }
+}
+
+/// The sidecar child slot: the running process (if any) and who claimed it.
+/// Locked as one unit so that claiming is atomic with the occupancy check —
+/// a claim taken before spawn must block every other claim until the child
+/// is stored or the claim is rolled back.
+#[derive(Default)]
+struct SlotState {
+    child: Option<CommandChild>,
+    occupant: OccupiedBy,
+}
 
 /// Handle of a running export, if any.
 #[derive(Default)]
 pub struct ExportState {
-    child: Mutex<Option<CommandChild>>,
+    slot: Mutex<SlotState>,
 }
 
 fn take_child(app: &AppHandle) -> Option<CommandChild> {
     let state = app.state::<ExportState>();
-    let mut guard = state
-        .child
-        .lock()
-        .expect("export state mutex poisoned");
-    guard.take()
+    let mut guard = state.slot.lock().expect("export state mutex poisoned");
+    // Only a stored child releases the claim: a cancel landing inside the
+    // claim→spawn window must not clear a claim that hasn't been fulfilled
+    // yet (the spawning start_* would then store into a slot another start
+    // could have re-claimed meanwhile).
+    match guard.child.take() {
+        Some(child) => {
+            guard.occupant = OccupiedBy::None;
+            Some(child)
+        }
+        None => None,
+    }
+}
+
+/// Claim the child slot for `who`; errors with a message naming the current
+/// occupant when already taken.
+///
+/// The claim outlives this function's lock: between claiming and storing the
+/// spawned child, `occupant` alone blocks concurrent claims (the child is
+/// still `None` there). Every failure on that stretch must roll back via
+/// [`release_claim`] or the slot stays claimed forever.
+fn claim_slot(state: &State<'_, ExportState>, who: OccupiedBy) -> Result<(), String> {
+    let mut guard = state.slot.lock().map_err(|_| "export state poisoned")?;
+    if guard.child.is_some() || guard.occupant != OccupiedBy::None {
+        return Err(format!(
+            "cannot start: {} is already running",
+            slot_description(&guard)
+        ));
+    }
+    guard.occupant = who;
+    Ok(())
+}
+
+/// Store a successfully spawned child, making the claim permanent until the
+/// process terminates.
+fn store_child(state: &State<'_, ExportState>, child: CommandChild) -> Result<(), String> {
+    let mut guard = state.slot.lock().map_err(|_| "export state poisoned")?;
+    guard.child = Some(child);
+    Ok(())
+}
+
+/// Roll back a claim by `who` when the spawned child was never stored.
+/// Guarded on the claimant so a late rollback cannot clobber a successor
+/// that has already re-claimed the idle slot.
+fn release_claim(state: &State<'_, ExportState>, who: OccupiedBy) {
+    if let Ok(mut guard) = state.slot.lock() {
+        if guard.child.is_none() && guard.occupant == who {
+            guard.occupant = OccupiedBy::None;
+        }
+    }
+}
+
+fn slot_description(slot: &SlotState) -> String {
+    if slot.occupant == OccupiedBy::None {
+        "another sidecar process".to_owned()
+    } else {
+        slot.occupant.describe().to_owned()
+    }
 }
 
 /// Compute the effective export destination.
@@ -151,11 +241,7 @@ fn build_args(options: &ExportOptions, source: &str, target: &str) -> Vec<String
     let mut args = vec!["--progress".to_owned(), "json".to_owned()];
     // Blank strings count as unset: the frontend already maps them to null,
     // but the invoke boundary must not rely on that.
-    if let Some(start_at) = options
-        .start_at
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-    {
+    if let Some(start_at) = options.start_at.as_deref().filter(|s| !s.trim().is_empty()) {
         args.extend(["--start-at".to_owned(), start_at.to_owned()]);
     }
     if options.frontmatter != FrontmatterChoice::Auto {
@@ -223,11 +309,7 @@ fn build_args(options: &ExportOptions, source: &str, target: &str) -> Vec<String
 /// a git repository, and `ignore_hidden` would miss dot-files that the
 /// export produced under `--hidden`. So `--no-git` is always passed and
 /// `--hidden` mirrors the export's setting.
-fn build_check_args(
-    options: &ExportOptions,
-    target: LinkCheckTarget,
-    source: &str,
-) -> Vec<String> {
+fn build_check_args(options: &ExportOptions, target: LinkCheckTarget, source: &str) -> Vec<String> {
     let mut args = vec![
         "check".to_owned(),
         "--progress".to_owned(),
@@ -235,11 +317,7 @@ fn build_check_args(
     ];
     match target {
         LinkCheckTarget::Source => {
-            if let Some(start_at) = options
-                .start_at
-                .as_deref()
-                .filter(|s| !s.trim().is_empty())
-            {
+            if let Some(start_at) = options.start_at.as_deref().filter(|s| !s.trim().is_empty()) {
                 args.extend(["--start-at".to_owned(), start_at.to_owned()]);
             }
             if let Some(ignore_file) = options
@@ -309,6 +387,58 @@ pub async fn check_sidecar(app: AppHandle) -> Result<String, String> {
 /// Returns the actual export destination (after `keep_root_folder`
 /// resolution) so the frontend can point later actions — like the post-export
 /// link check — at the tree that was written.
+/// Resolve inputs and spawn the export sidecar. Every `?` in here runs
+/// under a live claim; the caller rolls the claim back on any error.
+#[allow(clippy::type_complexity)]
+fn spawn_export_sidecar(
+    app: &AppHandle,
+    source: &str,
+    destination: &str,
+    options: &ExportOptions,
+    keep_root_folder: bool,
+) -> Result<
+    (
+        tauri::async_runtime::Receiver<CommandEvent>,
+        CommandChild,
+        String,
+    ),
+    String,
+> {
+    // Resolve picked paths against the GUI process's working directory up
+    // front, so the sidecar contract holds even for manually typed relative
+    // paths: the events echo `path` back in the same absolute shape they
+    // were given (docs/sidecar-events.md).
+    let source_path = std::path::absolute(source)
+        .map_err(|err| format!("invalid source path '{source}': {err}"))?;
+    let destination_path = std::path::absolute(destination)
+        .map_err(|err| format!("invalid destination path '{destination}': {err}"))?;
+    let target = resolve_destination(
+        &source_path,
+        &destination_path,
+        keep_root_folder,
+        source_path.is_dir(),
+    );
+    // The user-picked destination always exists; only the appended subfolder
+    // needs creating. A mistyped manual destination is left for the CLI to
+    // report rather than being silently created here.
+    if target != destination_path {
+        std::fs::create_dir_all(&target)
+            .map_err(|err| format!("failed to create destination '{}': {err}", target.display()))?;
+    }
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let target_arg = target.to_string_lossy().into_owned();
+
+    let args = build_args(options, &source_arg, &target_arg);
+    let (rx, child) = app
+        .shell()
+        .sidecar("obsidian-export")
+        .map_err(|err| format!("sidecar binary not found: {err}"))?
+        .args(&args)
+        .spawn()
+        .map_err(|err| format!("failed to spawn sidecar: {err}"))?;
+    Ok((rx, child, target_arg))
+}
+
 #[tauri::command]
 pub async fn start_export(
     app: AppHandle,
@@ -318,46 +448,23 @@ pub async fn start_export(
     options: ExportOptions,
     keep_root_folder: Option<bool>,
 ) -> Result<String, String> {
-    let mut slot = state.child.lock().map_err(|_| "export state poisoned")?;
-    if slot.is_some() {
-        return Err("a sidecar process is already running".to_string());
-    }
+    claim_slot(&state, OccupiedBy::Export)?;
 
-    // Resolve picked paths against the GUI process's working directory up
-    // front, so the sidecar contract holds even for manually typed relative
-    // paths: the events echo `path` back in the same absolute shape they
-    // were given (docs/sidecar-events.md).
-    let source_path = std::path::absolute(&source)
-        .map_err(|err| format!("invalid source path '{source}': {err}"))?;
-    let destination_path = std::path::absolute(&destination)
-        .map_err(|err| format!("invalid destination path '{destination}': {err}"))?;
-    let target = resolve_destination(
-        &source_path,
-        &destination_path,
+    let spawned = spawn_export_sidecar(
+        &app,
+        &source,
+        &destination,
+        &options,
         keep_root_folder.unwrap_or(false),
-        source_path.is_dir(),
     );
-    // The user-picked destination always exists; only the appended subfolder
-    // needs creating. A mistyped manual destination is left for the CLI to
-    // report rather than being silently created here.
-    if target != destination_path {
-        std::fs::create_dir_all(&target).map_err(|err| {
-            format!("failed to create destination '{}': {err}", target.display())
-        })?;
-    }
-    let source_arg = source_path.to_string_lossy().into_owned();
-    let target_arg = target.to_string_lossy().into_owned();
-
-    let args = build_args(&options, &source_arg, &target_arg);
-    let (rx, child) = app
-        .shell()
-        .sidecar("obsidian-export")
-        .map_err(|err| format!("sidecar binary not found: {err}"))?
-        .args(&args)
-        .spawn()
-        .map_err(|err| format!("failed to spawn sidecar: {err}"))?;
-    *slot = Some(child);
-    drop(slot);
+    let (rx, child, target_arg) = match spawned {
+        Ok(spawned) => spawned,
+        Err(err) => {
+            release_claim(&state, OccupiedBy::Export);
+            return Err(err);
+        }
+    };
+    store_child(&state, child)?;
 
     tauri::async_runtime::spawn(pump_sidecar(app.clone(), rx, StreamDialect::Export));
 
@@ -370,6 +477,7 @@ pub async fn start_export(
 enum StreamDialect {
     Export,
     Check,
+    Update,
 }
 
 impl StreamDialect {
@@ -377,6 +485,7 @@ impl StreamDialect {
         match self {
             Self::Export => EVENT_SIDECAR_EVENT,
             Self::Check => EVENT_CHECK_EVENT,
+            Self::Update => EVENT_UPDATE_EVENT,
         }
     }
 
@@ -384,6 +493,7 @@ impl StreamDialect {
         match self {
             Self::Export => EVENT_SIDECAR_EXIT,
             Self::Check => EVENT_CHECK_EXIT,
+            Self::Update => EVENT_UPDATE_EXIT,
         }
     }
 
@@ -394,6 +504,7 @@ impl StreamDialect {
         match self {
             Self::Export => EVENT_SIDECAR_ERROR,
             Self::Check => EVENT_CHECK_ERROR,
+            Self::Update => EVENT_UPDATE_ERROR,
         }
     }
 
@@ -411,6 +522,11 @@ impl StreamDialect {
             Self::Check => match events::parse_check_line(line) {
                 Ok(ParsedCheckLine::Event(event)) => Ok(Some(event_value(&event))),
                 Ok(ParsedCheckLine::Ignored) => Ok(None),
+                Err(err) => Err(err),
+            },
+            Self::Update => match events::parse_update_line(line) {
+                Ok(ParsedUpdateLine::Event(event)) => Ok(Some(event_value(&event))),
+                Ok(ParsedUpdateLine::Ignored) => Ok(None),
                 Err(err) => Err(err),
             },
         }
@@ -461,10 +577,7 @@ async fn pump_sidecar(
                 stderr_text.push_str(&String::from_utf8_lossy(&bytes));
             }
             CommandEvent::Error(err) => {
-                let _ = handle.emit(
-                    dialect.error_channel(),
-                    format!("sidecar IO error: {err}"),
-                );
+                let _ = handle.emit(dialect.error_channel(), format!("sidecar IO error: {err}"));
             }
             CommandEvent::Terminated(status) => {
                 // The child handle is dead now; release it so a new export
@@ -493,6 +606,29 @@ async fn pump_sidecar(
 ///
 /// The check shares the export's child slot: only one sidecar process may
 /// run at a time, and `cancel_export` covers both kinds.
+/// Resolve the source and spawn the check sidecar. Runs under a live
+/// claim; the caller rolls the claim back on any error.
+fn spawn_check_sidecar(
+    app: &AppHandle,
+    source: &str,
+    options: &ExportOptions,
+    target: LinkCheckTarget,
+) -> Result<(tauri::async_runtime::Receiver<CommandEvent>, CommandChild), String> {
+    let source_path = std::path::absolute(source)
+        .map_err(|err| format!("invalid source path '{source}': {err}"))?;
+    let source_arg = source_path.to_string_lossy().into_owned();
+
+    let args = build_check_args(options, target, &source_arg);
+    let (rx, child) = app
+        .shell()
+        .sidecar("obsidian-export")
+        .map_err(|err| format!("sidecar binary not found: {err}"))?
+        .args(&args)
+        .spawn()
+        .map_err(|err| format!("failed to spawn sidecar: {err}"))?;
+    Ok((rx, child))
+}
+
 #[tauri::command]
 pub async fn start_check(
     app: AppHandle,
@@ -501,33 +637,25 @@ pub async fn start_check(
     options: ExportOptions,
     target: LinkCheckTarget,
 ) -> Result<(), String> {
-    let mut slot = state.child.lock().map_err(|_| "export state poisoned")?;
-    if slot.is_some() {
-        return Err("a sidecar process is already running".to_string());
-    }
+    claim_slot(&state, OccupiedBy::Check)?;
 
-    let source_path = std::path::absolute(&source)
-        .map_err(|err| format!("invalid source path '{source}': {err}"))?;
-    let source_arg = source_path.to_string_lossy().into_owned();
-
-    let args = build_check_args(&options, target, &source_arg);
-    let (rx, child) = app
-        .shell()
-        .sidecar("obsidian-export")
-        .map_err(|err| format!("sidecar binary not found: {err}"))?
-        .args(&args)
-        .spawn()
-        .map_err(|err| format!("failed to spawn sidecar: {err}"))?;
-    *slot = Some(child);
-    drop(slot);
+    let spawned = spawn_check_sidecar(&app, &source, &options, target);
+    let (rx, child) = match spawned {
+        Ok(spawned) => spawned,
+        Err(err) => {
+            release_claim(&state, OccupiedBy::Check);
+            return Err(err);
+        }
+    };
+    store_child(&state, child)?;
 
     tauri::async_runtime::spawn(pump_sidecar(app.clone(), rx, StreamDialect::Check));
 
     Ok(())
 }
 
-/// Cancel the running sidecar process (an export or a link check) by
-/// killing it.
+/// Cancel the running sidecar process (an export, a link check, or an update
+/// download) by killing it.
 #[tauri::command]
 pub fn cancel_export(app: AppHandle) -> Result<bool, String> {
     match take_child(&app) {
@@ -545,8 +673,189 @@ pub fn cancel_export(app: AppHandle) -> Result<bool, String> {
 #[tauri::command]
 pub fn export_running(app: AppHandle) -> Result<bool, String> {
     let state = app.state::<ExportState>();
-    let guard = state.child.lock().map_err(|_| "export state poisoned")?;
-    Ok(guard.is_some())
+    let guard = state.slot.lock().map_err(|_| "export state poisoned")?;
+    Ok(guard.child.is_some())
+}
+
+// ---- 更新检查 / 下载 / 安装（边车 update 子命令的编排） ---------------------
+
+/// Which update action the sidecar should perform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateAction {
+    /// `obsidian-export update --asset desktop`：仅检测，报告最新 release。
+    Check,
+    /// `… --download --output <downloads dir>`：检测并把 NSIS 安装包下载
+    /// 到系统临时目录。
+    Download,
+}
+
+/// Installer download directory: `<temp>/obsidian-export/Downloads`. The
+/// temp-dir semantics mean one-shot installers get reclaimed by the OS and
+/// a lost file is simply re-downloaded.
+pub fn update_downloads_dir() -> PathBuf {
+    std::env::temp_dir()
+        .join("obsidian-export")
+        .join("Downloads")
+}
+
+/// Arguments for the sidecar's `update` subcommand. The desktop always
+/// selects the `desktop` asset target (NSIS setup exe); the CLI picks its
+/// own platform archive when run manually.
+fn build_update_args(action: UpdateAction, output_dir: Option<&str>) -> Vec<String> {
+    let mut args = vec![
+        "update".to_owned(),
+        "--progress".to_owned(),
+        "json".to_owned(),
+        "--asset".to_owned(),
+        "desktop".to_owned(),
+    ];
+    if let UpdateAction::Download = action {
+        args.push("--download".to_owned());
+        if let Some(dir) = output_dir {
+            args.extend(["--output".to_owned(), dir.to_owned()]);
+        }
+    }
+    args
+}
+
+/// Start an update action (`obsidian-export update`). Emits `update-event`
+/// per parsed JSON Lines event and a final `update-exit` with the process
+/// exit code. Exit 1 means the check/download itself failed (a *found*
+/// update is still exit 0 — the frontend reads the verdict from the
+/// `update-result` event, not the exit code).
+///
+/// The download action returns the absolute directory the installer will be
+/// saved into (created here; the CLI requires it to exist).
+///
+/// Shares the export's child slot: only one sidecar process may run at a
+/// time, and `cancel_export` covers all kinds.
+/// Prepare the download directory and spawn the update sidecar. Runs under
+/// a live claim; the caller rolls the claim back on any error.
+fn spawn_update_sidecar(
+    app: &AppHandle,
+    action: UpdateAction,
+) -> Result<
+    (
+        tauri::async_runtime::Receiver<CommandEvent>,
+        CommandChild,
+        String,
+    ),
+    String,
+> {
+    let output_dir = match action {
+        UpdateAction::Download => {
+            let dir = update_downloads_dir();
+            // 纵深防御：%TEMP% 是用户态任意进程可写区，目录链上若有指
+            // 向他处的 symlink/junction（junction 无需特权且 is_symlink
+            // 探不到），写入会跟随逃逸。创建后以 canonicalize 复核：
+            // 规范化路径必须仍位于系统临时目录之下，否则拒绝。
+            std::fs::create_dir_all(&dir).map_err(|err| {
+                format!(
+                    "failed to create download directory '{}': {err}",
+                    dir.display()
+                )
+            })?;
+            let canonical = std::fs::canonicalize(&dir).map_err(|err| {
+                format!(
+                    "failed to resolve download directory '{}': {err}",
+                    dir.display()
+                )
+            })?;
+            let temp_root = std::fs::canonicalize(std::env::temp_dir())
+                .map_err(|err| format!("failed to resolve the system temp directory: {err}"))?;
+            if !canonical.starts_with(&temp_root) {
+                return Err(format!(
+                    "refusing to use download directory (it escapes the temp root): {}",
+                    dir.display()
+                ));
+            }
+            // 传给边车的是原（非 `\\?\` 规范化）形态：download-end 回报的
+            // path 与 run_installer 的 parent 比对都按此形态进行。
+            dir.to_string_lossy().into_owned()
+        }
+        UpdateAction::Check => String::new(),
+    };
+
+    let args = build_update_args(
+        action,
+        if output_dir.is_empty() {
+            None
+        } else {
+            Some(&output_dir)
+        },
+    );
+    let (rx, child) = app
+        .shell()
+        .sidecar("obsidian-export")
+        .map_err(|err| format!("sidecar binary not found: {err}"))?
+        .args(&args)
+        .spawn()
+        .map_err(|err| format!("failed to spawn sidecar: {err}"))?;
+    Ok((rx, child, output_dir))
+}
+
+#[tauri::command]
+pub async fn start_update(
+    app: AppHandle,
+    state: State<'_, ExportState>,
+    action: UpdateAction,
+) -> Result<String, String> {
+    let who = match action {
+        UpdateAction::Check => OccupiedBy::UpdateCheck,
+        UpdateAction::Download => OccupiedBy::UpdateDownload,
+    };
+    claim_slot(&state, who)?;
+
+    let spawned = spawn_update_sidecar(&app, action);
+    let (rx, child, output_dir) = match spawned {
+        Ok(spawned) => spawned,
+        Err(err) => {
+            release_claim(&state, who);
+            return Err(err);
+        }
+    };
+    store_child(&state, child)?;
+
+    tauri::async_runtime::spawn(pump_sidecar(app.clone(), rx, StreamDialect::Update));
+
+    Ok(output_dir)
+}
+
+/// Path defense for [`run_installer`]: a plain `.exe` directly inside
+/// [`update_downloads_dir`], nothing else. The CLI already rejects
+/// path-shaped asset names before saving; this re-checks the value the
+/// frontend echoes back before it is ever executed.
+fn validate_installer_path(path: &Path) -> bool {
+    path.parent() == Some(update_downloads_dir().as_path())
+        && path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+}
+
+/// Run a downloaded installer and exit the app.
+///
+/// The NSIS wizard handles its own UAC elevation; the app exits right
+/// after spawning it because the installer cannot overwrite the app's own
+/// files while they are locked by a running process.
+#[tauri::command]
+pub fn run_installer(app: AppHandle, path: String) -> Result<(), String> {
+    let installer = PathBuf::from(&path);
+    if !validate_installer_path(&installer) {
+        return Err(format!(
+            "refusing to run installer outside the download directory: {path}"
+        ));
+    }
+    if !installer.is_file() {
+        return Err(format!("installer file is missing: {path}"));
+    }
+    std::process::Command::new(&installer)
+        .spawn()
+        .map_err(|err| format!("failed to launch installer: {err}"))?;
+    // The response may not reach the frontend before the process is gone;
+    // that's fine — exiting is the point.
+    app.exit(0);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -595,15 +904,17 @@ mod tests {
 
     #[test]
     fn nondefault_enum_and_bool_flags_are_passed() {
-        let mut options = ExportOptions::default();
-        options.frontmatter = FrontmatterChoice::Always;
-        options.missing_section = MissingSectionChoice::Fail;
-        options.hidden = true;
-        options.no_git = true;
-        options.no_recursive_embeds = true;
-        options.preserve_mtime = true;
-        options.fail_fast = true;
-        options.hard_linebreaks = true;
+        let options = ExportOptions {
+            frontmatter: FrontmatterChoice::Always,
+            missing_section: MissingSectionChoice::Fail,
+            hidden: true,
+            no_git: true,
+            no_recursive_embeds: true,
+            preserve_mtime: true,
+            fail_fast: true,
+            hard_linebreaks: true,
+            ..ExportOptions::default()
+        };
         let args = build_args(&options, "SRC", "DST");
         assert_eq!(
             args,
@@ -630,9 +941,7 @@ mod tests {
     fn explicit_default_enums_are_omitted() {
         // frontmatter=auto / missing-section=skip match the CLI defaults; even
         // when the frontend sends them explicitly they must not reach the argv.
-        let mut options = ExportOptions::default();
-        options.frontmatter = FrontmatterChoice::Auto;
-        options.missing_section = MissingSectionChoice::Skip;
+        let options = ExportOptions::default();
         let args = build_args(&options, "S", "D");
         assert!(!args.iter().any(|a| a == "--frontmatter"));
         assert!(!args.iter().any(|a| a == "--missing-section"));
@@ -640,11 +949,13 @@ mod tests {
 
     #[test]
     fn value_options_and_repeated_tag_flags() {
-        let mut options = ExportOptions::default();
-        options.start_at = Some(r"D:\vaults\lib".to_owned());
-        options.ignore_file = Some(".custom-ignore".to_owned());
-        options.skip_tags = vec!["draft".to_owned(), "private".to_owned()];
-        options.only_tags = vec!["published".to_owned()];
+        let options = ExportOptions {
+            start_at: Some(r"D:\vaults\lib".to_owned()),
+            ignore_file: Some(".custom-ignore".to_owned()),
+            skip_tags: vec!["draft".to_owned(), "private".to_owned()],
+            only_tags: vec!["published".to_owned()],
+            ..ExportOptions::default()
+        };
         let args = build_args(&options, "S", "D");
         assert_eq!(
             args,
@@ -683,8 +994,7 @@ mod tests {
             "failFast": false,
             "hardLinebreaks": true
         }"#;
-        let options: ExportOptions =
-            serde_json::from_str(payload).expect("valid frontend payload");
+        let options: ExportOptions = serde_json::from_str(payload).expect("valid frontend payload");
         assert_eq!(options.start_at.as_deref(), Some("D:/vaults/sub"));
         assert_eq!(options.frontmatter, FrontmatterChoice::Never);
         assert_eq!(options.ignore_file.as_deref(), Some(".ignore"));
@@ -700,9 +1010,9 @@ mod tests {
         // should not receive `--start-at ""` (nonexistent-path error) or an
         // ignore-file name that can never match anything. Blank tags are
         // dropped for the same reason.
-        let payload = r#"{ "startAt": "", "ignoreFile": "   ", "skipTags": ["", "  "], "onlyTags": ["\t"] }"#;
-        let options: ExportOptions =
-            serde_json::from_str(payload).expect("valid frontend payload");
+        let payload =
+            r#"{ "startAt": "", "ignoreFile": "   ", "skipTags": ["", "  "], "onlyTags": ["\t"] }"#;
+        let options: ExportOptions = serde_json::from_str(payload).expect("valid frontend payload");
         let args = build_args(&options, "S", "D");
         assert!(!args.iter().any(|a| a == "--start-at"));
         assert!(!args.iter().any(|a| a == "--ignore-file"));
@@ -734,14 +1044,15 @@ mod tests {
     fn check_args_source_target_inherits_export_filters() {
         // Checking the vault source must walk the same file set as the
         // export: every non-default filter flag is forwarded.
-        let mut options = ExportOptions::default();
-        options.start_at = Some(r"D:\vaults\lib".to_owned());
-        options.ignore_file = Some(".custom-ignore".to_owned());
-        options.hidden = true;
-        options.no_git = true;
-        // Export-only flags must not leak into the check argv.
-        options.frontmatter = FrontmatterChoice::Always;
-        options.fail_fast = true;
+        let options = ExportOptions {
+            start_at: Some(r"D:\vaults\lib".to_owned()),
+            ignore_file: Some(".custom-ignore".to_owned()),
+            hidden: true,
+            no_git: true,
+            frontmatter: FrontmatterChoice::Always,
+            fail_fast: true,
+            ..ExportOptions::default()
+        };
         let args = build_check_args(&options, LinkCheckTarget::Source, "SRC");
         assert_eq!(
             args,
@@ -767,10 +1078,12 @@ mod tests {
         // output folder inside a git repository, and dot-files produced
         // under `--hidden` would be skipped. Vault-only filters (start-at,
         // ignore-file) stay off.
-        let mut options = ExportOptions::default();
-        options.start_at = Some("sub".to_owned());
-        options.ignore_file = Some(".custom-ignore".to_owned());
-        options.hidden = true;
+        let options = ExportOptions {
+            start_at: Some("sub".to_owned()),
+            ignore_file: Some(".custom-ignore".to_owned()),
+            hidden: true,
+            ..ExportOptions::default()
+        };
         let args = build_check_args(&options, LinkCheckTarget::Destination, "OUT");
         assert_eq!(
             args,
@@ -782,7 +1095,11 @@ mod tests {
     fn check_args_destination_default_options_still_pass_no_git() {
         // Even with every option at its default, checking the output must
         // not honor gitignore (the false-negative trap).
-        let args = build_check_args(&ExportOptions::default(), LinkCheckTarget::Destination, "OUT");
+        let args = build_check_args(
+            &ExportOptions::default(),
+            LinkCheckTarget::Destination,
+            "OUT",
+        );
         assert_eq!(args, vec!["check", "--progress", "json", "--no-git", "OUT"]);
     }
 
@@ -796,5 +1113,73 @@ mod tests {
         let options: ExportOptions = serde_json::from_str("{}").expect("valid payload");
         assert!(!options.link_check_enabled);
         assert_eq!(options.link_check_target, LinkCheckTarget::Source);
+    }
+
+    // ---- update 编排 ----
+
+    #[test]
+    fn build_update_args_check_and_download() {
+        assert_eq!(
+            build_update_args(UpdateAction::Check, None),
+            vec![
+                "update".to_owned(),
+                "--progress".to_owned(),
+                "json".to_owned(),
+                "--asset".to_owned(),
+                "desktop".to_owned(),
+            ]
+        );
+        assert_eq!(
+            build_update_args(UpdateAction::Download, Some(r"C:\tmp\dl")),
+            vec![
+                "update".to_owned(),
+                "--progress".to_owned(),
+                "json".to_owned(),
+                "--asset".to_owned(),
+                "desktop".to_owned(),
+                "--download".to_owned(),
+                "--output".to_owned(),
+                r"C:\tmp\dl".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn downloads_dir_is_temp_scoped() {
+        assert_eq!(
+            update_downloads_dir(),
+            std::env::temp_dir()
+                .join("obsidian-export")
+                .join("Downloads")
+        );
+    }
+
+    #[test]
+    fn validate_installer_path_contract() {
+        let dir = update_downloads_dir();
+        assert!(validate_installer_path(
+            &dir.join("Obsidian.Export_26.9.0_x64-setup.exe")
+        ));
+        assert!(
+            validate_installer_path(&dir.join("setup.EXE")),
+            "扩展名大小写不敏感"
+        );
+        assert!(!validate_installer_path(&dir.join("app.msi")), "非 exe");
+        assert!(
+            !validate_installer_path(&dir.join("payload.zip")),
+            "zip 不是安装器"
+        );
+        assert!(
+            !validate_installer_path(&dir.join("sub").join("setup.exe")),
+            "嵌套子目录不放行"
+        );
+        assert!(
+            !validate_installer_path(&dir.join("..").join("evil.exe")),
+            "越出下载目录不放行"
+        );
+        assert!(
+            !validate_installer_path(Path::new(r"C:\Windows\notepad.exe")),
+            "任意路径不放行"
+        );
     }
 }
