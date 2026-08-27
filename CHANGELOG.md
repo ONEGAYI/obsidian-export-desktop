@@ -2,6 +2,19 @@
 
 <!-- towncrier release notes start -->
 
+## [26.8.5](https://github.com/zoni/obsidian-export/tree/26.8.5) - 2026-08-27
+
+Patch release for the link checker: section anchors with a leading list-style marker (`5. Title`) are no longer mass-reported as broken (and embeds into such sections no longer collapse), and duplicate headings now verify their GitHub `-1` disambiguation suffixes.
+
+### Fixes
+
+- Section anchors with a leading list-style marker (`5. Title`, `- Title`, `> Title`) are no longer mass-reported as broken by `obsidian-export check`, and embeds pointing at such sections no longer silently collapse.
+
+  The section query was re-parsed as block-level Markdown, which consumed the `N. ` prefix of numbered headings as an ordered-list marker and made the query never equal the target heading. The query is now parsed as heading inline content (the same parser flavor as whole-note parsing), so list/quote markers stay literal while inline formatting still aggregates to its rendered text. This also fixes embedded exports `![[note#5. Section]]` failing to slice the section.
+
+  Duplicate headings in one document now verify their GitHub disambiguation suffixes: a fragment like `#dup-1` (targeting the second `## Dup`) is accepted by the checker, both across files and as a same-file fragment, while out-of-range suffixes (`#dup-2` for two duplicates) still report as broken. Generated export links are unchanged — a wikilink always targets the first matching heading, whose bare slug is already correct on GitHub. ([#5](https://github.com/ONEGAYI/obsidian-export-desktop/pull/5))
+
+
 ## [26.8.4](https://github.com/zoni/obsidian-export/tree/26.8.4) - 2026-08-24
 
 This release wires the link checker into the desktop app — an automatic check after export (against the vault source or the exported tree) plus a paginated settings view — adds the machine-readable `check --progress json` event stream, and fixes accessibility labeling for settings switches, filter tabs, and inputs.
@@ -1115,3 +1128,10 @@ notable new feature.
 ## v0.1.0 (2020-11-28)
 
 * Public release. [Nick Groenen]
+
+<!-- 变更链接 -->
+
+- [v26.8.2](https://github.com/ONEGAYI/obsidian-export-desktop/commits/v26.8.2)
+- [v26.8.3](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.2...v26.8.3)
+- [v26.8.4](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.3...v26.8.4)
+- [v26.8.5](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.4...v26.8.5)
