@@ -609,10 +609,11 @@ pub fn validate_asset_name(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use std::io::Write as _;
     use std::net::TcpListener;
     use std::sync::Mutex;
+
+    use super::*;
 
     /// 按 (status, body) 应答的 mock；fail=true 模拟网络层失败。
     /// 捕获请求 URL 与 headers 供契约断言。
@@ -692,18 +693,24 @@ mod tests {
         }
     }
 
+    // cli 意图的资产按编译期平台 triple 挑选，占位符 @TRIPLE@ 在
+    // release_json() 里替换为当前 triple——测试在任意宿主平台都命中。
     const RELEASE_JSON: &str = r#"{
         "tag_name": "v99.0.0",
         "html_url": "https://github.com/ONEGAYI/obsidian-export-desktop/releases/v99.0.0",
         "body": "changelog body",
         "assets": [
-            {"name": "obsidian-export-x86_64-pc-windows-msvc.zip", "browser_download_url": "https://x/cli.zip", "size": 1},
-            {"name": "obsidian-export-x86_64-pc-windows-msvc.zip.sha256", "browser_download_url": "https://x/cli.zip.sha256", "size": 2},
+            {"name": "obsidian-export-@TRIPLE@.zip", "browser_download_url": "https://x/cli.zip", "size": 1},
+            {"name": "obsidian-export-@TRIPLE@.zip.sha256", "browser_download_url": "https://x/cli.zip.sha256", "size": 2},
             {"name": "Obsidian.Export_99.0.0_x64-setup.exe", "browser_download_url": "https://x/setup.exe", "size": 3},
             {"name": "Obsidian.Export_99.0.0_x64_en-US.msi", "browser_download_url": "https://x/app.msi", "size": 4},
             {"name": "obsidian-export-installer.ps1", "browser_download_url": "https://x/installer.ps1", "size": 5}
         ]
     }"#;
+
+    fn release_json() -> String {
+        RELEASE_JSON.replace("@TRIPLE@", current_target_triple())
+    }
 
     // ---- 版本比较 ----
 
@@ -787,7 +794,7 @@ mod tests {
     #[test]
     fn check_update_available_with_both_targets() {
         for target in [AssetTarget::Cli, AssetTarget::Desktop] {
-            let http = MockClient::ok(RELEASE_JSON);
+            let http = MockClient::ok(&release_json());
             let status = check_update(&http, target).unwrap();
             match status {
                 UpdateStatus::Available {
@@ -820,7 +827,7 @@ mod tests {
 
     #[test]
     fn check_update_sends_required_headers() {
-        let http = MockClient::ok(RELEASE_JSON);
+        let http = MockClient::ok(&release_json());
         check_update(&http, AssetTarget::Cli).unwrap();
         let (url, headers) = {
             let captured = http.captured.lock().unwrap();

@@ -3,7 +3,8 @@
 // yaml_serde (maintained by the YAML org) is a fork of 0.9.34 with identical
 // parsing/emitting behavior. The rename keeps the public
 // `obsidian_export::serde_yaml` path source-compatible for downstream users.
-pub use {pulldown_cmark, serde_yaml};
+pub use pulldown_cmark;
+pub use serde_yaml;
 
 mod context;
 mod frontmatter;
@@ -35,8 +36,17 @@ use references::{ObsidianNoteReference, RefParser, RefParserState, RefType};
 use snafu::{ResultExt, Snafu};
 use unicode_normalization::UnicodeNormalization;
 pub use update::{
-    check_update, validate_asset_name, write_atomic_bytes, AssetTarget, DownloadProgress,
-    DownloadProgressReporter, ReleaseAsset, UpdateClient, UpdateError, UpdateStatus,
+    check_update,
+    current_target_triple,
+    validate_asset_name,
+    write_atomic_bytes,
+    AssetTarget,
+    DownloadProgress,
+    DownloadProgressReporter,
+    ReleaseAsset,
+    UpdateClient,
+    UpdateError,
+    UpdateStatus,
     UreqUpdateClient,
 };
 pub use walker::{vault_contents, WalkOptions};

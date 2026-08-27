@@ -11,7 +11,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use obsidian_export::{
-    ExportError, ExportEvent, Exporter, FrontmatterStrategy, MissingSectionStrategy,
+    ExportError,
+    ExportEvent,
+    Exporter,
+    FrontmatterStrategy,
+    MissingSectionStrategy,
 };
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
@@ -280,6 +284,10 @@ fn test_source_no_permissions() {
 
     let mut file = File::create(&src).unwrap();
     file.write_all(b"Foo").unwrap();
+    // Close the handle before the tail expression: otherwise the relative
+    // drop order of `file` and `tmp_dir` trips `tail_expr_drop_order`
+    // (the Rust 2024 drop-order change).
+    drop(file);
     set_permissions(&src, Permissions::from_mode(0o000)).unwrap();
 
     match Exporter::new(src, dest).run().unwrap_err() {
@@ -300,6 +308,7 @@ fn test_dest_no_permissions() {
 
     let mut file = File::create(&src).unwrap();
     file.write_all(b"Foo").unwrap();
+    drop(file);
 
     create_dir(&dest).unwrap();
     set_permissions(&dest, Permissions::from_mode(0o555)).unwrap();

@@ -3,17 +3,16 @@
 //! [`Exporter::check`] walks the same set of files an export would process
 //! and verifies every link found in each Markdown note:
 //!
-//! - Obsidian references (`[[note]]`, `[[note#section]]`, `[[note#^block]]`,
-//!   plus their embed forms) resolve the same way the exporter resolves them;
-//! - standard Markdown links and images (`[text](target)`) must point to a
-//!   file inside the checked root, and their `#anchor` fragment (when the
-//!   target is Markdown) must match a heading or block id in that file;
-//! - the checked root is the export boundary: a link that escapes the root
-//!   (`../sibling/…`, absolute paths the vault index cannot resolve, other
-//!   drives) is reported as broken even when the file exists on disk,
-//!   because it will not be part of the export;
-//! - external URLs (`https://…`, `mailto:…`) are skipped: reachability is a
-//!   property of the network, not of the vault.
+//! - Obsidian references (`[[note]]`, `[[note#section]]`, `[[note#^block]]`, plus their embed
+//!   forms) resolve the same way the exporter resolves them;
+//! - standard Markdown links and images (`[text](target)`) must point to a file inside the checked
+//!   root, and their `#anchor` fragment (when the target is Markdown) must match a heading or block
+//!   id in that file;
+//! - the checked root is the export boundary: a link that escapes the root (`../sibling/…`,
+//!   absolute paths the vault index cannot resolve, other drives) is reported as broken even when
+//!   the file exists on disk, because it will not be part of the export;
+//! - external URLs (`https://…`, `mailto:…`) are skipped: reachability is a property of the
+//!   network, not of the vault.
 //!
 //! Every link yields one [`LinkCheckReport`] with the source file, line
 //! number and raw link text, so callers can render a per-link report.
@@ -29,8 +28,15 @@ use unicode_normalization::UnicodeNormalization;
 
 use crate::references::ObsidianNoteReference;
 use crate::{
-    aggregate_inline_text, collapsed_ref_display, format_anchor, normalize_lexically,
-    vault_contents, ExportError, Exporter, RawNoteRef, VaultIndex,
+    aggregate_inline_text,
+    collapsed_ref_display,
+    format_anchor,
+    normalize_lexically,
+    vault_contents,
+    ExportError,
+    Exporter,
+    RawNoteRef,
+    VaultIndex,
 };
 
 /// What kind of link a [`LinkCheckReport`] describes.
@@ -839,8 +845,9 @@ impl Exporter<'_> {
 #[cfg(test)]
 #[allow(clippy::uninlined_format_args)]
 mod tests {
-    use super::*;
     use tempfile::TempDir;
+
+    use super::*;
 
     fn write(root: &TempDir, rel: &str, content: &str) -> PathBuf {
         let path = root.path().join(rel);
@@ -1064,6 +1071,9 @@ mod tests {
             report_for(&summary, "/abs/path").status,
             LinkCheckStatus::OutOfBounds { .. }
         ));
+        // Windows 盘符路径只在 Windows 上是绝对路径；Unix 下 `C:\other\note`
+        // 是普通相对路径（归一化后落在根内查找），不构成越界样本。
+        #[cfg(windows)]
         assert!(matches!(
             report_for(&summary, "C:\\other\\note").status,
             LinkCheckStatus::OutOfBounds { .. }

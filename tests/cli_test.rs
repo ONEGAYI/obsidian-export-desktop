@@ -596,6 +596,7 @@ fn check_version_flag_works_inside_subcommand() {
 #[test]
 fn check_keyword_shadowing_a_directory_prints_a_warning() {
     use std::process::Command;
+
     use tempfile::TempDir;
 
     // A folder named "check" in the working directory shadows the old
@@ -803,12 +804,14 @@ fn run_update_cli(args: &[&str], api_base: &str) -> CliOutput {
 
 /// 含两意图资产与 sha256 副产物的 release JSON（tag 为远大于当前版本）。
 /// `base` 是 mock 服务地址：浏览器下载 URL 必须指回本地，否则下载测试
-/// 会去解析不存在的主机。
+/// 会去解析不存在的主机。cli 资产按当前平台 triple 命名，任意宿主平台
+/// 都能被 cli 意图挑中。
 fn release_json(tag: &str, base: &str) -> String {
+    let triple = obsidian_export::current_target_triple();
     format!(
         r#"{{"tag_name":"{tag}","html_url":"https://github.com/ONEGAYI/obsidian-export-desktop/releases/{tag}","body":"release notes","assets":[
-            {{"name":"obsidian-export-x86_64-pc-windows-msvc.zip","browser_download_url":"{base}/cli.zip","size":4}},
-            {{"name":"obsidian-export-x86_64-pc-windows-msvc.zip.sha256","browser_download_url":"{base}/cli.zip.sha256","size":2}},
+            {{"name":"obsidian-export-{triple}.zip","browser_download_url":"{base}/cli.zip","size":4}},
+            {{"name":"obsidian-export-{triple}.zip.sha256","browser_download_url":"{base}/cli.zip.sha256","size":2}},
             {{"name":"Obsidian.Export_99.0.0_x64-setup.exe","browser_download_url":"{base}/setup.exe","size":6}},
             {{"name":"Obsidian.Export_99.0.0_x64_en-US.msi","browser_download_url":"{base}/app.msi","size":8}}
         ]}}"#
@@ -892,10 +895,13 @@ fn update_available_json_event_contract() {
         "https://github.com/ONEGAYI/obsidian-export-desktop/releases/v99.0.0"
     );
     assert_eq!(event_at(&events, 1)["notes"], "release notes");
-    // Windows 测试环境：cli 意图应挑本平台 zip 而非 sha256 副产物
+    // cli 意图应挑本平台 zip 而非 sha256 副产物
     assert_eq!(
         event_at(&events, 1)["assetName"],
-        "obsidian-export-x86_64-pc-windows-msvc.zip"
+        format!(
+            "obsidian-export-{}.zip",
+            obsidian_export::current_target_triple()
+        )
     );
     assert_eq!(event_at(&events, 1)["assetSize"], 4);
 }
@@ -920,9 +926,10 @@ fn update_available_text_output_mentions_asset_and_url() {
     assert!(out.stdout.contains("99.0.0"), "stdout: {:?}", out.stdout);
     assert!(out.stdout.contains("releases/v99.0.0"));
     assert!(out.stdout.contains("--download"), "应提示下载方式");
-    assert!(out
-        .stdout
-        .contains("obsidian-export-x86_64-pc-windows-msvc.zip"));
+    assert!(out.stdout.contains(&format!(
+        "obsidian-export-{}.zip",
+        obsidian_export::current_target_triple()
+    )));
 }
 
 #[test]
@@ -1099,13 +1106,13 @@ fn update_download_json_stream_and_saved_bytes() {
     assert_eq!(last_progress["total"], 7);
     let end = events.last().expect("download-end");
     let saved_path = end["path"].as_str().expect("download-end.path");
-    assert!(saved_path.ends_with("obsidian-export-x86_64-pc-windows-msvc.zip"));
+    let cli_zip = format!(
+        "obsidian-export-{}.zip",
+        obsidian_export::current_target_triple()
+    );
+    assert!(saved_path.ends_with(&cli_zip));
     assert_eq!(
-        std::fs::read(
-            dir.path()
-                .join("obsidian-export-x86_64-pc-windows-msvc.zip")
-        )
-        .expect("下载文件应落盘"),
+        std::fs::read(dir.path().join(&cli_zip)).expect("下载文件应落盘"),
         payload,
         "字节原样"
     );
@@ -1114,15 +1121,19 @@ fn update_download_json_stream_and_saved_bytes() {
 #[test]
 fn update_download_rejects_path_shaped_asset_name() {
     // 恶意 release 把资产名写成「能通过前缀挑选、但含路径分隔符」的形
-    // 态：落盘前必须拒绝（exit 1），不得逃出输出目录。
-    let evil = r#"{"tag_name":"v99.0.0","html_url":"u","assets":[{"name":"obsidian-export-x86_64-pc-windows-msvc.zip/../../evil.exe","browser_download_url":"http://MOCKHOST/evil","size":1}]}"#;
+    // 态：落盘前必须拒绝（exit 1），不得逃出输出目录。前缀用本平台
+    // triple，保证任意宿主平台都能进入校验环节。
+    let evil = format!(
+        r#"{{"tag_name":"v99.0.0","html_url":"u","assets":[{{"name":"obsidian-export-{}.zip/../../evil.exe","browser_download_url":"http://MOCKHOST/evil","size":1}}]}}"#,
+        obsidian_export::current_target_triple()
+    );
     let (addr, server) = spawn_update_mock(
         |_base| {
             vec![MockRoute {
                 path: "/repos/",
                 status: 200,
                 content_type: "application/json",
-                body: evil.as_bytes().to_vec(),
+                body: evil.into_bytes(),
             }]
         },
         1,
