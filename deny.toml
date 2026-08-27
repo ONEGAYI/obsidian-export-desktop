@@ -16,7 +16,13 @@ db-path = "$CARGO_HOME/advisory-dbs"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 # A list of advisory IDs to ignore. Note that ignored advisories will still
 # output a note when they are encountered.
-ignore = []
+ignore = [
+    # gumdrop（CLI 参数解析，上游选型）无人维护公告：非漏洞，
+    # "No safe upgrade is available"。迁移到 clap/bpaf 会改变 CLI 行为
+    # 面（help 格式、解析细节），超出常规迭代范围，与上游保持同路，
+    # 待上游动向后跟进。
+    { id = "RUSTSEC-2026-0214", reason = "unmaintained notice, not a vulnerability; clap migration deferred until upstream moves" },
+]
 
 [licenses]
 # Opt-in to new config format - https://github.com/EmbarkStudios/cargo-deny/pull/611
