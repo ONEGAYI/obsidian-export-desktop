@@ -12,7 +12,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
-use crate::events::{self, ParsedCheckLine, ParsedLine};
+use crate::events::{self, ParsedCheckLine, ParsedLine, ParsedUpdateLine};
 
 /// Tauri event names emitted to the frontend.
 pub const EVENT_SIDECAR_EVENT: &str = "sidecar-event";
@@ -21,6 +21,9 @@ pub const EVENT_SIDECAR_EXIT: &str = "sidecar-exit";
 pub const EVENT_CHECK_EVENT: &str = "check-event";
 pub const EVENT_CHECK_ERROR: &str = "check-error";
 pub const EVENT_CHECK_EXIT: &str = "check-exit";
+pub const EVENT_UPDATE_EVENT: &str = "update-event";
+pub const EVENT_UPDATE_ERROR: &str = "update-error";
+pub const EVENT_UPDATE_EXIT: &str = "update-exit";
 
 /// Handle of a running export, if any.
 #[derive(Default)]
@@ -370,6 +373,7 @@ pub async fn start_export(
 enum StreamDialect {
     Export,
     Check,
+    Update,
 }
 
 impl StreamDialect {
@@ -377,6 +381,7 @@ impl StreamDialect {
         match self {
             Self::Export => EVENT_SIDECAR_EVENT,
             Self::Check => EVENT_CHECK_EVENT,
+            Self::Update => EVENT_UPDATE_EVENT,
         }
     }
 
@@ -384,6 +389,7 @@ impl StreamDialect {
         match self {
             Self::Export => EVENT_SIDECAR_EXIT,
             Self::Check => EVENT_CHECK_EXIT,
+            Self::Update => EVENT_UPDATE_EXIT,
         }
     }
 
@@ -394,6 +400,7 @@ impl StreamDialect {
         match self {
             Self::Export => EVENT_SIDECAR_ERROR,
             Self::Check => EVENT_CHECK_ERROR,
+            Self::Update => EVENT_UPDATE_ERROR,
         }
     }
 
@@ -411,6 +418,11 @@ impl StreamDialect {
             Self::Check => match events::parse_check_line(line) {
                 Ok(ParsedCheckLine::Event(event)) => Ok(Some(event_value(&event))),
                 Ok(ParsedCheckLine::Ignored) => Ok(None),
+                Err(err) => Err(err),
+            },
+            Self::Update => match events::parse_update_line(line) {
+                Ok(ParsedUpdateLine::Event(event)) => Ok(Some(event_value(&event))),
+                Ok(ParsedUpdateLine::Ignored) => Ok(None),
                 Err(err) => Err(err),
             },
         }
@@ -526,8 +538,8 @@ pub async fn start_check(
     Ok(())
 }
 
-/// Cancel the running sidecar process (an export or a link check) by
-/// killing it.
+/// Cancel the running sidecar process (an export, a link check, or an update
+/// download) by killing it.
 #[tauri::command]
 pub fn cancel_export(app: AppHandle) -> Result<bool, String> {
     match take_child(&app) {
@@ -547,6 +559,139 @@ pub fn export_running(app: AppHandle) -> Result<bool, String> {
     let state = app.state::<ExportState>();
     let guard = state.child.lock().map_err(|_| "export state poisoned")?;
     Ok(guard.is_some())
+}
+
+// ---- 更新检查 / 下载 / 安装（边车 update 子命令的编排） ---------------------
+
+/// Which update action the sidecar should perform.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateAction {
+    /// `obsidian-export update --asset desktop`：仅检测，报告最新 release。
+    Check,
+    /// `… --download --output <downloads dir>`：检测并把 NSIS 安装包下载
+    /// 到系统临时目录。
+    Download,
+}
+
+/// Installer download directory: `<temp>/obsidian-export/Downloads`. The
+/// temp-dir semantics mean one-shot installers get reclaimed by the OS and
+/// a lost file is simply re-downloaded.
+pub fn update_downloads_dir() -> PathBuf {
+    std::env::temp_dir().join("obsidian-export").join("Downloads")
+}
+
+/// Arguments for the sidecar's `update` subcommand. The desktop always
+/// selects the `desktop` asset target (NSIS setup exe); the CLI picks its
+/// own platform archive when run manually.
+fn build_update_args(action: UpdateAction, output_dir: Option<&str>) -> Vec<String> {
+    let mut args = vec![
+        "update".to_owned(),
+        "--progress".to_owned(),
+        "json".to_owned(),
+        "--asset".to_owned(),
+        "desktop".to_owned(),
+    ];
+    if let UpdateAction::Download = action {
+        args.push("--download".to_owned());
+        if let Some(dir) = output_dir {
+            args.extend(["--output".to_owned(), dir.to_owned()]);
+        }
+    }
+    args
+}
+
+/// Start an update action (`obsidian-export update`). Emits `update-event`
+/// per parsed JSON Lines event and a final `update-exit` with the process
+/// exit code. Exit 1 means the check/download itself failed (a *found*
+/// update is still exit 0 — the frontend reads the verdict from the
+/// `update-result` event, not the exit code).
+///
+/// The download action returns the absolute directory the installer will be
+/// saved into (created here; the CLI requires it to exist).
+///
+/// Shares the export's child slot: only one sidecar process may run at a
+/// time, and `cancel_export` covers all kinds.
+#[tauri::command]
+pub async fn start_update(
+    app: AppHandle,
+    state: State<'_, ExportState>,
+    action: UpdateAction,
+) -> Result<String, String> {
+    let mut slot = state.child.lock().map_err(|_| "export state poisoned")?;
+    if slot.is_some() {
+        return Err("a sidecar process is already running".to_string());
+    }
+
+    let output_dir = match action {
+        UpdateAction::Download => {
+            let dir = update_downloads_dir();
+            // 纵深防御：%TEMP% 是用户态任意进程可写区，目录若被预置为指向
+            // 他处的 symlink/junction，写入会跟随逃逸——检测到即拒绝
+            if std::fs::symlink_metadata(&dir).is_ok_and(|m| m.file_type().is_symlink()) {
+                return Err(format!(
+                    "refusing to use download directory (it is a symlink): {}",
+                    dir.display()
+                ));
+            }
+            std::fs::create_dir_all(&dir).map_err(|err| {
+                format!("failed to create download directory '{}': {err}", dir.display())
+            })?;
+            dir.to_string_lossy().into_owned()
+        }
+        UpdateAction::Check => String::new(),
+    };
+
+    let args = build_update_args(action, if output_dir.is_empty() { None } else { Some(&output_dir) });
+    let (rx, child) = app
+        .shell()
+        .sidecar("obsidian-export")
+        .map_err(|err| format!("sidecar binary not found: {err}"))?
+        .args(&args)
+        .spawn()
+        .map_err(|err| format!("failed to spawn sidecar: {err}"))?;
+    *slot = Some(child);
+    drop(slot);
+
+    tauri::async_runtime::spawn(pump_sidecar(app.clone(), rx, StreamDialect::Update));
+
+    Ok(output_dir)
+}
+
+/// Path defense for [`run_installer`]: a plain `.exe` directly inside
+/// [`update_downloads_dir`], nothing else. The CLI already rejects
+/// path-shaped asset names before saving; this re-checks the value the
+/// frontend echoes back before it is ever executed.
+fn validate_installer_path(path: &Path) -> bool {
+    path.parent() == Some(update_downloads_dir().as_path())
+        && path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
+}
+
+/// Run a downloaded installer and exit the app.
+///
+/// The NSIS wizard handles its own UAC elevation; the app exits right
+/// after spawning it because the installer cannot overwrite the app's own
+/// files while they are locked by a running process.
+#[tauri::command]
+pub fn run_installer(app: AppHandle, path: String) -> Result<(), String> {
+    let installer = PathBuf::from(&path);
+    if !validate_installer_path(&installer) {
+        return Err(format!(
+            "refusing to run installer outside the download directory: {path}"
+        ));
+    }
+    if !installer.is_file() {
+        return Err(format!("installer file is missing: {path}"));
+    }
+    std::process::Command::new(&installer)
+        .spawn()
+        .map_err(|err| format!("failed to launch installer: {err}"))?;
+    // The response may not reach the frontend before the process is gone;
+    // that's fine — exiting is the point.
+    app.exit(0);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -796,5 +941,74 @@ mod tests {
         let options: ExportOptions = serde_json::from_str("{}").expect("valid payload");
         assert!(!options.link_check_enabled);
         assert_eq!(options.link_check_target, LinkCheckTarget::Source);
+    }
+
+    // ---- update 编排 ----
+
+    #[test]
+    fn build_update_args_check_and_download() {
+        assert_eq!(
+            build_update_args(UpdateAction::Check, None),
+            vec![
+                "update".to_owned(),
+                "--progress".to_owned(),
+                "json".to_owned(),
+                "--asset".to_owned(),
+                "desktop".to_owned(),
+            ]
+        );
+        assert_eq!(
+            build_update_args(UpdateAction::Download, Some(r"C:	mp\dl")),
+            vec![
+                "update".to_owned(),
+                "--progress".to_owned(),
+                "json".to_owned(),
+                "--asset".to_owned(),
+                "desktop".to_owned(),
+                "--download".to_owned(),
+                "--output".to_owned(),
+                r"C:	mp\dl".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn downloads_dir_is_temp_scoped() {
+        assert_eq!(
+            update_downloads_dir(),
+            std::env::temp_dir()
+                .join("obsidian-export")
+                .join("Downloads")
+        );
+    }
+
+    #[test]
+    fn validate_installer_path_contract() {
+        let dir = update_downloads_dir();
+        assert!(validate_installer_path(
+            &dir.join("Obsidian.Export_26.9.0_x64-setup.exe")
+        ));
+        assert!(
+            validate_installer_path(&dir.join("setup.EXE")),
+            "扩展名大小写不敏感"
+        );
+        assert!(!validate_installer_path(&dir.join("app.msi")), "非 exe");
+        assert!(
+            !validate_installer_path(&dir.join("payload.zip")),
+            "zip 不是安装器"
+        );
+        assert!(
+            !validate_installer_path(&dir.join("sub").join("setup.exe")),
+            "嵌套子目录不放行"
+        );
+        assert!(
+            !validate_installer_path(&dir.join("..").join("evil.exe")),
+            "越出下载目录不放行"
+        );
+        assert!(
+            !validate_installer_path(Path::new(r"C:\Windows
+otepad.exe")),
+            "任意路径不放行"
+        );
     }
 }
