@@ -27,6 +27,7 @@
 - 远端策略已定：fork 上游 zoni/obsidian-export 并改名为 [ONEGAYI/obsidian-export-desktop](https://github.com/ONEGAYI/obsidian-export-desktop)。`origin` 指向 fork（SSH，桌面端开发主远端），`upstream` 指向上游（同步用）。
 - `desktop` 分支直接推送 fork；面向上游的 issue/commit/PR 使用英文（贡献上游时走 PR），本地自有提交与文档使用中文。
 - **发布（fork 现状，26.8.2 起登记）**：
+  - **版本方案是 CalVer `YY.MM.PATCH`**（上游 v21.9.0 起沿用，git tag 日期与版本号逐一对得上：`22.1.0`→2022-01、`25.3.0`→2025-03、`26.8.0~26.8.5` 全在 2026-08）：前两段是发布当月的年月，是日历时间戳、不承载语义（不要按 SemVer 理解成「minor 进位表示新功能」）；第三段是该月内第几次发布，功能新增与 Bug 修复同样只递增此位。**版本不得跳月**：2026 年 8 月的下一个版本是 26.8.6，写成 26.9.0 等于把发布日期标到未来；跨月首发时月位随日历进位（9 月即 26.9.0）。`just set-version`、towncrier `--version`、tag 与 release 全按此口径。
   - fork 上 workflow 的 push/tag 事件从不触发（Actions runs 恒为 0，原因未查明），release workflow 须手动 dispatch：`gh workflow run release.yml --ref vX.Y.Z -R ONEGAYI/obsidian-export-desktop`；且 dispatch 走 tag 所指 commit 上的 workflow 定义，tag 必须指向含最新 workflow 的提交。
   - `release.yml` 的 tag 触发模式已手改为 `v*.*.*`（cargo-dist 生成的 `'**[0-9]+.[0-9]+.[0-9]+*'` 里 `+` 是字面字符，v26.8.x 从不匹配）并补 `workflow_dispatch`；因此 `dist-workspace.toml` 配了 `allow-dirty = ["ci"]` 放行 cargo-dist 对 release.yml 的漂移检查（0.28 语法为列表，布尔值会 TOML 报错）。
   - dispatch 后 macOS/Linux runner 可能长时间排队（曾 50 分钟未分配，v26.8.3 曾排队 5.5 小时后手动取消）；Windows 产物可本地 `cargo dist build --tag vX.Y.Z` 补齐后 `gh release upload`（`target/distrib/` 下连 `source.tar.gz` 与 installer 脚本都会生成），桌面安装包（`just desktop-build` 产物在 `desktop/src-tauri/target/release/bundle/{msi,nsis}/`）同法上传；tauri 生成的文件名带空格（`Obsidian Export_…`），按 v26.8.3 起惯例改名点连接（`Obsidian.Export_…`）再传。
