@@ -58,6 +58,36 @@ export interface SidecarExit {
 /** Same shape as SidecarExit, delivered on the `check-exit` channel. */
 export type CheckExit = SidecarExit;
 
+/** Mirrors the `update` dialect of the same schema (UpdateEvent in events.rs). */
+export type UpdateEvent =
+  | { type: "schema"; version: number }
+  | {
+      type: "update-result";
+      outcome: UpdateOutcome;
+      version: string | null;
+      htmlUrl: string | null;
+      notes: string | null;
+      assetName: string | null;
+      assetSize: number | null;
+    }
+  | { type: "download-start"; total: number }
+  | {
+      type: "download-progress";
+      downloaded: number;
+      total: number | null;
+      bytesPerSecond: number;
+    }
+  | { type: "download-end"; path: string };
+
+export type UpdateOutcome =
+  | "available"
+  | "up-to-date"
+  | "no-release"
+  | "unknown";
+
+/** Same shape as SidecarExit, delivered on the `update-exit` channel. */
+export type UpdateExit = SidecarExit;
+
 export function checkSidecar(): Promise<string> {
   return invoke<string>("check_sidecar");
 }
@@ -89,6 +119,20 @@ export function cancelExport(): Promise<boolean> {
   return invoke("cancel_export");
 }
 
+/**
+ * Start an update action on the sidecar. `check` only queries the latest
+ * release; `download` additionally saves the NSIS installer into the
+ * downloads dir (created by the backend) and resolves to that directory.
+ */
+export function startUpdate(action: "check" | "download"): Promise<string> {
+  return invoke<string>("start_update", { action });
+}
+
+/** Launch the downloaded installer; the app exits right after (see Rust side). */
+export function runInstaller(path: string): Promise<void> {
+  return invoke("run_installer", { path });
+}
+
 export function onSidecarEvent(
   cb: (event: SidecarEvent) => void,
 ): Promise<UnlistenFn> {
@@ -116,6 +160,21 @@ export function onCheckExit(
 /** Parse/IO errors of the check stream (the check dialect's error channel). */
 export function onCheckError(cb: (message: string) => void): Promise<UnlistenFn> {
   return listen<string>("check-error", (e) => cb(e.payload));
+}
+
+export function onUpdateEvent(
+  cb: (event: UpdateEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<UpdateEvent>("update-event", (e) => cb(e.payload));
+}
+
+export function onUpdateExit(cb: (exit: UpdateExit) => void): Promise<UnlistenFn> {
+  return listen<UpdateExit>("update-exit", (e) => cb(e.payload));
+}
+
+/** Parse/IO errors of the update stream (the update dialect's error channel). */
+export function onUpdateError(cb: (message: string) => void): Promise<UnlistenFn> {
+  return listen<string>("update-error", (e) => cb(e.payload));
 }
 
 export function onSidecarError(cb: (message: string) => void): Promise<UnlistenFn> {
