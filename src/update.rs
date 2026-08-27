@@ -1009,15 +1009,11 @@ mod tests {
             }),
             "首帧：0 字节 + 已知总量"
         );
-        assert_eq!(
-            last,
-            Some(DownloadProgress {
-                downloaded_bytes: 4,
-                total_bytes: Some(4),
-                bytes_per_second: 0,
-            }),
-            "终态：4 字节（快速完成时限速帧为 0，不据此断言速率）"
-        );
+        // 终帧的字段契约：字节数与总量；速率取决于真实耗时（覆盖率
+        // 工具的插桩会让 4 字节也耗时数毫秒），不对其断言。
+        let last = last.expect("终帧恒发");
+        assert_eq!(last.downloaded_bytes, 4);
+        assert_eq!(last.total_bytes, Some(4));
     }
 
     /// 契约：服务器声明 Content-Length 大于实发字节数且干净断流——
