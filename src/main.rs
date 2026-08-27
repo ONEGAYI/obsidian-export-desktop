@@ -6,8 +6,9 @@ use eyre::{eyre, Result};
 use gumdrop::Options;
 use obsidian_export::postprocessors::{filter_by_tags, softbreaks_to_hardbreaks};
 use obsidian_export::{
-    ExportError, ExportEvent, Exporter, FrontmatterStrategy, LinkCheckReport, LinkCheckStatus,
-    LinkKind, MissingSectionStrategy, WalkOptions,
+    AssetTarget, DownloadProgress, DownloadProgressReporter, ExportError, ExportEvent, Exporter,
+    FrontmatterStrategy, LinkCheckReport, LinkCheckStatus, LinkKind, MissingSectionStrategy,
+    UpdateClient, UpdateStatus, UreqUpdateClient, WalkOptions,
 };
 use serde_json::json;
 
@@ -182,6 +183,55 @@ fn missing_section_from_str(input: &str) -> Result<MissingSectionStrategy> {
     }
 }
 
+fn asset_target_from_str(input: &str) -> Result<AssetTarget> {
+    match input {
+        "cli" => Ok(AssetTarget::Cli),
+        "desktop" => Ok(AssetTarget::Desktop),
+        _ => Err(eyre!("must be one of: cli, desktop")),
+    }
+}
+
+/// Options for `obsidian-export update`: check GitHub for a newer release
+/// and optionally download the matching asset.
+#[derive(Debug, Options)]
+struct UpdateOpts {
+    #[options(help = "Display program help")]
+    help: bool,
+
+    #[options(help = "Display version information")]
+    version: bool,
+
+    #[options(
+        no_short,
+        help = "Download the matching release asset instead of just checking"
+    )]
+    download: bool,
+
+    #[options(
+        no_short,
+        help = "Directory to save the downloaded asset into (default: current directory)"
+    )]
+    output: Option<PathBuf>,
+
+    #[options(
+        no_short,
+        help = "Which release asset to select (one of: cli, desktop)",
+        long = "asset",
+        parse(try_from_str = "asset_target_from_str"),
+        default = "cli"
+    )]
+    asset: AssetTarget,
+
+    #[options(
+        no_short,
+        help = "Progress output format (one of: none, json). json emits machine-readable JSON Lines events on stdout",
+        long = "progress",
+        parse(try_from_str = "progress_format_from_str"),
+        default = "none"
+    )]
+    progress: ProgressFormat,
+}
+
 fn main() {
     // Lossy conversion avoids panicking on non-UTF-8 arguments; gumdrop's built-in
     // parse_args_default_or_exit panics on those (see the "# Panics" section of its docs).
@@ -233,6 +283,26 @@ fn main() {
         run_check(check);
     }
 
+    // The `update` subcommand is dispatched the same way as `check` (gumdrop
+    // forbids `command` fields alongside free positional arguments). Unlike
+    // `check` it takes no free arguments, so there is no directory-shadowing
+    // concern worth warning about.
+    if argv.first().is_some_and(|arg| arg == "update") {
+        let rest = argv.get(1..).unwrap_or(&[]);
+        if rest
+            .first()
+            .is_some_and(|arg| arg == "-v" || arg == "--version")
+        {
+            print_line(&format!("obsidian-export {VERSION}"));
+            std::process::exit(0);
+        }
+        let update_opts = UpdateOpts::parse_args_default(rest).unwrap_or_else(|err| {
+            eprintln!("Error: {err}\n\n{}", UpdateOpts::usage());
+            std::process::exit(2);
+        });
+        run_update(update_opts);
+    }
+
     let args = Opts::parse_args_default(&argv).unwrap_or_else(|err| {
         eprintln!("Error: {err}\n\n{}", Opts::usage());
         std::process::exit(2);
@@ -242,7 +312,7 @@ fn main() {
     // stdout, which is what virtually every other CLI does.
     if args.help {
         print_line(&format!(
-            "Usage: obsidian-export [OPTIONS] SOURCE DESTINATION\n       obsidian-export check [OPTIONS] SOURCE\n\n{}",
+            "Usage: obsidian-export [OPTIONS] SOURCE DESTINATION\n       obsidian-export check [OPTIONS] SOURCE\n       obsidian-export update [OPTIONS]\n\n{}",
             Opts::usage()
         ));
         std::process::exit(0);
@@ -409,6 +479,301 @@ fn run_check(opts: CheckOpts) -> ! {
         }
     }
     std::process::exit(0);
+}
+
+/// Run `obsidian-export update`: check GitHub for a newer release and
+/// optionally download the matching asset. Exits 0 when the check succeeds
+/// (regardless of whether an update exists — scripts must not treat "new
+/// version available" as a failure), 1 when the check/download/save itself
+/// fails.
+fn run_update(opts: UpdateOpts) -> ! {
+    if opts.help {
+        print_line(&format!(
+            "Usage: obsidian-export update [OPTIONS]\n\n{}",
+            UpdateOpts::usage()
+        ));
+        std::process::exit(0);
+    }
+    if opts.version {
+        print_line(&format!("obsidian-export {VERSION}"));
+        std::process::exit(0);
+    }
+
+    let json_mode = opts.progress == ProgressFormat::Json;
+    // Same emission point as exports and check: the schema line goes out
+    // before any network action, so a JSON consumer always knows the
+    // stream's dialect even when the check fails immediately.
+    if json_mode {
+        print_line(
+            &json!({
+                "type": "schema",
+                "version": JSON_EVENT_SCHEMA_VERSION,
+            })
+            .to_string(),
+        );
+    }
+
+    let client = UreqUpdateClient::new();
+    let status = match obsidian_export::check_update(&client, opts.asset) {
+        Ok(status) => status,
+        Err(err) => {
+            eprintln!("Error: {}", err.full_message());
+            eprintln!("\nHint: this is usually transient (rate limiting or connectivity); retry later, or configure a proxy via HTTPS_PROXY");
+            std::process::exit(1);
+        }
+    };
+
+    match status {
+        UpdateStatus::NoRelease => {
+            if json_mode {
+                print_line(&json!({"type": "update-result", "outcome": "no-release"}).to_string());
+            } else {
+                print_line("No releases have been published yet.");
+            }
+            std::process::exit(0);
+        }
+        UpdateStatus::UpToDate => {
+            if json_mode {
+                print_line(&json!({"type": "update-result", "outcome": "up-to-date"}).to_string());
+            } else {
+                print_line(&format!("obsidian-export {VERSION} is up to date."));
+            }
+            std::process::exit(0);
+        }
+        UpdateStatus::Available {
+            ref version,
+            ref html_url,
+            ref notes,
+            ref asset,
+        } => {
+            if json_mode {
+                print_line(
+                    &json!({
+                        "type": "update-result",
+                        "outcome": "available",
+                        "version": version,
+                        "htmlUrl": html_url,
+                        "notes": notes,
+                        "assetName": asset.as_ref().map(|a| a.name.clone()),
+                        "assetSize": asset.as_ref().map(|a| a.size),
+                    })
+                    .to_string(),
+                );
+            } else {
+                print_line(&format!("Current version: {VERSION}"));
+                print_line(&format!("Latest version:  {version}"));
+                print_line(&format!("Release page:    {html_url}"));
+                if let Some(notes) = notes {
+                    print_line("Notes:");
+                    for line in notes.lines() {
+                        print_line(&format!("  {line}"));
+                    }
+                }
+                match asset {
+                    Some(asset) => {
+                        print_line(&format!(
+                            "Asset:           {} ({})",
+                            asset.name,
+                            format_bytes(asset.size)
+                        ));
+                        if !opts.download {
+                            print_line("\nRun with --download to fetch it.");
+                        }
+                    }
+                    None => {
+                        print_line("\nNo asset matches this platform/target; download manually from the release page above.");
+                    }
+                }
+            }
+            if !opts.download {
+                std::process::exit(0);
+            }
+            let Some(asset) = asset else {
+                // Already told the user (text) or carried htmlUrl (json);
+                // nothing further to do without a matching asset.
+                std::process::exit(0);
+            };
+            download_update_asset(&client, asset, &opts, json_mode);
+        }
+        // UpdateStatus is #[non_exhaustive]: a future variant from a newer
+        // library build degrades to "nothing to report" instead of failing
+        // the command — same policy as unparsable tags (never false-alarm).
+        _ => std::process::exit(0),
+    }
+}
+
+/// Download one release asset to the output directory, emit progress along
+/// the way and exit. Split from [`run_update`] purely for readability.
+fn download_update_asset(
+    client: &UreqUpdateClient,
+    asset: &obsidian_export::ReleaseAsset,
+    opts: &UpdateOpts,
+    json_mode: bool,
+) -> ! {
+    if !obsidian_export::validate_asset_name(&asset.name) {
+        eprintln!(
+            "Error: refusing to save asset with unexpected name: {:?}",
+            asset.name
+        );
+        std::process::exit(1);
+    }
+    let dir = match opts.output.clone() {
+        Some(dir) => dir,
+        None => match env::current_dir() {
+            Ok(dir) => dir,
+            Err(err) => {
+                eprintln!("Error: cannot determine current directory: {err}");
+                std::process::exit(1);
+            }
+        },
+    };
+    if !dir.is_dir() {
+        eprintln!("Error: output directory does not exist: {}", dir.display());
+        std::process::exit(1);
+    }
+    let path = dir.join(&asset.name);
+
+    let reporter = CliProgressReporter::new(json_mode);
+    if json_mode {
+        print_line(
+            &json!({
+                "type": "download-start",
+                "total": asset.size,
+            })
+            .to_string(),
+        );
+    } else if !reporter.enabled {
+        eprintln!("Downloading {}...", asset.name);
+    }
+
+    match client.download(&asset.browser_download_url, &reporter) {
+        Ok(bytes) => {
+            reporter.finish_line();
+            if let Err(err) = obsidian_export::write_atomic_bytes(&path, &bytes) {
+                eprintln!("Error: failed to save {}: {err}", path.display());
+                std::process::exit(1);
+            }
+            if json_mode {
+                print_line(
+                    &json!({
+                        "type": "download-end",
+                        "path": path.display().to_string(),
+                    })
+                    .to_string(),
+                );
+            } else {
+                print_line(&format!("Saved to {}", path.display()));
+                // AssetTarget is #[non_exhaustive]: future variants get the
+                // generic save hint.
+                let hint = match opts.asset {
+                    AssetTarget::Cli => "Extract the archive over the existing binary to complete the update.",
+                    _ => "Run the installer to complete the update.",
+                };
+                print_line(hint);
+            }
+            std::process::exit(0);
+        }
+        Err(err) => {
+            reporter.finish_line();
+            eprintln!("Error: download failed: {}", err.full_message());
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Progress sink for update downloads. JSON mode forwards every frame as a
+/// `download-progress` event on stdout; text mode refreshes a single stderr
+/// line when stderr is a terminal and stays silent otherwise.
+struct CliProgressReporter {
+    json_mode: bool,
+    enabled: bool,
+    previous_width: std::cell::Cell<usize>,
+}
+
+impl CliProgressReporter {
+    fn new(json_mode: bool) -> Self {
+        Self {
+            json_mode,
+            enabled: stderr_is_terminal(),
+            previous_width: std::cell::Cell::new(0),
+        }
+    }
+
+    /// Terminate the interactive `\r` progress line (a no-op otherwise).
+    fn finish_line(&self) {
+        if !self.json_mode && self.enabled {
+            eprintln!();
+        }
+    }
+}
+
+impl DownloadProgressReporter for CliProgressReporter {
+    fn report(&self, progress: DownloadProgress) {
+        if self.json_mode {
+            print_line(
+                &json!({
+                    "type": "download-progress",
+                    "downloaded": progress.downloaded_bytes,
+                    "total": progress.total_bytes,
+                    "bytesPerSecond": progress.bytes_per_second,
+                })
+                .to_string(),
+            );
+            return;
+        }
+        if !self.enabled {
+            return;
+        }
+        let line = format_text_progress(progress);
+        let width = line.chars().count();
+        let padding = self.previous_width.get().saturating_sub(width);
+        eprint!("\r{line}{:padding$}", "");
+        use std::io::Write;
+        let _ = std::io::stderr().flush();
+        self.previous_width.set(width);
+    }
+}
+
+fn stderr_is_terminal() -> bool {
+    use std::io::IsTerminal;
+    std::io::stderr().is_terminal()
+}
+
+/// One-line human progress like `Downloading… 5.0 MB / 20.0 MB · 2.0 MB/s · 25%`.
+fn format_text_progress(progress: DownloadProgress) -> String {
+    let downloaded = format_bytes(progress.downloaded_bytes);
+    let speed = format!("{}/s", format_bytes(progress.bytes_per_second));
+    match progress.total_bytes.filter(|total| *total > 0) {
+        Some(total) => {
+            // 整数百分比即可：仅展示用途
+            #[allow(clippy::integer_division, clippy::arithmetic_side_effects)]
+            let percent = progress.downloaded_bytes.saturating_mul(100) / total;
+            format!("Downloading... {downloaded} / {} · {speed} · {percent}%", format_bytes(total))
+        }
+        None => format!("Downloading... {downloaded} · {speed}"),
+    }
+}
+
+/// Format a byte count as B/KB/MB/GB with one decimal for scaled units.
+/// Fixed-point via u128 keeps the lints (as_conversions, float lints) clean
+/// while staying exact for every value a download can report.
+#[allow(clippy::integer_division, clippy::arithmetic_side_effects)]
+fn format_bytes(value: u64) -> String {
+    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
+    // 十分位定点：*10 后逐级 1024 进位，u64*10 恒落在 u128 内。
+    let mut scaled = u128::from(value) * 10;
+    let mut unit = 0_usize;
+    while scaled >= 10_240 && unit < UNITS.len() - 1 {
+        scaled /= 1024;
+        unit += 1;
+    }
+    let whole = scaled / 10;
+    let tenths = scaled % 10;
+    if unit == 0 {
+        format!("{whole} B")
+    } else {
+        format!("{whole}.{tenths} {}", UNITS[unit])
+    }
 }
 
 /// Render a single [`LinkCheckReport`] as a JSON value for the

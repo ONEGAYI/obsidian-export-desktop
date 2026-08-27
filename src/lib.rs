@@ -10,6 +10,7 @@ mod frontmatter;
 mod linkcheck;
 pub mod postprocessors;
 mod references;
+mod update;
 mod walker;
 
 use std::collections::HashMap;
@@ -33,6 +34,11 @@ use rayon::prelude::*;
 use references::{ObsidianNoteReference, RefParser, RefParserState, RefType};
 use snafu::{ResultExt, Snafu};
 use unicode_normalization::UnicodeNormalization;
+pub use update::{
+    check_update, validate_asset_name, write_atomic_bytes, AssetTarget, DownloadProgress,
+    DownloadProgressReporter, ReleaseAsset, UpdateClient, UpdateError, UpdateStatus,
+    UreqUpdateClient,
+};
 pub use walker::{vault_contents, WalkOptions};
 
 /// A series of markdown [Event]s that are generated while traversing an Obsidian markdown note.

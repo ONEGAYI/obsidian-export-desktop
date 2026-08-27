@@ -705,3 +705,413 @@ fn check_progress_json_failure_reports_on_stderr_without_end() {
     );
     assert_eq!(events[0]["type"], "schema");
 }
+
+// ---- update 子命令（本地 HTTP mock 服务覆盖检测/下载闭环） -------------------
+//
+// 集成测试的 BIN 是 dev profile 构建（debug_assertions 开启），因此可以通过
+// OBSIDIAN_EXPORT_UPDATE_API_BASE 环境变量把 GitHub API 指到本地 mock；
+// release 二进制不含该读取路径（见 src/update.rs 的 releases_latest_url）。
+
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener};
+
+/// 一条 mock 路由：请求路径含 `path` 片段即应答 (status, content_type, body)。
+struct MockRoute {
+    path: &'static str,
+    status: u16,
+    content_type: &'static str,
+    body: Vec<u8>,
+}
+
+/// 起一个单线程 HTTP mock 服务，循环 accept 直到 `max_requests` 个请求
+/// 处理完毕后自动退出（检测与下载走不同连接，各算一个请求）。
+fn spawn_update_mock(
+    build_routes: impl FnOnce(&str) -> Vec<MockRoute>,
+    max_requests: usize,
+) -> (SocketAddr, std::thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind mock server");
+    let addr = listener.local_addr().expect("mock server addr");
+    let routes = build_routes(&format!("http://{addr}"));
+    let handle = std::thread::spawn(move || {
+        for _ in 0..max_requests {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = [0_u8; 8192];
+            let _ = stream.read(&mut request);
+            let request_line = String::from_utf8_lossy(&request);
+            let route = routes
+                .iter()
+                .find(|r| request_line.contains(r.path))
+                .unwrap_or_else(|| panic!("no mock route matches request: {request_line}"));
+            let reason = match route.status {
+                200 => "OK",
+                403 => "Forbidden",
+                404 => "Not Found",
+                _ => "Status",
+            };
+            let header = format!(
+                "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                route.status,
+                reason,
+                route.content_type,
+                route.body.len()
+            );
+            stream.write_all(header.as_bytes()).expect("write header");
+            stream.write_all(&route.body).expect("write body");
+        }
+    });
+    (addr, handle)
+}
+
+fn run_update_cli(args: &[&str], api_base: &str) -> CliOutput {
+    let output = Command::new(BIN)
+        .args(args)
+        .env("OBSIDIAN_EXPORT_UPDATE_API_BASE", api_base)
+        .output()
+        .expect("failed to run CLI");
+    CliOutput {
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        code: output.status.code(),
+    }
+}
+
+/// 含两意图资产与 sha256 副产物的 release JSON（tag 为远大于当前版本）。
+/// `base` 是 mock 服务地址：浏览器下载 URL 必须指回本地，否则下载测试
+/// 会去解析不存在的主机。
+fn release_json(tag: &str, base: &str) -> String {
+    format!(
+        r#"{{"tag_name":"{tag}","html_url":"https://github.com/ONEGAYI/obsidian-export-desktop/releases/{tag}","body":"release notes","assets":[
+            {{"name":"obsidian-export-x86_64-pc-windows-msvc.zip","browser_download_url":"{base}/cli.zip","size":4}},
+            {{"name":"obsidian-export-x86_64-pc-windows-msvc.zip.sha256","browser_download_url":"{base}/cli.zip.sha256","size":2}},
+            {{"name":"Obsidian.Export_99.0.0_x64-setup.exe","browser_download_url":"{base}/setup.exe","size":6}},
+            {{"name":"Obsidian.Export_99.0.0_x64_en-US.msi","browser_download_url":"{base}/app.msi","size":8}}
+        ]}}"#
+    )
+}
+
+#[test]
+fn update_help_exits_zero() {
+    let out = run_cli(&["update", "--help"]);
+    assert_eq!(out.code, Some(0_i32));
+    assert!(
+        out.stdout.contains("Usage: obsidian-export update [OPTIONS]"),
+        "stdout: {:?}",
+        out.stdout
+    );
+    assert!(out.stdout.contains("--asset"), "asset 选项应出现在帮助中");
+}
+
+#[test]
+fn update_bad_option_exits_two() {
+    let out = run_cli(&["update", "--no-such-flag"]);
+    assert_eq!(out.code, Some(2_i32));
+    assert!(
+        out.stderr.contains("Error"),
+        "stderr: {:?}",
+        out.stderr
+    );
+}
+
+#[test]
+fn update_bad_asset_value_exits_two() {
+    let out = run_cli(&["update", "--asset", "phone"]);
+    assert_eq!(out.code, Some(2_i32));
+    assert!(out.stderr.contains("cli, desktop"));
+}
+
+#[test]
+fn main_usage_lists_all_three_invocations() {
+    let out = run_cli(&["--help"]);
+    assert_eq!(out.code, Some(0_i32));
+    for usage_line in [
+        "obsidian-export [OPTIONS] SOURCE DESTINATION",
+        "obsidian-export check [OPTIONS] SOURCE",
+        "obsidian-export update [OPTIONS]",
+    ] {
+        assert!(out.stdout.contains(usage_line), "missing: {usage_line}");
+    }
+}
+
+#[test]
+fn update_available_json_event_contract() {
+    let (addr, server) = spawn_update_mock(
+        |base| vec![MockRoute {
+            path: "/repos/",
+            status: 200,
+            content_type: "application/json",
+            body: release_json("v99.0.0", base).into_bytes(),
+        }],
+        1,
+    );
+    let out = run_update_cli(&["update", "--progress", "json"], &format!("http://{addr}"));
+    server.join().expect("mock server panicked");
+
+    assert_eq!(out.code, Some(0_i32), "「有更新」不是失败：{}", out.stderr);
+    let events = parse_json_lines(&out.stdout);
+    assert_eq!(events.len(), 2, "schema + update-result：{events:?}");
+    assert_eq!(events[0]["type"], "schema");
+    assert_eq!(events[0]["version"], 1, "与导出/check 共享 schema v1");
+    assert_eq!(events[1]["type"], "update-result");
+    assert_eq!(events[1]["outcome"], "available");
+    assert_eq!(events[1]["version"], "99.0.0", "版本号去掉 v 前缀");
+    assert_eq!(
+        events[1]["htmlUrl"],
+        "https://github.com/ONEGAYI/obsidian-export-desktop/releases/v99.0.0"
+    );
+    assert_eq!(events[1]["notes"], "release notes");
+    // Windows 测试环境：cli 意图应挑本平台 zip 而非 sha256 副产物
+    assert_eq!(
+        events[1]["assetName"],
+        "obsidian-export-x86_64-pc-windows-msvc.zip"
+    );
+    assert_eq!(events[1]["assetSize"], 4);
+}
+
+#[test]
+fn update_available_text_output_mentions_asset_and_url() {
+    let (addr, server) = spawn_update_mock(
+        |base| vec![MockRoute {
+            path: "/repos/",
+            status: 200,
+            content_type: "application/json",
+            body: release_json("v99.0.0", base).into_bytes(),
+        }],
+        1,
+    );
+    let out = run_update_cli(&["update"], &format!("http://{addr}"));
+    server.join().expect("mock server panicked");
+
+    assert_eq!(out.code, Some(0_i32));
+    assert!(out.stdout.contains("99.0.0"), "stdout: {:?}", out.stdout);
+    assert!(out.stdout.contains("releases/v99.0.0"));
+    assert!(out.stdout.contains("--download"), "应提示下载方式");
+    assert!(out.stdout.contains("obsidian-export-x86_64-pc-windows-msvc.zip"));
+}
+
+#[test]
+fn update_desktop_asset_picks_setup_exe() {
+    let (addr, server) = spawn_update_mock(
+        |base| vec![MockRoute {
+            path: "/repos/",
+            status: 200,
+            content_type: "application/json",
+            body: release_json("v99.0.0", base).into_bytes(),
+        }],
+        1,
+    );
+    let out = run_update_cli(
+        &["update", "--asset", "desktop", "--progress", "json"],
+        &format!("http://{addr}"),
+    );
+    server.join().expect("mock server panicked");
+
+    assert_eq!(out.code, Some(0_i32));
+    let events = parse_json_lines(&out.stdout);
+    assert_eq!(events[1]["assetName"], "Obsidian.Export_99.0.0_x64-setup.exe");
+}
+
+#[test]
+fn update_up_to_date_json() {
+    let current = env!("CARGO_PKG_VERSION");
+    let (addr, server) = spawn_update_mock(
+        |base| vec![MockRoute {
+            path: "/repos/",
+            status: 200,
+            content_type: "application/json",
+            body: format!(r#"{{"tag_name":"v{current}","assets":[]}}"#).into_bytes(),
+        }],
+        1,
+    );
+    let out = run_update_cli(&["update", "--progress", "json"], &format!("http://{addr}"));
+    server.join().expect("mock server panicked");
+    assert_eq!(out.code, Some(0_i32));
+    let events = parse_json_lines(&out.stdout);
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[1]["type"], "update-result");
+    assert_eq!(events[1]["outcome"], "up-to-date");
+}
+
+#[test]
+fn update_no_release_json() {
+    let (addr, server) = spawn_update_mock(
+        |base| vec![MockRoute {
+            path: "/repos/",
+            status: 404,
+            content_type: "application/json",
+            body: Vec::new(),
+        }],
+        1,
+    );
+    let out = run_update_cli(&["update", "--progress", "json"], &format!("http://{addr}"));
+    server.join().expect("mock server panicked");
+    assert_eq!(out.code, Some(0_i32));
+    let events = parse_json_lines(&out.stdout);
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[1]["outcome"], "no-release");
+}
+
+#[test]
+fn update_check_failure_exits_one_without_result_event() {
+    // 限流 403：stderr 报错（含响应体 message），stdout 只有 schema 行
+    let (addr, server) = spawn_update_mock(
+        |base| vec![MockRoute {
+            path: "/repos/",
+            status: 403,
+            content_type: "application/json",
+            body: br#"{"message":"API rate limit exceeded for 1.2.3.4."}"#.to_vec(),
+        }],
+        1,
+    );
+    let out = run_update_cli(&["update", "--progress", "json"], &format!("http://{addr}"));
+    server.join().expect("mock server panicked");
+
+    assert_eq!(out.code, Some(1_i32));
+    let events = parse_json_lines(&out.stdout);
+    assert_eq!(events.len(), 1, "失败路径只有 schema 行：{events:?}");
+    assert!(out.stderr.contains("HTTP 403"), "stderr: {:?}", out.stderr);
+    assert!(
+        out.stderr.contains("API rate limit exceeded"),
+        "限流详情应透出：{:?}",
+        out.stderr
+    );
+}
+
+#[test]
+fn update_bad_release_json_is_deterministic_failure() {
+    let (addr, server) = spawn_update_mock(
+        |base| vec![MockRoute {
+            path: "/repos/",
+            status: 200,
+            content_type: "application/json",
+            body: b"not json".to_vec(),
+        }],
+        1,
+    );
+    let out = run_update_cli(&["update"], &format!("http://{addr}"));
+    server.join().expect("mock server panicked");
+    assert_eq!(out.code, Some(1_i32));
+    assert!(out.stderr.contains("parse"), "stderr: {:?}", out.stderr);
+}
+
+#[test]
+fn update_download_json_stream_and_saved_bytes() {
+    let payload: &[u8] = b"ZIPDATA";
+    let (addr, server) = spawn_update_mock(
+        |base| vec![
+            MockRoute {
+                path: "/repos/",
+                status: 200,
+                content_type: "application/json",
+                body: release_json("v99.0.0", base).into_bytes(),
+            },
+            MockRoute {
+                path: "/cli.zip",
+                status: 200,
+                content_type: "application/octet-stream",
+                body: payload.to_vec(),
+            },
+        ],
+        2,
+    );
+    let dir = TempDir::new().expect("tempdir");
+    let out = run_update_cli(
+        &[
+            "update",
+            "--download",
+            "--progress",
+            "json",
+            "--output",
+            dir.path().to_str().expect("non-unicode tmpdir"),
+        ],
+        &format!("http://{addr}"),
+    );
+    server.join().expect("mock server panicked");
+
+    assert_eq!(out.code, Some(0_i32), "stderr: {:?}", out.stderr);
+    let events = parse_json_lines(&out.stdout);
+    let types: Vec<&str> = events.iter().filter_map(|e| e["type"].as_str()).collect();
+    // download-progress 至少两帧（首帧 0 字节 + 终态帧），期间可有节流帧。
+    assert_eq!(types.first(), Some(&"schema"));
+    assert_eq!(types[1], "update-result");
+    assert_eq!(types[2], "download-start");
+    assert_eq!(types.last(), Some(&"download-end"));
+    let progress_count = types.iter().filter(|t| **t == "download-progress").count();
+    assert!(progress_count >= 2, "事件序列：{events:?}");
+
+    let start = &events[2];
+    // start 的 total 来自 release 元数据的 size（此处故意与实际字节不同，
+    // 锁定两者来源：元数据预告 vs Content-Length 实测）
+    assert_eq!(start["total"], 4, "download-start 携带 release 资产大小");
+    let last_progress = &events[events.len() - 2];
+    assert_eq!(last_progress["downloaded"], 7);
+    assert_eq!(last_progress["total"], 7);
+    let end = events.last().expect("download-end");
+    let saved_path = end["path"].as_str().expect("download-end.path");
+    assert!(saved_path.ends_with("obsidian-export-x86_64-pc-windows-msvc.zip"));
+    assert_eq!(
+        std::fs::read(dir.path().join("obsidian-export-x86_64-pc-windows-msvc.zip"))
+            .expect("下载文件应落盘"),
+        payload,
+        "字节原样"
+    );
+}
+
+#[test]
+fn update_download_rejects_path_shaped_asset_name() {
+    // 恶意 release 把资产名写成「能通过前缀挑选、但含路径分隔符」的形
+    // 态：落盘前必须拒绝（exit 1），不得逃出输出目录。
+    let evil = r#"{"tag_name":"v99.0.0","html_url":"u","assets":[{"name":"obsidian-export-x86_64-pc-windows-msvc.zip/../../evil.exe","browser_download_url":"http://MOCKHOST/evil","size":1}]}"#;
+    let (addr, server) = spawn_update_mock(
+        |base| vec![MockRoute {
+            path: "/repos/",
+            status: 200,
+            content_type: "application/json",
+            body: evil.as_bytes().to_vec(),
+        }],
+        1,
+    );
+    let out = run_update_cli(&["update", "--download"], &format!("http://{addr}"));
+    server.join().expect("mock server panicked");
+    assert_eq!(out.code, Some(1_i32));
+    assert!(out.stderr.contains("refusing"), "stderr: {:?}", out.stderr);
+    assert!(!std::path::Path::new("evil.exe").exists(), "不得逃出输出目录");
+}
+
+#[test]
+fn update_download_missing_output_dir_exits_one() {
+    let (addr, server) = spawn_update_mock(
+        |base| vec![MockRoute {
+            path: "/repos/",
+            status: 200,
+            content_type: "application/json",
+            body: release_json("v99.0.0", base).into_bytes(),
+        }],
+        1,
+    );
+    let out = run_update_cli(
+        &["update", "--download", "--output", "Z:/definitely/not/here"],
+        &format!("http://{addr}"),
+    );
+    server.join().expect("mock server panicked");
+    assert_eq!(out.code, Some(1_i32));
+    assert!(out.stderr.contains("does not exist"), "stderr: {:?}", out.stderr);
+}
+
+#[test]
+fn update_without_matching_asset_still_exits_zero() {
+    let no_asset = r#"{"tag_name":"v99.0.0","html_url":"https://x","assets":[]}"#;
+    let (addr, server) = spawn_update_mock(
+        |base| vec![MockRoute {
+            path: "/repos/",
+            status: 200,
+            content_type: "application/json",
+            body: no_asset.as_bytes().to_vec(),
+        }],
+        1,
+    );
+    let out = run_update_cli(&["update", "--download"], &format!("http://{addr}"));
+    server.join().expect("mock server panicked");
+    assert_eq!(out.code, Some(0_i32), "无资产引导手动下载，不是失败");
+    assert!(out.stdout.contains("manually"), "stdout: {:?}", out.stdout);
+}
+
