@@ -1609,10 +1609,13 @@ fn normalize_lexically(path: &Path) -> PathBuf {
 /// behavior were captured from live GitHub rendering (see
 /// `test_format_anchor_matches_github_slugger`).
 ///
-/// One known divergence from GitHub remains: GitHub disambiguates duplicate
-/// headings within a document by appending `-1`, `-2`, … which requires
-/// document-level state; this function is stateless and does not. Leading
-/// and trailing whitespace is trimmed first, matching VS Code's preview.
+/// This function is stateless and therefore does not append GitHub's `-1`,
+/// `-2`, … disambiguation suffixes for duplicate headings within a document;
+/// a link reference always targets the first matching heading, whose slug
+/// needs no suffix. Document-level suffixes only matter when *verifying*
+/// hand-written fragments (the link checker slugs a target's headings in
+/// document order with a stateful slugger). Leading and trailing whitespace
+/// is trimmed first, matching VS Code's preview.
 fn format_anchor(section: &str) -> String {
     github_slugger::slug(section.trim())
 }
@@ -1749,9 +1752,21 @@ struct RawNoteRef {
 /// Text/Code/InlineMath kept). Re-parsing the query as markdown makes a
 /// reference like `![[note#*Target* Heading]]` match the heading it renders
 /// to, while word-internal underscores (`my_note`) stay untouched.
+///
+/// The query is parsed as heading *inline* content (a `# ` prefix turns the
+/// line into a single heading): block-level parsing would treat a leading
+/// `N. `/`- `/`> ` as list or quote markup, consume the marker, and silently
+/// break matching for every numbered/bulleted heading reference. The same
+/// parser flavor as whole-note parsing keeps extension syntax (strikethrough,
+/// inline math) aggregating identically on both sides of the comparison.
+/// Known edge: a query ending in `" #"` is trimmed as an ATX closing
+/// sequence on the query side only — a Setext heading whose text really ends
+/// in ` #` would not match. Reaching it needs all of Setext spelling,
+/// trailing ` #` and a verbatim reference at once, so it is accepted.
 fn aggregate_inline_text(text: &str) -> String {
     let mut result = String::new();
-    for event in Parser::new(text) {
+    let query = format!("# {text}");
+    for event in Parser::new_ext(&query, markdown_parser_options()) {
         match event {
             Event::Text(t) | Event::Code(t) | Event::InlineMath(t) => result.push_str(&t),
             Event::SoftBreak | Event::HardBreak => result.push(' '),
@@ -2349,6 +2364,40 @@ mod tests {
         assert_eq!(format_anchor("1.1.1 C"), "111-c");
         assert_eq!(format_anchor("1.2.3.4"), "1234");
         assert_eq!(format_anchor("this--or-that"), "this--or-that");
+    }
+
+    #[test]
+    fn test_aggregate_inline_text_keeps_block_markers_literal() {
+        // A section query is re-parsed as Markdown to aggregate the text it
+        // renders to — but as heading *inline* content. A leading `N. ` or
+        // `- ` in a query names a numbered/bulleted heading and is heading
+        // text, not a list marker: block-level parsing would consume the
+        // marker and silently break matching for every numbered heading.
+        assert_eq!(
+            aggregate_inline_text("5. Numbered Section"),
+            "5. Numbered Section"
+        );
+        assert_eq!(
+            aggregate_inline_text("- dashed heading"),
+            "- dashed heading"
+        );
+        assert_eq!(aggregate_inline_text("1) paren"), "1) paren");
+        assert_eq!(aggregate_inline_text("+ plus heading"), "+ plus heading");
+        assert_eq!(
+            aggregate_inline_text("> quoted heading"),
+            "> quoted heading"
+        );
+        // Fullwidth ordinals are not ASCII digits, so CommonMark's list rules
+        // never consumed them anyway; asserted for symmetry with the halfwidth
+        // case as parser behavior evolves.
+        assert_eq!(aggregate_inline_text("５. 全角序号"), "５. 全角序号");
+        // Inline formatting still aggregates to its rendered text, and
+        // word-internal underscores stay literal. Extension syntax uses the
+        // same parser flavor as whole-note parsing.
+        assert_eq!(aggregate_inline_text("*Target* Heading"), "Target Heading");
+        assert_eq!(aggregate_inline_text("my_note"), "my_note");
+        assert_eq!(aggregate_inline_text("~~gone~~ tail"), "gone tail");
+        assert_eq!(aggregate_inline_text("$x$ tail"), "x tail");
     }
 
     #[test]

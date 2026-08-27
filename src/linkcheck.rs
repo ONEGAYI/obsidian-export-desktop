@@ -244,6 +244,18 @@ fn normalized_heading(text: &str) -> String {
     text.nfc().collect::<String>().to_lowercase()
 }
 
+/// GitHub-style anchors for a document's headings, in document order: the
+/// first occurrence of a slug keeps it bare, later duplicates get `-1`,
+/// `-2`, … — the disambiguation GitHub's renderer applies to duplicate
+/// headings. The cached cross-file branch and the same-file branch both
+/// consume this sequence so their verdicts cannot drift apart.
+fn deduped_anchors(headings: &[String]) -> impl Iterator<Item = String> + '_ {
+    let mut slugger = github_slugger::Slugger::default();
+    headings
+        .iter()
+        .map(move |heading| slugger.slug(heading.trim()))
+}
+
 /// Heading-derived anchors of one target note: the normalized heading names
 /// used by Obsidian-style section matching, and the GitHub-style slugs used
 /// by standard Markdown link fragments. Unreadable/unparsable targets are
@@ -269,9 +281,10 @@ impl TargetInfo {
             }
         };
         let mut info = Self::default();
-        for heading in headings_of(&events) {
-            info.headings.insert(normalized_heading(&heading));
-            info.anchors.insert(format_anchor(&heading));
+        let headings = headings_of(&events);
+        for (heading, anchor) in headings.iter().zip(deduped_anchors(&headings)) {
+            info.headings.insert(normalized_heading(heading));
+            info.anchors.insert(anchor);
         }
         info
     }
@@ -613,12 +626,18 @@ fn check_markdown_dest(
     // Accept both the GitHub-style slug (what the exporter generates and
     // what GitHub/VS Code navigate by) and the exact normalized heading
     // text (for hand-written links that quote the heading verbatim).
+    // Same-file targets slug their own headings in document order so
+    // duplicate-heading suffixes (`#dup-1`) resolve here too, matching the
+    // cached cross-file branch below.
     let slug = format_anchor(fragment);
     let normalized = normalized_heading(fragment);
     let found = if target == source {
-        headings_of(events)
+        let headings = headings_of(events);
+        let same_file = headings
             .iter()
-            .any(|h| format_anchor(h) == slug || normalized_heading(h) == normalized)
+            .zip(deduped_anchors(&headings))
+            .any(|(heading, anchor)| anchor == slug || normalized_heading(heading) == normalized);
+        same_file
     } else {
         let info = cached_target_info(&target, cache);
         if let Some(message) = &info.unreadable {
@@ -1101,5 +1120,90 @@ not: [valid: yaml
             .filter(|r| matches!(r.status, LinkCheckStatus::FileUnreadable { .. }))
             .count();
         assert_eq!(unreadable, 1, "{:#?}", summary);
+    }
+
+    #[test]
+    fn numbered_section_anchors_are_not_list_markers() {
+        // `[[note#5. Section]]` with a matching `## 5. Section` heading is a
+        // healthy link: the `5. ` prefix is heading text, not a list marker,
+        // so aggregating the query must not consume it. The embed form goes
+        // through the same reference resolution.
+        let root = TempDir::new().unwrap();
+        write(
+            &root,
+            "target.md",
+            "# Top\n\n## 5. Numbered Section\n\nbody\n",
+        );
+        write(
+            &root,
+            "note.md",
+            "[[target#5. Numbered Section]] and ![[target#5. Numbered Section]] and [md](target.md#5-numbered-section)\n",
+        );
+        let summary = check(&root);
+        assert_eq!(summary.broken_links(), 0, "{:#?}", summary);
+    }
+
+    #[test]
+    fn duplicate_heading_anchors_follow_github_dedup_suffixes() {
+        // A page with two `## Dup` headings renders anchors `#dup` and
+        // `#dup-1` (GitHub disambiguation): both must verify — cross-file
+        // and as a same-file fragment alike — an out-of-range `#dup-2` must
+        // not, and Obsidian-style wikilinks keep matching the first
+        // duplicate by verbatim heading semantics.
+        let root = TempDir::new().unwrap();
+        write(
+            &root,
+            "target.md",
+            "# Top\n\n## Dup\n\nfirst\n\n## Dup\n\nsecond\n",
+        );
+        write(
+            &root,
+            "note.md",
+            concat!(
+                "[first](target.md#dup), [second](target.md#dup-1), ",
+                "[third](target.md#dup-2), [[target#Dup]]\n",
+                "\n",
+                "## Dup\n",
+                "\n",
+                "## Dup\n",
+                "\n",
+                "Same-file fragment: [self second](#dup-1) and [self third](#dup-2)\n",
+            ),
+        );
+        let summary = check(&root);
+        assert_eq!(
+            report_for(&summary, "target.md#dup").status,
+            LinkCheckStatus::Ok,
+            "{:#?}",
+            summary
+        );
+        assert_eq!(
+            report_for(&summary, "target.md#dup-1").status,
+            LinkCheckStatus::Ok,
+            "{:#?}",
+            summary
+        );
+        assert!(
+            report_for(&summary, "target.md#dup-2").status.is_broken(),
+            "{:#?}",
+            summary
+        );
+        assert_eq!(
+            report_for(&summary, "target#Dup").status,
+            LinkCheckStatus::Ok,
+            "{:#?}",
+            summary
+        );
+        assert_eq!(
+            report_for(&summary, "#dup-1").status,
+            LinkCheckStatus::Ok,
+            "{:#?}",
+            summary
+        );
+        assert!(
+            report_for(&summary, "#dup-2").status.is_broken(),
+            "{:#?}",
+            summary
+        );
     }
 }

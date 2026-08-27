@@ -2196,6 +2196,20 @@
                   ],
                   "children": {}
                 },
+                "numbered-section": {
+                  "kind": "dir",
+                  "desc": "编号章节锚点数据",
+                  "detail": [
+                    "供 test_numbered_section_reference_and_embed：N. 标题样式的锚点引用与嵌入切片（块级标记前缀不得被当作列表标记吃掉）。"
+                  ],
+                  "rel": [
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
                 "postprocessors": {
                   "kind": "dir",
                   "desc": "后处理器测试数据",
