@@ -315,11 +315,17 @@ export default function App() {
     if (!optionsRef.current.autoCheckUpdates || !dueUpdateCheck()) {
       return;
     }
-    markUpdateChecked();
-    setUpdate((s) => (s.phase === "idle" ? { ...s, phase: "checking" } : s));
-    startUpdate("check").catch(() => {
-      setUpdate((s) => (s.phase === "checking" ? EMPTY_UPDATE : s));
-    });
+    // Delay past the user's first interactions: the check shares the sidecar
+    // child slot with exports, and a silent background claim right at launch
+    // would turn an immediate first export into a confusing failure.
+    const timer = window.setTimeout(() => {
+      markUpdateChecked();
+      setUpdate((s) => (s.phase === "idle" ? { ...s, phase: "checking" } : s));
+      startUpdate("check").catch(() => {
+        setUpdate((s) => (s.phase === "checking" ? EMPTY_UPDATE : s));
+      });
+    }, 2500);
+    return () => window.clearTimeout(timer);
   }, []);
 
   // Subscriptions that don't reference the active dictionary live in their

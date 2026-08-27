@@ -86,19 +86,22 @@ function applyOne(state: UpdateState, event: UpdateEvent): UpdateState {
       return state;
     case "update-result":
       // A fresh verdict invalidates any installer downloaded for a previous
-      // release; the download UI resets along with it.
+      // release; the download UI resets along with it. During a download
+      // (the CLI re-checks before downloading) the phase stays put — the
+      // following download-start re-asserts it anyway, and bouncing through
+      // "result" would flash the download button for a frame.
       return {
         ...state,
-        phase: "result",
+        phase: state.phase === "downloading" ? "downloading" : "result",
         outcome: event.outcome,
         version: event.version,
         htmlUrl: event.htmlUrl,
         notes: event.notes,
         assetName: event.assetName,
         assetSize: event.assetSize,
-        downloadedBytes: 0,
-        totalBytes: null,
-        bytesPerSecond: 0,
+        downloadedBytes: state.phase === "downloading" ? state.downloadedBytes : 0,
+        totalBytes: state.phase === "downloading" ? state.totalBytes : null,
+        bytesPerSecond: state.phase === "downloading" ? state.bytesPerSecond : 0,
         downloadPath: null,
         exit: null,
         streamErrors: [],
@@ -219,6 +222,8 @@ export function UpdatePanel({
         return t.options.updateNoRelease;
       case "available":
         return null;
+      case "unknown":
+        return t.options.updateUnknown;
       default:
         return t.options.updateIdle;
     }

@@ -66,6 +66,7 @@ export const zh = {
     sectionAbout: "关于与更新",
     updateCurrentVersion: "当前版本",
     updateIdle: "尚未检查过更新。",
+    updateUnknown: "无法确定更新状态。",
     updateChecking: "正在检查更新…",
     updateCheckNowBtn: "检查更新",
     updateUpToDate: "已是最新版本。",

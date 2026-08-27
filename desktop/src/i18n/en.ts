@@ -66,6 +66,7 @@ export const en: Dict = {
     sectionAbout: "About & Updates",
     updateCurrentVersion: "Current version",
     updateIdle: "No update check has run yet.",
+    updateUnknown: "The update status could not be determined.",
     updateChecking: "Checking for updates…",
     updateCheckNowBtn: "Check now",
     updateUpToDate: "You are up to date.",

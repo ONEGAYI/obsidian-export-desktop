@@ -25,10 +25,35 @@ pub const EVENT_UPDATE_EVENT: &str = "update-event";
 pub const EVENT_UPDATE_ERROR: &str = "update-error";
 pub const EVENT_UPDATE_EXIT: &str = "update-exit";
 
+/// Which sidecar flavor currently occupies the child slot; surfaces in the
+/// "already running" error so the UI can tell the user *what* to wait for.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OccupiedBy {
+    #[default]
+    None,
+    Export,
+    Check,
+    UpdateCheck,
+    UpdateDownload,
+}
+
+impl OccupiedBy {
+    fn describe(self) -> &'static str {
+        match self {
+            Self::None => "nothing",
+            Self::Export => "an export",
+            Self::Check => "a link check",
+            Self::UpdateCheck => "an update check",
+            Self::UpdateDownload => "an update download",
+        }
+    }
+}
+
 /// Handle of a running export, if any.
 #[derive(Default)]
 pub struct ExportState {
     child: Mutex<Option<CommandChild>>,
+    occupant: Mutex<OccupiedBy>,
 }
 
 fn take_child(app: &AppHandle) -> Option<CommandChild> {
@@ -37,7 +62,40 @@ fn take_child(app: &AppHandle) -> Option<CommandChild> {
         .child
         .lock()
         .expect("export state mutex poisoned");
+    if let Ok(mut occupant) = state.occupant.lock() {
+        *occupant = OccupiedBy::None;
+    }
     guard.take()
+}
+
+/// Claim the child slot for `who`; errors with a message naming the current
+/// occupant when already taken.
+fn claim_slot(state: &State<'_, ExportState>, who: OccupiedBy) -> Result<(), String> {
+    let slot = state.child.lock().map_err(|_| "export state poisoned")?;
+    if slot.is_some() {
+        let occupant = state
+            .occupant
+            .lock()
+            .map(|guard| *guard)
+            .unwrap_or(OccupiedBy::None);
+        let what = if occupant == OccupiedBy::None {
+            "another sidecar process".to_owned()
+        } else {
+            occupant.describe().to_owned()
+        };
+        return Err(format!("cannot start: {what} is already running"));
+    }
+    if let Ok(mut occupant) = state.occupant.lock() {
+        *occupant = who;
+    }
+    Ok(())
+}
+
+/// Roll back a successful claim when spawning ultimately failed.
+fn release_claim(state: &State<'_, ExportState>) {
+    if let Ok(mut occupant) = state.occupant.lock() {
+        *occupant = OccupiedBy::None;
+    }
 }
 
 /// Compute the effective export destination.
@@ -321,10 +379,7 @@ pub async fn start_export(
     options: ExportOptions,
     keep_root_folder: Option<bool>,
 ) -> Result<String, String> {
-    let mut slot = state.child.lock().map_err(|_| "export state poisoned")?;
-    if slot.is_some() {
-        return Err("a sidecar process is already running".to_string());
-    }
+    claim_slot(&state, OccupiedBy::Export)?;
 
     // Resolve picked paths against the GUI process's working directory up
     // front, so the sidecar contract holds even for manually typed relative
@@ -358,9 +413,11 @@ pub async fn start_export(
         .map_err(|err| format!("sidecar binary not found: {err}"))?
         .args(&args)
         .spawn()
-        .map_err(|err| format!("failed to spawn sidecar: {err}"))?;
-    *slot = Some(child);
-    drop(slot);
+        .map_err(|err| {
+            release_claim(&state);
+            format!("failed to spawn sidecar: {err}")
+        })?;
+    *state.child.lock().map_err(|_| "export state poisoned")? = Some(child);
 
     tauri::async_runtime::spawn(pump_sidecar(app.clone(), rx, StreamDialect::Export));
 
@@ -513,10 +570,7 @@ pub async fn start_check(
     options: ExportOptions,
     target: LinkCheckTarget,
 ) -> Result<(), String> {
-    let mut slot = state.child.lock().map_err(|_| "export state poisoned")?;
-    if slot.is_some() {
-        return Err("a sidecar process is already running".to_string());
-    }
+    claim_slot(&state, OccupiedBy::Check)?;
 
     let source_path = std::path::absolute(&source)
         .map_err(|err| format!("invalid source path '{source}': {err}"))?;
@@ -529,9 +583,11 @@ pub async fn start_check(
         .map_err(|err| format!("sidecar binary not found: {err}"))?
         .args(&args)
         .spawn()
-        .map_err(|err| format!("failed to spawn sidecar: {err}"))?;
-    *slot = Some(child);
-    drop(slot);
+        .map_err(|err| {
+            release_claim(&state);
+            format!("failed to spawn sidecar: {err}")
+        })?;
+    *state.child.lock().map_err(|_| "export state poisoned")? = Some(child);
 
     tauri::async_runtime::spawn(pump_sidecar(app.clone(), rx, StreamDialect::Check));
 
@@ -618,10 +674,13 @@ pub async fn start_update(
     state: State<'_, ExportState>,
     action: UpdateAction,
 ) -> Result<String, String> {
-    let mut slot = state.child.lock().map_err(|_| "export state poisoned")?;
-    if slot.is_some() {
-        return Err("a sidecar process is already running".to_string());
-    }
+    claim_slot(
+        &state,
+        match action {
+            UpdateAction::Check => OccupiedBy::UpdateCheck,
+            UpdateAction::Download => OccupiedBy::UpdateDownload,
+        },
+    )?;
 
     let output_dir = match action {
         UpdateAction::Download => {
@@ -660,9 +719,11 @@ pub async fn start_update(
         .map_err(|err| format!("sidecar binary not found: {err}"))?
         .args(&args)
         .spawn()
-        .map_err(|err| format!("failed to spawn sidecar: {err}"))?;
-    *slot = Some(child);
-    drop(slot);
+        .map_err(|err| {
+            release_claim(&state);
+            format!("failed to spawn sidecar: {err}")
+        })?;
+    *state.child.lock().map_err(|_| "export state poisoned")? = Some(child);
 
     tauri::async_runtime::spawn(pump_sidecar(app.clone(), rx, StreamDialect::Update));
 

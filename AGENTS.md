@@ -62,6 +62,7 @@
 - [ ] check 运行中取消落入 failed 态而非 cancelled 态（无 check-end 即判失败）：文案为「未能完成 + 退出码」，语义不误导，但与导出侧的 cancelled 标志不对称。update 侧同模式：下载中取消（cancel_export 通杀共享 child 槽）经 update-exit 判为 failed。
 - [ ] ureq 2.12 内部对小响应体 + 服务器截断断流的组合会 panic（exit 101，破坏边车 0/1/2 退出码契约；上游 TODO 自认）：极低概率，升级 ureq 时关注上游修复。
 - [ ] OptionsView 页签未实现 roving tabindex 与方向键导航（ARIA tabs 模式的推荐增强）：当前所有 tab 均在 Tab 序列中、原生 button 可正常操作。
+- [ ] 导出中切换语言存在微任务级双订阅窗口（`onSidecarEvent` 按 `[t]` 重订阅，旧注销的微任务晚于新注册的 IPC，同一事件被新旧 handler 各折叠一次——done 计数 +2、日志行重复；i18n 时代遗留，根治方案是 warningLabel 走 ref、订阅进空依赖 effect）。
 - [ ] i18n 的 `fmt` 占位符（`{name}`）与字典字符串之间无编译期校验：`Widen` 宽化只锁键结构不锁占位符，拼错时运行时输出原文模板。
 
 ## 修复路线（已批准）

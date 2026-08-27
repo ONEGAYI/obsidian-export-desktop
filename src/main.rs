@@ -597,6 +597,8 @@ fn run_update(opts: &UpdateOpts) -> ! {
         _ => {
             if json_mode {
                 print_line(&json!({"type": "update-result", "outcome": "unknown"}).to_string());
+            } else {
+                print_line("Update status could not be determined for this release.");
             }
             std::process::exit(0);
         }

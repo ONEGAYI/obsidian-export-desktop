@@ -1143,6 +1143,18 @@ DATA",
         assert!(!validate_asset_name("a/b.zip"), "POSIX 分隔符");
         assert!(!validate_asset_name("C:x.exe"), "盘符冒号");
         assert!(!validate_asset_name("setup.exe:ads"), "NTFS ADS 冒号");
+        // 保留设备名按首段基名判（可带扩展名）；控制字符与尾点/尾空格
+        // 会被 Win32 剥除或拒绝
+        assert!(!validate_asset_name("CON.x.exe"), "多段保留名");
+        assert!(!validate_asset_name("nul.zip"), "小写保留名");
+        assert!(!validate_asset_name("com1.exe"), "串口保留名");
+        assert!(!validate_asset_name("setup.exe "), "尾空格");
+        assert!(!validate_asset_name("setup.exe."), "尾点");
+        assert!(!validate_asset_name("set\u{7}up.exe"), "控制字符");
+        assert!(
+            validate_asset_name("console.exe"),
+            "console 非保留名，反向不误伤"
+        );
     }
 
     // ---- debug API base 注入 ----
