@@ -634,12 +634,14 @@ fn check_progress_json_emits_event_stream() {
     // formatted text line, so consumers never parse English prose. `raw` is
     // the reference text without its surrounding syntax.
     assert!(
-        reports.iter().any(|report| report["status"]["type"] == "missing-file"
-            && report["source"] == "embeds.md"
-            && report["line"] == 7
-            && report["kind"] == "wiki-embed"
-            && report["raw"] == "non-existing note"
-            && report["status"]["target"] == "non-existing note"),
+        reports
+            .iter()
+            .any(|report| report["status"]["type"] == "missing-file"
+                && report["source"] == "embeds.md"
+                && report["line"] == 7
+                && report["kind"] == "wiki-embed"
+                && report["raw"] == "non-existing note"
+                && report["status"]["target"] == "non-existing note"),
         "missing-file verdict with structured payload, got: {:?}",
         reports
     );

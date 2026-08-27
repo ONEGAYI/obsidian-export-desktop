@@ -46,7 +46,7 @@
 - [x] wikilink 格式标记与容器内标题的既有解析边界：已完成——引用文本在 raw 层以 source offset 切片保留原拼写（`__dunder__` 不再突变为 `**dunder**`，锚点/文件查找/section 匹配三处下游一致）；reduce_to_section 维护容器配对栈，blockquote（含 callout）内标题切分后事件流保持平衡。
 - [x] 标题含 wikilink 的 section 引用：已完成——reduce_to_section 标题聚合识别坍缩五事件形态并按显示名聚合（label 优先，否则 `file > section` 拼接，复用 `ObsidianNoteReference::display`），`## [[mid]]` 重新可被 `![[t#mid]]` 命中，嵌入切片内 wikilink 照常展开为链接；字面单层方括号标题（`[WIP]` 类）因状态机回吐永不构成 `Text("[")+Text("[")` 相邻对而天然免疫误伤；引用文本含 `]` 的嵌套写法（`![[t#[[mid]]]]`）受 wikilink 语法限制（坍缩状态机遇 `]` 重置）仍按 missing-section 处理。
 - [x] serde_yaml 迁移：已通过 Cargo package rename 迁移至 `yaml_serde` 0.10（YAML 官方组织维护的 0.9.34 直系 fork；serde_norway 等候选已停滞故未采用）。公共路径 `obsidian_export::serde_yaml` 与解析/序列化行为不变（非破坏变更）；MSRV 由 1.80 升至 1.82。
-- [x] 章节锚点对齐 GitHub slug：已完成——format_anchor 委托 github-slugger crate（封装层先 trim 对齐 VS Code），全角标点无痕剔除、标点不再误产连字符、连字符不折叠不修剪；行为向量来自 2026-08 对 GitHub 网页渲染的实测（与 VS Code 官方包源码、github-slugger 三方一致），与上游 PR #373 同路线（fork 未用回 slug crate 的原因是其对中文做拼音化）。已知限制：同文档重复标题的 GitHub `-1` 去重后缀需要文档级状态，未实现。
+- [x] 章节锚点对齐 GitHub slug：已完成——format_anchor 委托 github-slugger crate（封装层先 trim 对齐 VS Code），全角标点无痕剔除、标点不再误产连字符、连字符不折叠不修剪；行为向量来自 2026-08 对 GitHub 网页渲染的实测（与 VS Code 官方包源码、github-slugger 三方一致），与上游 PR #373 同路线（fork 未用回 slug crate 的原因是其对中文做拼音化）。重复标题的去重后缀：check 侧已实现——`deduped_anchors` 以有状态 Slugger 按文档序生成 `-1`/`-2` 后缀（GitHub 同算法，`#dup-1` 类片段可验证）；导出写链有意无后缀（wikilink 引用恒指首个匹配标题，无后缀 slug 在 GitHub 上本就正确跳转）。
 - [x] vault 链接完整性检查（core + CLI check 子命令）：已完成——`Exporter::check()`（`src/linkcheck.rs`）walk 与导出同集的文件，逐链接验证：目标存在性、**越界即断**（逃出检查根的链接即使盘上存在也判 broken，根即导出边界）、wikilink 锚点按 Obsidian 原文语义（复用 reduce_to_section/reduce_to_block 聚合）、标准 md 链接锚点按 slug 语义（format_anchor 幂等匹配）、外部 URL 跳过；引用提取复用 parse_raw_note_with_refs（其新增的源偏移旁路供行号归因），md 链接经同一 parser flavor 二次遍历，代码块/行内代码剔除语义与导出一致。CLI：`obsidian-export check SOURCE`（`--start-at`/`--hidden`/`--no-git`/`--ignore-file` 可复用；gumdrop 禁止 command 与 free 并存，子命令靠首位关键字手动分流），逐条 `{source}:{line}: {status} [{raw}]` + 汇总，退出码沿用 0/1/2 契约（有任何 broken 即 1）。
 - [ ] 嵌入解析缓存与 walker 并行化：vault 索引已消除引用解析的主要瓶颈（基准 7200 文件 11.2s → 0.65s），剩余耗时以文件 IO/解析/渲染为主；两项优化待有真实大 vault 的 profile 数据支撑后再决定是否实施。
 
@@ -248,6 +248,7 @@ obsidian-export-desktop/
 │           ├── missing-sections/                    # 缺失章节策略数据
 │           ├── mixed-health/                        # 混合健康度笔记数据
 │           ├── non-ascii/                           # 非 ASCII 文件名数据
+│           ├── numbered-section/                    # 编号章节锚点数据
 │           ├── postprocessors/                      # 后处理器测试数据
 │           ├── relative-references/                 # 相对路径引用数据
 │           ├── same-filename-different-directories/ # 同名文件歧义消解数据

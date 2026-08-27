@@ -702,6 +702,38 @@ fn test_heading_wikilink_section_embeds() {
 }
 
 #[test]
+fn test_numbered_section_reference_and_embed() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+
+    Exporter::new(
+        PathBuf::from("tests/testdata/input/numbered-section/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .expect("exporter returned error");
+
+    // `N. Title` headings resolve from section references verbatim: the
+    // list-marker-like prefix is heading text, not markup, so the embed
+    // slices the right section and the generated anchor keeps the ordinal.
+    let actual = read_to_string(tmp_dir.path().join(PathBuf::from("note.md"))).unwrap();
+    assert!(
+        actual.contains("numbered content."),
+        "embed slices the numbered section, got: {:?}",
+        actual
+    );
+    assert!(
+        !actual.contains("after content."),
+        "next same-level heading terminates the embed, got: {:?}",
+        actual
+    );
+    assert!(
+        actual.contains("(target.md#5-numbered-section)"),
+        "link anchor keeps the numbered prefix, got: {:?}",
+        actual
+    );
+}
+
+#[test]
 fn test_numeric_image_size_label_falls_back_to_filename() {
     let tmp_dir = TempDir::new().expect("failed to make tempdir");
 
