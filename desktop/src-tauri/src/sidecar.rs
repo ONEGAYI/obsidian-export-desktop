@@ -68,8 +68,17 @@ pub struct ExportState {
 fn take_child(app: &AppHandle) -> Option<CommandChild> {
     let state = app.state::<ExportState>();
     let mut guard = state.slot.lock().expect("export state mutex poisoned");
-    guard.occupant = OccupiedBy::None;
-    guard.child.take()
+    // Only a stored child releases the claim: a cancel landing inside the
+    // claim→spawn window must not clear a claim that hasn't been fulfilled
+    // yet (the spawning start_* would then store into a slot another start
+    // could have re-claimed meanwhile).
+    match guard.child.take() {
+        Some(child) => {
+            guard.occupant = OccupiedBy::None;
+            Some(child)
+        }
+        None => None,
+    }
 }
 
 /// Claim the child slot for `who`; errors with a message naming the current

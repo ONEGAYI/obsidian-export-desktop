@@ -37,9 +37,6 @@ allow = [
     "MPL-2.0",
 ]
 unused-allowed-license = "allow"
-exceptions = [
-    { allow = ["Unicode-3.0"], crate = "unicode-ident" },
-]
 
 # Default confidence is 0.8, let's require a higher confidence level for now.
 # We can lower this later if it's too pedantic.
