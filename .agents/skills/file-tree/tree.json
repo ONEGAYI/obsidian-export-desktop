@@ -1,4 +1,5 @@
 {
+  "root": "obsidian-export-desktop",
   "tags": {
     "ci": "CI/CD 与发布流水线",
     "config": "构建/工具链/项目配置",
