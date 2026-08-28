@@ -2,6 +2,15 @@
 
 <!-- towncrier release notes start -->
 
+## [26.8.7](https://github.com/zoni/obsidian-export/tree/26.8.7) - 2026-08-28
+
+Patch release for the reference parser: wikilinks that escape their alias pipe as `\|` (required inside Markdown tables) now resolve normally instead of being treated as missing.
+
+### Fixes
+
+- 修复 Obsidian 表格内 wikilink 别名转义竖线（``[[note\|alias]]``）的解析：反斜杠不再残留在文件名中导致链接误判失效。此前该写法的链接在导出时会降级为斜体纯文本，并使 ``obsidian-export check`` 误报「目标不存在」；现在导出正常生成相对链接，检查归零。([#7](https://github.com/ONEGAYI/obsidian-export-desktop/pull/7))
+
+
 ## [26.8.6](https://github.com/zoni/obsidian-export/tree/26.8.6) - 2026-08-27
 
 This release adds update checking and downloading for both the CLI and the desktop app: a new `obsidian-export update` subcommand (with a machine-readable `--progress json` event stream) and an "About & update" settings page that checks GitHub releases on launch and can download and run the new installer.
@@ -1151,3 +1160,4 @@ notable new feature.
 - [v26.8.4](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.3...v26.8.4)
 - [v26.8.5](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.4...v26.8.5)
 - [v26.8.6](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.5...v26.8.6)
+- [v26.8.7](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.6...v26.8.7)

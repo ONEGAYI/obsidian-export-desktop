@@ -1,6 +1,6 @@
 [package]
 name = "obsidian-export-desktop"
-version = "26.8.6"
+version = "26.8.7"
 description = "Desktop GUI for obsidian-export (sidecar architecture)"
 edition = "2021"
 
