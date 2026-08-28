@@ -560,6 +560,19 @@ fn check_exits_zero_when_nothing_is_broken() {
 }
 
 #[test]
+fn check_accepts_escaped_pipe_aliases_in_tables() {
+    // Obsidian escapes the alias pipe as `\|` inside tables; the checker must
+    // resolve those wikilinks against the same parser as the exporter.
+    let out = run_cli(&["check", "tests/testdata/input/escaped-pipe-refs"]);
+    assert_eq!(out.code, Some(0_i32));
+    assert!(
+        out.stdout.contains("3 link(s) found, 0 broken"),
+        "escaped-pipe wikilinks count as healthy links, got: {:?}",
+        out.stdout
+    );
+}
+
+#[test]
 fn check_without_source_is_a_usage_error() {
     let out = run_cli(&["check"]);
     assert_eq!(out.code, Some(2_i32));

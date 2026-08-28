@@ -249,6 +249,7 @@ obsidian-export-desktop/
 │           ├── block-refs-self-loop/                # 块自引用循环数据
 │           ├── chinese-anchor/                      # 中文标题锚点数据
 │           ├── embed-order/                         # 嵌入切片先于展开数据
+│           ├── escaped-pipe-refs/                   # 表格内转义竖线 wikilink 数据
 │           ├── filter-by-tags/                      # 标签过滤数据
 │           ├── formatting-refs/                     # 带格式标记 wikilink 数据
 │           ├── heading-wikilink/                    # 标题含 wikilink 嵌入数据

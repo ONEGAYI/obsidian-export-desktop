@@ -2087,6 +2087,21 @@
                   ],
                   "children": {}
                 },
+                "escaped-pipe-refs": {
+                  "kind": "dir",
+                  "desc": "表格内转义竖线 wikilink 数据",
+                  "detail": [
+                    "供 test_escaped_pipe_wikilinks_resolve_inside_tables 与 check_accepts_escaped_pipe_aliases_in_tables：表格内 \\| 转义写法按别名分隔符解析，不再把反斜杠留在文件名里。"
+                  ],
+                  "rel": [
+                    "tests/cli_test.rs",
+                    "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
                 "filter-by-tags": {
                   "kind": "dir",
                   "desc": "标签过滤数据",

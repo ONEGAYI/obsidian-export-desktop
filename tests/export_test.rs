@@ -1075,6 +1075,39 @@ fn test_wikilink_formatting_markers_preserved() {
 }
 
 #[test]
+fn test_escaped_pipe_wikilinks_resolve_inside_tables() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+
+    Exporter::new(
+        PathBuf::from("tests/testdata/input/escaped-pipe-refs/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .expect("exporter returned error");
+
+    let actual = read_to_string(tmp_dir.path().join("note.md")).unwrap();
+    // Obsidian requires `\|` for aliased wikilinks inside Markdown tables; the
+    // parser must treat it as the separator instead of leaving the backslash
+    // in the filename (which would break file lookup and degrade the link to
+    // italic text).
+    assert!(
+        actual.contains("[Alias](target.md)"),
+        "escaped-pipe alias link resolves: {}",
+        actual
+    );
+    assert!(
+        actual.contains("[Head Alias](target.md#heading)"),
+        "escaped-pipe section link resolves: {}",
+        actual
+    );
+    assert!(
+        !actual.contains("*Alias*") && !actual.contains("*Head Alias*"),
+        "no degraded italic fallback for escaped-pipe links: {}",
+        actual
+    );
+}
+
+#[test]
 fn test_block_refs_edge_cases() {
     let tmp_dir = TempDir::new().expect("failed to make tempdir");
 

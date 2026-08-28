@@ -4,7 +4,12 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 static OBSIDIAN_NOTE_LINK_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?P<file>[^#|]+)??(#(?P<section>.*?))??(\|(?P<label>.*?))??$").unwrap()
+    // Obsidian's table syntax escapes the alias pipe as `\|`. A backslash can
+    // only enter the file part when paired with a non-pipe character (or at
+    // end of input), so `\|` always lands in the separator group by structure
+    // rather than by backtracking order.
+    Regex::new(r"^(?P<file>(?:[^#|\\]|\\[^|]|\\$)+)??(#(?P<section>.*?))??(\\?\|(?P<label>.*?))??$")
+        .unwrap()
 });
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -137,6 +142,16 @@ mod tests {
     #[case("Note#with heading", Some("Note"), None, Some("with heading"))]
     #[case("Note#Heading|Label", Some("Note"), Some("Label"), Some("Heading"))]
     #[case("#Heading|Label", None, Some("Label"), Some("Heading"))]
+    // Inside Markdown tables the alias pipe must be escaped as `\|`; Obsidian
+    // parses it exactly like a plain separator there, backslash consumed.
+    #[case("Note\\|Label", Some("Note"), Some("Label"), None)]
+    #[case("Note#Heading\\|Label", Some("Note"), Some("Label"), Some("Heading"))]
+    #[case("#Heading\\|Label", None, Some("Label"), Some("Heading"))]
+    #[case("note\\|", Some("note"), None, None)]
+    #[case("\\|label", None, Some("label"), None)]
+    // The label keeps any further `\|` verbatim: only the first (escaped)
+    // pipe acts as the separator, unescaping label innards is out of scope.
+    #[case("a\\|b\\|c", Some("a"), Some("b\\|c"), None)]
     // Degenerate inputs commonly produced by templates. These must never panic.
     #[case("note|", Some("note"), None, None)]
     #[case("Note#", Some("Note"), None, None)]
