@@ -58,6 +58,7 @@
 
 已知限制（审查登记，后续迭代评估）：
 
+- [ ] 引用文本含换行时 `from_str` 的正则整体不匹配（`.*?` 不跨 `\n`），理论上可触发 `expect` panic（rayon worker 中）；ref_text 状态机按事件拼接、多行输入实际罕见，存量行为多年未见报告，改动需先证明可达性。
 - [ ] 同文件嵌入的嵌套解析是切片局部的：嵌入片段内的 `![[#Other]]` 只在切片内查找（Obsidian 从全文件解析），跨 section 引用在切片中查不到时按 missing-section 塌缩；块的优雅自引用终止正依赖此局部性，改为全文件解析需重新设计防环。
 
 桌面端低风险遗留（两轮审查登记，不阻塞发布）：
@@ -249,6 +250,7 @@ obsidian-export-desktop/
 │           ├── block-refs-self-loop/                # 块自引用循环数据
 │           ├── chinese-anchor/                      # 中文标题锚点数据
 │           ├── embed-order/                         # 嵌入切片先于展开数据
+│           ├── escaped-pipe-refs/                   # 表格内转义竖线 wikilink 数据
 │           ├── filter-by-tags/                      # 标签过滤数据
 │           ├── formatting-refs/                     # 带格式标记 wikilink 数据
 │           ├── heading-wikilink/                    # 标题含 wikilink 嵌入数据
