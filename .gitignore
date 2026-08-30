@@ -15,3 +15,7 @@ desktop/dist/
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
 desktop/src-tauri/binaries/
+
+# Python 字节码
+__pycache__/
+*.pyc
