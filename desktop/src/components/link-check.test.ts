@@ -5,6 +5,7 @@ import type { CheckEvent, CheckStatus } from "@/lib/sidecar";
 import {
   EMPTY_LINK_CHECK,
   applyCheckEvents,
+  applyCheckExit,
   isBroken,
 } from "./LinkCheckPanel";
 
@@ -18,6 +19,40 @@ function report(status: CheckStatus): CheckEvent {
     status,
   };
 }
+
+describe("applyCheckExit", () => {
+  const exit = { code: null, stderr: "" };
+
+  it("folds a cancelled run into the cancelled verdict", () => {
+    const running = {
+      ...EMPTY_LINK_CHECK,
+      phase: "running" as const,
+      cancelled: true,
+    };
+    const next = applyCheckExit(running, exit);
+    expect(next.phase).toBe("cancelled");
+    expect(next.exit).toBe(exit);
+  });
+
+  it("folds a finished run into done when the end summary arrived", () => {
+    const running = {
+      ...EMPTY_LINK_CHECK,
+      phase: "running" as const,
+      end: { filesChecked: 1, totalLinks: 2, broken: 0, skipped: 0 },
+    };
+    expect(applyCheckExit(running, { ...exit, code: 1 }).phase).toBe("done");
+  });
+
+  it("folds an aborted run without an end summary into failed", () => {
+    const running = { ...EMPTY_LINK_CHECK, phase: "running" as const };
+    expect(applyCheckExit(running, exit).phase).toBe("failed");
+  });
+
+  it("leaves a non-running state untouched", () => {
+    const done = { ...EMPTY_LINK_CHECK, phase: "done" as const };
+    expect(applyCheckExit(done, exit)).toBe(done);
+  });
+});
 
 describe("isBroken", () => {
   it("treats ok and external-skipped as healthy, everything else as broken", () => {

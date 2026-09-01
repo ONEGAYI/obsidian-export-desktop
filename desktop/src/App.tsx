@@ -36,6 +36,7 @@ import {
   EMPTY_LINK_CHECK,
   LinkCheckPanel,
   applyCheckEvents,
+  applyCheckExit,
   type LinkCheckState,
 } from "@/components/LinkCheckPanel";
 import { OptionsView, type UpdateHandlers } from "@/components/OptionsView";
@@ -397,12 +398,9 @@ export default function App() {
         flush();
         // Exit 1 covers both "broken links found" (a completed run, the end
         // event is present) and "the check itself failed" (no end event);
-        // the two are told apart by the end summary, not the code.
-        setCheck((s) =>
-          s.phase === "running"
-            ? { ...s, exit: payload, phase: s.end ? "done" : "failed" }
-            : s,
-        );
+        // the two are told apart by the end summary, not the code. A user
+        // cancel folds into the cancelled verdict (see applyCheckExit).
+        setCheck((s) => applyCheckExit(s, payload));
       }),
       onCheckError((message) =>
         // Keep the last few stream errors for the failed-state diagnosis;
@@ -527,6 +525,7 @@ export default function App() {
     setUpdate((s) => ({
       ...s,
       phase: "downloading",
+      cancelled: false,
       downloadedBytes: 0,
       totalBytes: null,
       bytesPerSecond: 0,
@@ -559,7 +558,13 @@ export default function App() {
 
   const handleCancelDownload = useCallback(() => {
     // The update download shares the sidecar child slot with exports; the
-    // generic kill covers it, and update-exit folds the state to failed.
+    // generic kill covers it. The flag makes update-exit fold the state
+    // into cancelled rather than failed (mirrors the export side).
+    setUpdate((s) =>
+      s.phase === "checking" || s.phase === "downloading"
+        ? { ...s, cancelled: true }
+        : s,
+    );
     cancelExport().catch(() => undefined);
   }, []);
 
@@ -738,7 +743,15 @@ export default function App() {
               {check.phase !== "idle" && (
                 <LinkCheckPanel
                   state={check}
-                  onCancel={() => void cancelExport()}
+                  onCancel={() => {
+                    // The check shares the export's child slot; the generic
+                    // kill covers it. The flag makes check-exit fold the
+                    // state into cancelled rather than failed.
+                    setCheck((s) =>
+                      s.phase === "running" ? { ...s, cancelled: true } : s,
+                    );
+                    void cancelExport();
+                  }}
                 />
               )}
             </>

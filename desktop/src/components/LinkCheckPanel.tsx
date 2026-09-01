@@ -29,7 +29,12 @@ export interface LinkCheckSummary {
   skipped: number;
 }
 
-export type LinkCheckPhase = "idle" | "running" | "done" | "failed";
+export type LinkCheckPhase =
+  | "idle"
+  | "running"
+  | "done"
+  | "failed"
+  | "cancelled";
 
 export interface LinkCheckState {
   phase: LinkCheckPhase;
@@ -45,6 +50,9 @@ export interface LinkCheckState {
   invokeError: string | null;
   /** Last few parse/IO errors from the check stream (check-error channel). */
   streamErrors: string[];
+  /** Set by the cancel entry point; exit folding turns it into the
+   * cancelled verdict instead of a failed one (mirrors the export side). */
+  cancelled: boolean;
 }
 
 export const EMPTY_LINK_CHECK: LinkCheckState = {
@@ -56,6 +64,7 @@ export const EMPTY_LINK_CHECK: LinkCheckState = {
   exit: null,
   invokeError: null,
   streamErrors: [],
+  cancelled: false,
 };
 
 /** Broken = neither healthy nor an intentionally skipped external URL. */
@@ -119,6 +128,25 @@ export function applyCheckEvents(
   };
 }
 
+/**
+ * Fold the definitive check-exit. Exit 1 covers both "broken links found"
+ * (a completed run, the end summary is present) and "the check itself
+ * failed"; the two are told apart by the summary, not the code. A run the
+ * user cancelled folds into the cancelled verdict instead of failed.
+ */
+export function applyCheckExit(
+  state: LinkCheckState,
+  exit: { code: number | null; stderr: string },
+): LinkCheckState {
+  if (state.phase !== "running") {
+    return state;
+  }
+  if (state.cancelled) {
+    return { ...state, exit, phase: "cancelled" };
+  }
+  return { ...state, exit, phase: state.end ? "done" : "failed" };
+}
+
 /** Render cap: a big vault can produce tens of thousands of reports; the
  * list stays interactive while the counts above always reflect everything. */
 const LIST_LIMIT = 300;
@@ -180,23 +208,27 @@ export function LinkCheckPanel({
       ? t.linkCheck.runningTitle
       : state.phase === "failed"
         ? t.linkCheck.titleFailed
-        : state.end && state.end.broken > 0
-          ? fmt(t.linkCheck.titleBroken, { n: state.end.broken })
-          : t.linkCheck.titleClean;
+        : state.phase === "cancelled"
+          ? t.linkCheck.cancelledTitle
+          : state.end && state.end.broken > 0
+            ? fmt(t.linkCheck.titleBroken, { n: state.end.broken })
+            : t.linkCheck.titleClean;
 
   const description =
     state.phase === "running"
       ? fmt(t.linkCheck.runningProgress, { n: state.reports.length })
       : state.phase === "failed"
         ? t.linkCheck.failedHint
-        : state.end
-          ? fmt(t.linkCheck.summary, {
-              files: state.end.filesChecked,
-              links: state.end.totalLinks,
-              broken: state.end.broken,
-              skipped: state.end.skipped,
-            })
-          : "";
+        : state.phase === "cancelled"
+          ? t.linkCheck.cancelledHint
+          : state.end
+            ? fmt(t.linkCheck.summary, {
+                files: state.end.filesChecked,
+                links: state.end.totalLinks,
+                broken: state.end.broken,
+                skipped: state.end.skipped,
+              })
+            : "";
 
   // Counts come from the check-end summary once it lands (authoritative even
   // if rendering caps the list); before that, from the running counters.
