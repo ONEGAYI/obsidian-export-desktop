@@ -19,6 +19,12 @@
 //! container skeleton closed before it and reopened after it, so the event
 //! stream stays balanced.
 //!
+//! Known serialization trade-off: reopening a container below a block-level
+//! comment restarts an interrupted ordered list at its start number
+//! (`List(Some(1))` carries no "current index"), so `1. %%...\n2. %%...` tail
+//! comment resume numbering from their start value. The event
+//! model cannot express the continuation.
+//!
 //! [pulldown-cmark-to-cmark]: https://docs.rs/pulldown-cmark-to-cmark
 
 use pulldown_cmark::{CowStr, Event, HeadingLevel, Tag, TagEnd};
@@ -288,8 +294,21 @@ fn synthesize_tag(event: &Event<'_>, buf: &mut String) {
         }
         Event::End(TagEnd::CodeBlock) => buf.push_str("\n```\n"),
         Event::Start(Tag::TableCell) => buf.push(' '),
+        // Every remaining block boundary (heading/quote ends, list item,
+        // list and footnote ends, table row ends) separates words in the
+        // synthesized content; without these newlines adjacent words would
+        // fuse (`x` + `para` -> `xpara`).
         Event::End(
-            TagEnd::Heading(_) | TagEnd::BlockQuote(_) | TagEnd::TableHead | TagEnd::TableRow,
+            TagEnd::Heading(_)
+            | TagEnd::BlockQuote(_)
+            | TagEnd::Item
+            | TagEnd::List(_)
+            | TagEnd::FootnoteDefinition
+            | TagEnd::DefinitionList
+            | TagEnd::DefinitionListTitle
+            | TagEnd::DefinitionListDefinition
+            | TagEnd::TableHead
+            | TagEnd::TableRow,
         ) => buf.push('\n'),
         _ => {}
     }
@@ -299,9 +318,16 @@ fn synthesize_tag(event: &Event<'_>, buf: &mut String) {
 /// CommonMark-based renderers: `--` sequences would terminate the comment
 /// early (or make it invalid inline HTML), and a body starting with `>` or
 /// `->` is illegal in inline comments.
+///
+/// The fold repeats until no `--` remains: a single non-overlapping pass
+/// lets a run like `--->` recombine into `-->` across the inserted space
+/// (`- -` + `->`), resurrecting the very terminator this guards against.
 fn sanitize(content: &str) -> String {
     let trimmed = content.trim();
-    let mut out = trimmed.replace("--", "- -");
+    let mut out = trimmed.to_owned();
+    while out.contains("--") {
+        out = out.replace("--", "- -");
+    }
     if out.starts_with('>') {
         out.insert(0, ' ');
     }
@@ -313,6 +339,91 @@ fn sanitize(content: &str) -> String {
 
 fn owned(text: String) -> CowStr<'static> {
     CowStr::Boxed(text.into_boxed_str())
+}
+
+/// The set of container `End` events occurring in the comment region
+/// `[start_idx..=close_idx]`, immune regions included (immune containers
+/// never appear on the skeleton stack, so their Ends never match a lookup).
+#[allow(clippy::indexing_slicing)]
+fn region_end_set(
+    source: &[Event<'_>],
+    start_idx: usize,
+    close_idx: usize,
+) -> std::collections::HashSet<TagEnd> {
+    source[start_idx..=close_idx]
+        .iter()
+        .filter_map(|event| match event {
+            Event::End(end) => Some(*end),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Net surplus of inline formatting containers per tag type opened
+/// (positive) or closed (negative) inside the comment region. Emphasis and
+/// friends can straddle a comment boundary; the half inside the region is
+/// synthesized into the comment body, leaving the outer half unpaired.
+#[allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
+fn inline_surplus(source: &[Event<'_>], start_idx: usize, close_idx: usize) -> Vec<(TagEnd, i64)> {
+    let mut immune = 0_usize;
+    let mut counts: std::collections::BTreeMap<TagEnd, i64> = std::collections::BTreeMap::new();
+    for event in &source[start_idx..=close_idx] {
+        match event {
+            Event::Start(tag) if is_immune_start(tag) => immune += 1,
+            Event::End(end) if is_immune_end(*end) => immune = immune.saturating_sub(1),
+            Event::Start(tag) if immune == 0 && is_inline_format_start(tag) => {
+                *counts.entry(tag.to_end()).or_default() += 1;
+            }
+            Event::End(end) if immune == 0 && is_inline_format_end(*end) => {
+                *counts.entry(*end).or_default() -= 1;
+            }
+            _ => {}
+        }
+    }
+    counts.into_iter().filter(|(_, n)| *n != 0).collect()
+}
+
+const fn is_inline_format_start(tag: &Tag<'_>) -> bool {
+    matches!(
+        tag,
+        Tag::Emphasis | Tag::Strong | Tag::Strikethrough | Tag::Superscript | Tag::Subscript
+    )
+}
+
+const fn is_inline_format_end(end: TagEnd) -> bool {
+    matches!(
+        end,
+        TagEnd::Emphasis
+            | TagEnd::Strong
+            | TagEnd::Strikethrough
+            | TagEnd::Superscript
+            | TagEnd::Subscript
+    )
+}
+
+/// Re-emit the opening halves of inline formatting containers the comment
+/// cut through (positive surplus), so the Ends waiting outside the region
+/// stay paired.
+fn reopen_inline_surplus(surplus: &[(TagEnd, i64)], out: &mut MarkdownEvents<'_>) {
+    for (end, count) in surplus {
+        let Some(tag) = inline_start_of(*end) else {
+            continue;
+        };
+        for _ in 0..*count {
+            out.push(Event::Start(tag.clone()));
+        }
+    }
+}
+
+const fn inline_start_of(end: TagEnd) -> Option<Tag<'static>> {
+    match end {
+        TagEnd::Emphasis => Some(Tag::Emphasis),
+        TagEnd::Strong => Some(Tag::Strong),
+        TagEnd::Strikethrough => Some(Tag::Strikethrough),
+        TagEnd::Superscript => Some(Tag::Superscript),
+        TagEnd::Subscript => Some(Tag::Subscript),
+        _ => None,
+    }
 }
 
 /// Append a text run, dropping leading whitespace when it would land right
@@ -425,7 +536,14 @@ pub fn rewrite_events(events: &mut MarkdownEvents<'_>, mode: CommentsMode) {
                 idx += 1;
             }
             Event::End(end) if immune == 0 && is_block_end(*end) => {
-                stack.pop();
+                // A valid input stream (and a consistent skeleton stack)
+                // always pairs this End with an earlier Start; the assert
+                // turns a silent desync into a loud failure in debug runs.
+                let popped = stack.pop();
+                debug_assert!(
+                    popped.is_some(),
+                    "block End without matching open container"
+                );
                 out.push(event.clone());
                 idx += 1;
             }
@@ -457,7 +575,9 @@ pub fn rewrite_events(events: &mut MarkdownEvents<'_>, mode: CommentsMode) {
     clippy::arithmetic_side_effects,
     clippy::indexing_slicing,
     clippy::string_slice,
-    clippy::too_many_arguments
+    clippy::too_many_arguments,
+    clippy::cognitive_complexity,
+    clippy::too_many_lines
 )]
 fn emit_comment<'a>(
     source: &[Event<'a>],
@@ -479,8 +599,19 @@ fn emit_comment<'a>(
     ));
     let rest: &str = match &source[close_idx] {
         Event::Text(text) => &text[close_to + 2..],
-        _ => "",
+        // find_close only ever matches Text events; the fallback keeps a
+        // future change from turning into a slicing panic.
+        _ => {
+            debug_assert!(false, "close_idx must point at a Text event");
+            ""
+        }
     };
+    // Inline formatting halves cut by the comment: an emphasis opened in
+    // the region and closed outside it leaves a dangling outer End (and
+    // vice versa). The surplus is re-emitted around the comment so the
+    // stream stays balanced even though the region's half was synthesized
+    // into the comment body.
+    let surplus = inline_surplus(source, start_idx, close_idx);
 
     if !block {
         if mode == CommentsMode::Strip && rest.trim().is_empty() {
@@ -504,6 +635,11 @@ fn emit_comment<'a>(
             }
             return next;
         }
+        for (end, deficit) in &surplus {
+            for _ in 0..-*deficit {
+                out.push(Event::End(*end));
+            }
+        }
         if mode == CommentsMode::Convert {
             let html = if content.is_empty() {
                 "<!---->".to_owned()
@@ -512,6 +648,7 @@ fn emit_comment<'a>(
             };
             out.push(Event::InlineHtml(owned(html)));
         }
+        reopen_inline_surplus(&surplus, out);
         // Trailing text is left to the main loop (text_pos), which rescans
         // it for further comments.
         return close_idx;
@@ -519,10 +656,31 @@ fn emit_comment<'a>(
 
     // Elide empty containers directly above the comment: if `out` ends with
     // exactly the Start of the innermost open container, both the Start and
-    // the stack entry are dropped so no dangling pair remains.
-    elide_leading_empty(out, stack);
+    // the stack entry are dropped so no dangling pair remains. A container
+    // only qualifies when the comment region actually contains its End —
+    // that End is what the replay below consumes. Without this check, a
+    // comment that starts in a container's first paragraph and closes in a
+    // later paragraph of the *same* container would drop the container even
+    // though it was never left, and the reopened skeleton would be missing
+    // a level.
+    let stack_before_elision = stack.clone();
+    let region_ends = region_end_set(source, start_idx, close_idx);
+    while let Some(tag) = stack.last() {
+        if out.last() == Some(&Event::Start(tag.clone())) && region_ends.contains(&tag.to_end()) {
+            out.pop();
+            stack.pop();
+        } else {
+            break;
+        }
+    }
 
-    // Close whatever is still open above the comment.
+    // Close whatever is still open above the comment, plus the inline
+    // formatting halves closed outside the region.
+    for (end, deficit) in &surplus {
+        for _ in 0..-*deficit {
+            out.push(Event::End(*end));
+        }
+    }
     for tag in stack.iter().rev() {
         out.push(Event::End(tag.to_end()));
     }
@@ -540,8 +698,10 @@ fn emit_comment<'a>(
 
     // Advance a copy of the skeleton to the containers open at the closing
     // point by replaying the block-level boundaries swallowed by the
-    // comment region.
-    let mut closing_stack = stack.clone();
+    // comment region. The replay starts from the *pre-elision* stack: an
+    // elided container's End occurs inside the region and must consume that
+    // very container, not whatever sits innermost on the elided stack.
+    let mut closing_stack = stack_before_elision;
     let mut immune = 0_usize;
     for event in &source[start_idx..=close_idx] {
         match event {
@@ -563,6 +723,7 @@ fn emit_comment<'a>(
         for tag in &closing_stack {
             out.push(Event::Start(tag.clone()));
         }
+        reopen_inline_surplus(&surplus, out);
         *stack = closing_stack;
         return close_idx;
     }
@@ -572,25 +733,22 @@ fn emit_comment<'a>(
     // events of the innermost open containers, consume them and emit the
     // matching Starts only for whatever remains open.
     let next = elide_trailing_empty(source, close_idx + 1, &mut closing_stack);
+    let reopened = !closing_stack.is_empty();
     for tag in &closing_stack {
         out.push(Event::Start(tag.clone()));
     }
-    *stack = closing_stack;
-    next
-}
-
-/// Drop the innermost open containers whose `Start` is the last thing in
-/// `out`: the comment consumed everything they held, so they would render
-/// as empty shells.
-fn elide_leading_empty(out: &mut MarkdownEvents<'_>, stack: &mut Vec<Tag<'_>>) {
-    while let Some(tag) = stack.last() {
-        if out.last() == Some(&Event::Start(tag.clone())) {
-            out.pop();
-            stack.pop();
-        } else {
-            break;
+    if reopened {
+        reopen_inline_surplus(&surplus, out);
+        // A soft/hard break directly after a freshly reopened container is
+        // a residue of the comment's own line ending, not content: passing
+        // it through would start the reopened item with a stray newline.
+        if matches!(source.get(next), Some(Event::SoftBreak | Event::HardBreak)) {
+            *stack = closing_stack;
+            return next.saturating_add(1);
         }
     }
+    *stack = closing_stack;
+    next
 }
 
 /// Consume container `End` events at `next` that close the innermost open
@@ -612,6 +770,8 @@ fn elide_trailing_empty(source: &[Event<'_>], next: usize, stack: &mut Vec<Tag<'
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::shadow_unrelated)]
+
     use super::*;
 
     fn run(markdown: &str, mode: CommentsMode) -> String {
@@ -622,16 +782,20 @@ mod tests {
                 .collect();
         rewrite_events(&mut events, mode);
         // The rewritten stream must stay balanced by itself: the serializer
-        // (and re-parsing) would silently paper over structural damage.
-        let mut depth = 0_i64;
+        // (and re-parsing) would silently paper over structural damage. The
+        // check is stack-based, not a running sum: a dangling End paired
+        // with an unclosed Start would cancel out and slip through a sum.
+        let mut open: Vec<TagEnd> = Vec::new();
         for event in &events {
             match event {
-                Event::Start(_) => depth = depth.saturating_add(1),
-                Event::End(_) => depth = depth.saturating_sub(1),
+                Event::Start(tag) => open.push(tag.to_end()),
+                Event::End(end) => {
+                    assert_eq!(open.pop(), Some(*end), "unbalanced event stream");
+                }
                 _ => {}
             }
         }
-        assert_eq!(depth, 0, "rewritten stream must be balanced: {markdown:?}");
+        assert!(open.is_empty(), "unclosed containers remain");
         crate::render_mdevents_to_mdtext(&events)
     }
 
@@ -672,8 +836,8 @@ mod tests {
         // The serializer re-picks fence lengths on round-trips; what
         // matters is that the `%%` literals survive unconverted.
         let output = convert("text\n\n```md\n%%inside code%%\n```\n\nmore\n");
-        assert!(output.contains("%%inside code%%"), "got {:?}", output);
-        assert!(!output.contains("<!--"), "got {:?}", output);
+        assert!(output.contains("%%inside code%%"), "check failed");
+        assert!(!output.contains("<!--"), "check failed");
     }
 
     #[test]
@@ -695,8 +859,8 @@ mod tests {
         // The serializer re-flows table pipes on any round-trip; what
         // matters here is that the `%%` literals survive unconverted.
         let output = convert("| a %% b |\n| --- |\n| c %% d |\n");
-        assert_eq!(output.matches("%%").count(), 2, "got {output:?}");
-        assert!(!output.contains("<!--"), "got {:?}", output);
+        assert_eq!(output.matches("%%").count(), 2, "check failed");
+        assert!(!output.contains("<!--"), "check failed");
     }
 
     #[test]
@@ -706,7 +870,9 @@ mod tests {
     }
 
     #[test]
-    fn single_line_block_comment() {
+    fn single_paragraph_multiline_comment_stays_inline() {
+        // No blank line: one paragraph joined by soft breaks, so this takes
+        // the inline path (verified via spans_block_boundary).
         assert_eq!(convert("%%\nnote to self\n%%\n"), "<!-- note to self -->\n");
     }
 
@@ -729,7 +895,29 @@ mod tests {
     }
 
     #[test]
+    fn triple_dash_arrow_is_not_resurrected() {
+        // A single non-overlapping `--` fold would turn `--->` into
+        // `- -` + `->`, recombining into `-->` across the inserted space.
+        for input in ["a %%x ---> y%% b\n", "%% ---> %%\n", "%%x---->y%%\n"] {
+            let output = convert(input);
+            // Exactly one terminator: the closing marker. A resurrected one
+            // would appear before it and leak the tail as visible text.
+            assert_eq!(output.matches("-->").count(), 1, "terminator count wrong");
+            let reparsed: Vec<Event<'_>> =
+                pulldown_cmark::Parser::new_ext(&output, crate::markdown_parser_options())
+                    .collect();
+            let html_count = reparsed
+                .iter()
+                .filter(|e| matches!(e, Event::Html(_) | Event::InlineHtml(_)))
+                .count();
+            assert_eq!(html_count, 1, "expected exactly one HTML event");
+        }
+    }
+
+    #[test]
     fn strip_mode_removes_comments() {
+        // Two spaces: "before " prefix plus the " after" tail around the
+        // removed marker — intentional, not a typo.
         assert_eq!(strip("before %%secret%% after\n"), "before  after\n");
         // The serializer appends a trailing newline even for an empty
         // stream, so a fully-stripped note serializes to a single "\n".
@@ -794,10 +982,10 @@ mod tests {
         // a closing marker. The trailing "after" sits before the closing
         // marker, so it belongs to the comment itself.
         let output = convert("%% before\n\n```md\n%% not a closer\n```\n\nafter %%\n");
-        assert!(output.starts_with("<!--\nbefore"), "got {:?}", output);
-        assert!(output.contains("%% not a closer"), "got {:?}", output);
-        assert!(output.contains("-->"), "got {:?}", output);
-        assert!(output.contains("after"), "got {:?}", output);
+        assert!(output.starts_with("<!--\nbefore"), "check failed");
+        assert!(output.contains("%% not a closer"), "check failed");
+        assert!(output.contains("-->"), "check failed");
+        assert!(output.contains("after"), "check failed");
     }
 
     #[test]
@@ -824,6 +1012,68 @@ mod tests {
         assert_eq!(CommentsMode::from_name("bogus"), None);
     }
 
+    #[test]
+    fn comment_within_one_container_keeps_content_inside() {
+        // A comment opening in a container's first paragraph and closing in
+        // a later paragraph of the *same* container must not elide the
+        // container: the trailing text stays inside it. (Regression: the
+        // leading elision used to drop containers the comment never left,
+        // letting the tail escape to the top level.)
+        let output = convert("> %%x\n>\n> tail%% y\n");
+        assert!(output.contains("<!--\nx\n\ntail\n-->"), "check failed");
+        assert!(output.contains("> y"), "tail must stay inside the quote");
+
+        let output = convert("- %%x\n\n  tail%% y\n");
+        assert!(output.contains("<!--\nx\n\ntail\n-->"), "check failed");
+        assert!(output.contains("* y"), "tail must stay inside the item");
+
+        let output = convert("> > %%x\n> >\n> > tail%% y\n");
+        assert!(output.contains("<!--\nx\n\ntail\n-->"), "check failed");
+
+        for input in [
+            "> %%x\n>\n> tail%% y\n",
+            "- %%x\n\n  tail%% y\n",
+            "> > %%x\n> >\n> > tail%% y\n",
+        ] {
+            // Strip must keep the same container containment.
+            strip(input);
+        }
+    }
+
+    #[test]
+    fn emphasis_cut_by_comment_keeps_stream_balanced() {
+        // The comment body synthesizes the inner `*` half; the outer half
+        // waiting past the closing marker must be re-paired.
+        let output = convert("a %%x *b%% c* d\n");
+        assert!(output.contains("<!--"), "check failed");
+        let output = convert("a *b %%x* c%% d\n");
+        assert!(output.contains("<!--"), "check failed");
+        // Strong and strikethrough behave the same.
+        convert("a %%x **b%% c** d\n");
+        convert("a %%x ~~b%% c~~ d\n");
+        // Strip mode must also rebalance.
+        strip("a %%x *b%% c* d\n");
+        strip("a *b %%x* c%% d\n");
+    }
+
+    #[test]
+    fn block_boundary_does_not_fuse_words() {
+        // Item/list ends inside a comment region separate words with a
+        // newline (regression: they used to be silently dropped, fusing
+        // "x" and "para" into "xpara").
+        let output = convert("- %%x\n\npara%% tail\n");
+        assert!(output.contains("x\n\npara"), "check failed");
+    }
+
+    #[test]
+    fn reopened_container_does_not_start_with_stray_break() {
+        // The soft break right after the closing marker is the comment's
+        // own line ending, not content of the reopened container.
+        let output = convert("%%\n- a\n- b\n%%\ntail\n");
+        assert!(!output.contains("\n  tail"), "stray item prefix leaked");
+        assert!(output.contains("tail"), "check failed");
+    }
+
     /// Re-parse serialized output and assert Start/End events pair up.
     fn assert_balanced(markdown: &str) {
         let events: Vec<Event<'_>> =
@@ -836,6 +1086,6 @@ mod tests {
                 _ => {}
             }
         }
-        assert_eq!(depth, 0, "re-parsed stream must be balanced: {markdown:?}");
+        assert_eq!(depth, 0, "re-parsed stream must be balanced");
     }
 }

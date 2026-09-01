@@ -7,6 +7,7 @@ _Obsidian Export is a CLI program and a Rust library to export an [Obsidian] vau
 - Recursively export Obsidian Markdown files to [CommonMark].
 - Supports `[[note]]`-style references as well as `![[note]]` file includes, including block references (`![[note#^block-id]]`) and same-file section embeds.
 - Render diagram code blocks — dot (Graphviz), Mermaid, WaveDrom, TikZ — into image assets through local tools (`--render-diagrams`).
+- Convert Obsidian `%%` comments to HTML comments — or strip them entirely — on export (`--comments`).
 - Heading anchors match GitHub's slug algorithm, so `[[note#Section]]` links keep working on GitHub.
 - Check a vault for broken links, missing sections and blocks without exporting anything (`obsidian-export check`).
 - Self-update from GitHub releases (`obsidian-export update`).

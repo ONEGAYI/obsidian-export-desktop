@@ -22,6 +22,7 @@ WARNING:
 * Recursively export Obsidian Markdown files to [CommonMark].
 * Supports `[[note]]`-style references as well as `![[note]]` file includes, including block references (`![[note#^block-id]]`) and same-file section embeds.
 * Render diagram code blocks — dot (Graphviz), Mermaid, WaveDrom, TikZ — into image assets through local tools (`--render-diagrams`).
+* Convert Obsidian `%%` comments to HTML comments — or strip them entirely — on export (`--comments`).
 * Heading anchors match GitHub's slug algorithm, so `[[note#Section]]` links keep working on GitHub.
 * Check a vault for broken links, missing sections and blocks without exporting anything (`obsidian-export check`).
 * Self-update from GitHub releases (`obsidian-export update`).
@@ -182,6 +183,20 @@ Block references (`![[note#^block-id]]`) locate the block the id marks (a paragr
 
 Same-file section and block embeds (`![[#Heading]]` / `![[#^block-id]]`) are supported too, with two caveats: references inside a same-file embed resolve against the embedded slice only (a section that lives elsewhere in the note won't be found inside the slice and degrades per `--missing-section`), and any same-file embed appearing inside an expansion of the same file degrades to a plain link (the check is file-level, so this includes same-file references to other sections that would be safe to expand).
 
+## Obsidian comments
+
+Obsidian comments (`%%like this%%`, including multi-line block comments) are only visible in Obsidian's editing views. By default they are kept verbatim, which renders as literal `%%` text in plain Markdown consumers. Use `--comments` to choose what happens to them:
+
+* `--comments keep` (the default): comments stay as literal `%%...%%` text.
+* `--comments convert`: each comment becomes an HTML comment (`<!-- ... -->`) that survives in the output source but is not rendered.
+* `--comments strip`: comments are removed from the output entirely.
+
+Recognition follows Obsidian's plain-text pairing: the first `%%` pairs with the next `%%`, even across blank lines and list or quote boundaries, and an unclosed `%%` stays literal. `%%` inside code blocks, inline code, math, tables and link labels is never treated as a comment marker — the same places Obsidian itself declines to interpret the syntax. Content that would break the HTML comment syntax is neutralized (`--` becomes `- -`).
+
+A comment spanning block boundaries splits the surrounding structure at the comment (e.g. a list item ends, the HTML comment follows as its own block, the remaining list restarts below); comments wholly inside one paragraph are rewritten in place. An interrupted ordered list restarts at its start number — CommonMark's list syntax carries no "current index".
+
+Note for `--render-diagrams` users: the tool-availability pre-scan runs on the raw note text, before comments are removed. A diagram code block sitting inside a `%%` comment still requires its tool to be installed (even with `--comments strip`, which would drop the block from the output); when the tool is present the block is simply not rendered, and the reported diagram total counts it.
+
 ## Failing files
 
 By default, a note that fails to export (e.g. broken YAML frontmatter) is recorded and the export continues with the remaining notes; at the end, a summary listing every failing note is printed. Use `--fail-fast` to instead stop on the first failing file. Note that with parallel exports, files already being processed when the failure occurs may still complete.
@@ -338,7 +353,7 @@ Features include:
 * Obsidian-styled light/dark themes (with a follow-system option) in a frameless window.
 * Bilingual UI (Chinese / English) with a language menu: pick either language explicitly or follow the system locale; the choice is remembered across sessions.
 * Folder pickers for the vault and destination, with the last-used paths remembered.
-* A full conversion options view mirroring every CLI flag: frontmatter strategy, missing-section handling, hard line breaks, recursive embeds, hidden files, git integration, the ignore-file name, skip/only tags, a start-at sub-path, mtime preservation and fail-fast. Options are remembered across sessions, and only non-default values are passed to the sidecar.
+* A full conversion options view mirroring every CLI flag: frontmatter strategy, missing-section handling, Obsidian comment handling (keep/convert/strip), hard line breaks, recursive embeds, hidden files, git integration, the ignore-file name, skip/only tags, a start-at sub-path, mtime preservation and fail-fast. Options are remembered across sessions, and only non-default values are passed to the sidecar.
 * Diagram rendering: dot (Graphviz), Mermaid, WaveDrom and TikZ code blocks can be rendered into image assets through local tools. The settings page shows the enabled renderers at a glance (with a count badge in the navigation) and manages them as pill-style checkboxes; the output format (svg/png, with per-renderer fallback) and per-tool executable paths (blank = PATH lookup) are configurable. Rendering progress ("diagram 3/12") shows in the run view; a missing tool aborts the export before anything is written.
 * A pre-export sheet summarizing the effective options (with a shortcut back to the options view), and an option to export into `<destination>/<vault folder name>` so the vault's first-level entries stay contained.
 * Live progress, per-file log lines, failure details with full error chains, and cancellation of a running export.
