@@ -98,7 +98,7 @@ interface ExportProgress {
   diagram: { index: number; total: number; language: string } | null;
 }
 
-const EMPTY_PROGRESS: ExportProgress = {
+export const EMPTY_PROGRESS: ExportProgress = {
   total: 0,
   done: 0,
   skipped: 0,
@@ -120,7 +120,7 @@ function loadBool(key: string, fallback: boolean): boolean {
   return stored === null ? fallback : stored === "true";
 }
 
-function foldEvent(
+export function foldEvent(
   progress: ExportProgress,
   event: SidecarEvent,
   warningLabel: string,
