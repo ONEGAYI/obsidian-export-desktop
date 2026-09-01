@@ -17,11 +17,18 @@ WARNING:
 
 *Obsidian Export is a CLI program and a Rust library to export an [Obsidian] vault to regular Markdown.*
 
+**English** | [简体中文](README.zh.md)
+
 * Recursively export Obsidian Markdown files to [CommonMark].
-* Supports `[[note]]`-style references as well as `![[note]]` file includes.
+* Supports `[[note]]`-style references as well as `![[note]]` file includes, including block references (`![[note#^block-id]]`) and same-file section embeds.
+* Render diagram code blocks — dot (Graphviz), Mermaid, WaveDrom, TikZ — into image assets through local tools (`--render-diagrams`).
+* Heading anchors match GitHub's slug algorithm, so `[[note#Section]]` links keep working on GitHub.
+* Check a vault for broken links, missing sections and blocks without exporting anything (`obsidian-export check`).
+* Self-update from GitHub releases (`obsidian-export update`).
 * Support for [gitignore]-style exclude patterns (default: `.export-ignore`).
 * Automatically excludes files that are ignored by Git when the vault is located in a Git repository.
 * Runs on all major platforms: Windows, Mac, Linux, BSDs.
+* A bilingual (Chinese/English) graphical desktop app ships alongside the CLI — see the [Desktop app](#desktop-app) section below.
 
 Please note obsidian-export is not officially endorsed by the Obsidian team.
 It supports most but not all of Obsidian's Markdown flavor.
@@ -31,9 +38,9 @@ It supports most but not all of Obsidian's Markdown flavor.
 
 ## Pre-built binaries
 
-Pre-compiled binaries for all major platforms are available at <https://github.com/zoni/obsidian-export/releases>
+Pre-compiled CLI binaries, as well as the graphical desktop installer for Windows, are available at <https://github.com/ONEGAYI/obsidian-export-desktop/releases>
 
-In addition to the installation scripts provided, these releases are also suitable for [installation with cargo-binstall][cargo-binstall].
+The desktop app bundles the CLI as its sidecar: installing the desktop app is enough, a separate CLI install is only needed if you want to use it from a terminal.
 
 ## Building from source
 
@@ -41,16 +48,17 @@ When binary releases are unavailable for your platform, or you do not trust the 
 This is done through [Cargo], the official package manager for Rust, with the following steps:
 
 1. Install the Rust toolchain from <https://www.rust-lang.org/tools/install>
-1. Run: `cargo install obsidian-export`
+1. Clone this repository
+1. Run `cargo install --path .` from the repository root
 
  > 
  > It is expected that you successfully configured the PATH variable correctly while installing the Rust toolchain, as described under *"Configuring the PATH environment variable"* on <https://www.rust-lang.org/tools/install>.
 
 ## Upgrading from earlier versions
 
-If you downloaded a pre-built binary, upgrade by downloading the latest version to replace the old one.
+If you downloaded a pre-built binary, upgrade by downloading the latest version to replace the old one — or let the CLI fetch it for you with `obsidian-export update --download`.
 
-If you built from source, upgrade by running `cargo install obsidian-export` again.
+If you built from source, upgrade by pulling the latest changes and running `cargo install --path .` again.
 
 
 # Basic usage
@@ -115,6 +123,30 @@ obsidian-export my-obsidian-vault --start-at my-obsidian-vault/Books exported-no
 
 In this mode, all notes under the source (the first argument) are considered part of the vault so any references to these files will remain intact, even if they're not part of the exported notes.
 
+## Checking links
+
+The `check` command verifies every link in a vault without writing anything:
+
+````sh
+obsidian-export check /path/to/my-obsidian-vault
+````
+
+It walks the same file set an export would, and reports broken wikilinks and standard Markdown links — missing files, missing sections, missing block ids — one `source:line` entry per problem.
+Links pointing outside the vault root are treated as broken; external URLs are ignored.
+The exit code follows the usual convention (0 = all healthy, 1 = broken links found, 2 = usage error), so it fits right into scripts and CI.
+Walk options like `--start-at`, `--hidden`, `--no-git` and `--ignore-file` apply here as well.
+
+## Updating
+
+The `update` command checks GitHub for a newer release and prints what it finds:
+
+````sh
+obsidian-export update
+````
+
+Add `--download` to also fetch the artifact — the CLI binary by default, or the Windows desktop installer with `--asset desktop` — into a temporary downloads directory (override with `--output`).
+The check exits 0 either way; scripts can parse the machine-readable stream of `--progress json` to act on the result.
+
 ## Character encodings
 
 At present, UTF-8 character encoding is assumed for all note text as well as filenames.
@@ -153,6 +185,33 @@ Same-file section and block embeds (`![[#Heading]]` / `![[#^block-id]]`) are sup
 ## Failing files
 
 By default, a note that fails to export (e.g. broken YAML frontmatter) is recorded and the export continues with the remaining notes; at the end, a summary listing every failing note is printed. Use `--fail-fast` to instead stop on the first failing file. Note that with parallel exports, files already being processed when the failure occurs may still complete.
+
+## Diagram rendering
+
+Obsidian renders special fenced code blocks (```` ```dot ````, ```` ```mermaid ````, …) through plugins, but plain Markdown consumers show them as literal code. With `--render-diagrams`, such blocks are rendered into standalone image files by shelling out to the corresponding local tools, and the export embeds a regular Markdown image reference instead:
+
+````sh
+obsidian-export --render-diagrams dot,mermaid,wavedrom,tikz SOURCE TARGET
+````
+
+Renderers and the external tools they require:
+
+|Renderer|Code block languages|Requires|Formats|
+|--------|--------------------|--------|-------|
+|dot|`dot`, `graphviz`|[Graphviz](https://graphviz.org/download/) (`dot`)|svg, png|
+|mermaid|`mermaid`, `mmd`|[mermaid-cli](https://github.com/mermaid-js/mermaid-cli) (`mmdc`)|svg, png|
+|wavedrom|`wavedrom`|[wavedrom](https://www.npmjs.com/package/wavedrom)|svg|
+|tikz|`tikz`|a TeX distribution with `latex` and `dvisvgm` (e.g. TeX Live)|svg|
+
+Behavior details:
+
+* **Tool discovery** prefers an explicit path (`--diagram-bin dot=/path/to/dot`, repeatable) and otherwise scans `PATH`. On Windows the scan honors `PATHEXT` and runs npm's `.cmd` shims through `cmd.exe`, so global npm installs work out of the box. (The `cmd.exe` wrapper expands `%VARIABLE%`-shaped substrings even inside quotes: on the rare path containing a paired `%`, point `--diagram-bin` at the underlying `.exe` to bypass the wrapper.)
+* `--diagram-format` and `--diagram-bin` only take effect together with `--render-diagrams`; passing them alone draws a warning on stderr and is otherwise ignored.
+* **Atomicity**: tools are resolved in a prescan, for the languages actually present in the vault, *before* any output file is written. A missing tool aborts the export with exit code 1 and an install hint, leaving the destination untouched.
+* **Per-block failures are non-fatal**: a diagram whose code the tool rejects stays a code block and produces a warning; the export always completes.
+* **Output format**: `--diagram-format png` requests raster output; renderers without it (wavedrom, tikz) fall back to svg with a warning.
+* **Assets** are written next to each note under `assets/<note>-<hash>.<ext>` (content-addressed over renderer + language + source + format), so unchanged blocks resolve to the same file across runs and re-exports skip the external tool entirely.
+* **tikz** block content is the *inside* of a `tikzpicture` environment (Obsidian plugin convention); a source carrying its own `\begin{tikzpicture}` is embedded verbatim. Fonts are converted to paths (`dvisvgm --no-fonts`) for renderer compatibility; CJK text inside tikz drawings may render poorly — prefer mermaid or dot for those.
 
 ## Progress events
 
@@ -280,6 +339,7 @@ Features include:
 * Bilingual UI (Chinese / English) with a language menu: pick either language explicitly or follow the system locale; the choice is remembered across sessions.
 * Folder pickers for the vault and destination, with the last-used paths remembered.
 * A full conversion options view mirroring every CLI flag: frontmatter strategy, missing-section handling, hard line breaks, recursive embeds, hidden files, git integration, the ignore-file name, skip/only tags, a start-at sub-path, mtime preservation and fail-fast. Options are remembered across sessions, and only non-default values are passed to the sidecar.
+* Diagram rendering: dot (Graphviz), Mermaid, WaveDrom and TikZ code blocks can be rendered into image assets through local tools. The settings page shows the enabled renderers at a glance (with a count badge in the navigation) and manages them as pill-style checkboxes; the output format (svg/png, with per-renderer fallback) and per-tool executable paths (blank = PATH lookup) are configurable. Rendering progress ("diagram 3/12") shows in the run view; a missing tool aborts the export before anything is written.
 * A pre-export sheet summarizing the effective options (with a shortcut back to the options view), and an option to export into `<destination>/<vault folder name>` so the vault's first-level entries stay contained.
 * Live progress, per-file log lines, failure details with full error chains, and cancellation of a running export.
 * An optional post-export link check (against the vault source or the exported tree) with a per-link report of broken links, missing sections and blocks.
@@ -311,7 +371,6 @@ For a list of releases and the changes with each version, please refer to the [C
 [Obsidian]: https://obsidian.md/
 [CommonMark]: https://commonmark.org/
 [gitignore]: https://git-scm.com/docs/gitignore
-[cargo-binstall]: https://github.com/cargo-bins/cargo-binstall#readme
 [Cargo]: https://doc.rust-lang.org/cargo/
 [from_utf8_lossy]: https://doc.rust-lang.org/std/string/struct.String.html#method.from_utf8_lossy
 [Hugo]: https://gohugo.io

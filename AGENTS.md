@@ -32,6 +32,7 @@
   - `release.yml` 的 tag 触发模式已手改为 `v*.*.*`（cargo-dist 生成的 `'**[0-9]+.[0-9]+.[0-9]+*'` 里 `+` 是字面字符，v26.8.x 从不匹配）并补 `workflow_dispatch`；因此 `dist-workspace.toml` 配了 `allow-dirty = ["ci"]` 放行 cargo-dist 对 release.yml 的漂移检查（0.28 语法为列表，布尔值会 TOML 报错）。
   - dispatch 后 macOS/Linux runner 可能长时间排队（曾 50 分钟未分配，v26.8.3 曾排队 5.5 小时后手动取消）——**不等 runner**：Windows 产物直接本地 `cargo dist build --tag vX.Y.Z` 构建后 `gh release upload`（`target/distrib/` 下连 `source.tar.gz` 与 installer 脚本都会生成），桌面安装包（`just desktop-build` 产物在 `desktop/src-tauri/target/release/bundle/{msi,nsis}/`）同法上传；tauri 生成的文件名带空格（`Obsidian Export_…`），按 v26.8.3 起惯例改名点连接（`Obsidian.Export_…`）再传；macOS/Linux 产物由 dispatch 的 workflow 排队慢慢补齐即可。
   - `make-new-release` 在 Git Bash 下会因 `just_executable()` 返回的反斜杠路径被 bash 吞掉而失败；改为手动分步执行其等价步骤：`just set-version` → `uvx towncrier==24.8.0 build --version X.Y.Z --yes` → `bash docs/generate.sh` → 提交 → `git tag vX.Y.Z`。CHANGELOG 片段必须是新式命名 `<issue>.<type>.md`（旧式 `<type>.<issue>.md` 不被识别且**静默跳过**，v26.8.4 曾手工补并入漏掉的 check-json 条目）。
+  - **README 是双语的**：`bash docs/generate.sh` 用 obsidian-export 自身导出 docs vault，展开 `docs/_combined.md` 与 `docs/_combined.zh.md` 生成根 `README.md`（英文）与 `README.zh.md`（中文），两份顶部互为语言入口。改 README 一律改 `docs/` 下对应源（中文为 `.zh.md` 成对文件）再重新生成，禁止直接编辑产物；两语言版本内容需人工保持对照。
   - release notes 末尾附「Downloads」资产说明段（GUI 与 CLI 是独立产物、按需下载、其余文件用途），模板见 v26.8.2；桌面与 CLI 的关系（GUI 内置边车、装 GUI 无需另装 CLI）必须写明。写入含反斜杠的路径（如 `%USERPROFILE%\.cargo\bin`）时用文件（`--notes-file`）而非 heredoc，v26.8.2 的 `\b` 曾被 shell 吃掉。
   - 注意 gh CLI 在本仓库目录下无默认 repo 时会解析到 upstream：查 fork 的 release/run 一律带 `-R ONEGAYI/obsidian-export-desktop`。
   - **（26.8.6 实践）CI 与发布的新坑**：
@@ -43,19 +44,7 @@
 
 ## 待定事项
 
-- [x] 桌面端技术栈：**Tauri 2 + React/TypeScript**（跨平台、轻量、Obsidian 风格 UI）。UI 主题复刻 Obsidian 变量命名与色板（明暗双主题，默认暗色）；`--missing-section` 放导出前确认选单并持久化选择。
-- [x] 桌面端完整选项面板：独立设置视图（`OptionsView`）暴露全部 CLI 选项，按「转换行为 / 内容过滤 / 文件与过程」分组；选项持久化于 localStorage（`obsidian-export-options`），Rust 侧 `build_args` 仅将非默认值传给边车（默认值语义始终以 CLI 为准）。
-- [x] 导出后自动链接检查：已完成——check 子命令支持 `--progress json`（独立 check 事件方言、共享 schema 版本常量，契约见 `docs/sidecar-events.md` 的 check 章节）；桌面端 `start_check` 编排复用导出的 child 槽（同时仅一个边车进程），导出成功（exit 0）且开关开启时由前端自动触发；开关与检查目标（默认 vault 源，可选导出产物——两者语义不等价：死链 wikilink 导出后已塌缩为纯文本，查产物抓不到）持久化为 GUI 偏好字段（`linkCheckEnabled`/`linkCheckTarget`），不进 build_args；`LinkCheckPanel` 展示逐条报告（结构化判定本地化 + 筛选页签 + 渲染上限兜底）。
-- [x] 检查更新与下载（双端）：已完成——根 crate `src/update.rs` 承载全部业务（GitHub `releases/latest` 检测、三段版本比较（CalVer 兼容，tag 不规范宁可不提示）、双意图资产挑选（cli 按编译期平台 triple 匹配 cargo-dist 产物并排除 `.sha256`；desktop 挑含 `setup` 的 NSIS 安装包）、ureq 2.12 流式下载（2.x 维护分支，MSRV 1.71；3.x 需 1.85 不可用，代理走环境变量）与原子落盘、资产名纯文件名校验；debug 构建支持 `OBSIDIAN_EXPORT_UPDATE_API_BASE` 注入本地 mock（release 无此路径））。CLI `update` 子命令（首位关键字分流，`--download`/`--output`/`--asset cli|desktop`/`--progress json`）输出第三方言（`update-result`/`download-start`/`download-progress`/`download-end`，共享 schema v1，契约见 `docs/sidecar-events.md` 的 update 章节）；**「有更新」退出码仍为 0**（GUI 按 update-result 事件判定，脚本不受扰）。桌面端 `start_update(action)` 编排复用导出 child 槽（恒传 `--asset desktop`，download 模式落盘 `%TEMP%/obsidian-export/Downloads` 并预创建+symlink 防逃逸），`run_installer` 双层路径校验后 spawn NSIS 并 `app.exit(0)` 解锁自身文件（UAC 由安装器 manifest 处理，capabilities 零改动）；前端 OptionsView 第五页「关于与更新」（`UpdatePanel` 状态外置 + 纯折叠函数，照 LinkCheckPanel 模式）与启动自动检查（`autoCheckUpdates` 偏好默认开，24h 节流存独立键 `obsidian-export-update-state`）。**已知限制**：Windows-only 桌面安装包（macOS/Linux 桌面端无资产，引导发布页）；下载与安装不校验哈希（GitHub release 资产信任模型，与手动下载等同）。
-- [x] 特殊代码块渲染为图片嵌入（dot/mermaid/wavedrom/tikz）：已完成——core 新增 `src/diagrams.rs`（渲染器注册表、PATH+PATHEXT 工具解析、Windows `.cmd` 经 cmd.exe 包装执行、外部进程超时与 stderr 捕获、tikz latex+dvisvgm 双步管线、内容寻址命名 FNV-1a 与增量缓存）；`Exporter` 新配置（`diagram_renderers`/`diagram_format`/`diagram_bins`）与 run() 预扫描（按 vault 实际语言求工具集，缺失即原子化报错退出、零输出）；渲染是内建导出阶段（用户 postprocessor 之后执行，代码块替换为图片引用+SoftBreak 分隔，单块失败 warning 保留原块）；CLI 新增 `--render-diagrams`/`--diagram-format`/`--diagram-bin`；export 事件方言新增 `diagram-render` 进度事件（加法变更不 bump schema）；桌面端第六设置页「图表渲染」（导航计数 badge + 药丸复选 + svg/png 格式与回落说明 + 工具路径覆盖折叠）与运行视图渲染进度行；集成测试经 debug-only env `OBSIDIAN_EXPORT_DIAGRAM_BIN_<TOOL>` 注入跨平台 mock 渲染器（**教训**：cmd.exe 会预读管道 stdin、并行 append 共享计数文件有锁竞争——渲染源码一律走临时文件输入，每测试独立 mock 目录）。
 - [ ] 桌面端后续迭代：打包分发流水线（`tauri build`，与 cargo-dist 互不干扰）。
-- [x] 块引用内容提取增强：已完成——`![[note#^block-id]]` 真实定位标记块（reduce_to_block：行尾 id 标记所在段落/列表项/引用块，独立行 id 标记上方紧邻块，嵌入副本剥离 id 标记），未命中回退 `--missing-section` 三策略；同文件嵌入（`![[#Heading]]` / `![[#^id]]`）一并支持，防环靠「嵌入副本剥离 id」天然终止 + 嵌入公共入口的深度限制兜底。
-- [x] 嵌入展开与 section 切分的顺序重排：已完成——parse_raw_note（raw 事件收集 + 引用规范化为五事件形态）与 expand_references（引用展开）两阶段拆分，section 切分在目标文件自己的事件流上进行后再展开内层嵌入；embed_postprocessors「看到合并嵌入后内容」的契约保持。
-- [x] wikilink 格式标记与容器内标题的既有解析边界：已完成——引用文本在 raw 层以 source offset 切片保留原拼写（`__dunder__` 不再突变为 `**dunder**`，锚点/文件查找/section 匹配三处下游一致）；reduce_to_section 维护容器配对栈，blockquote（含 callout）内标题切分后事件流保持平衡。
-- [x] 标题含 wikilink 的 section 引用：已完成——reduce_to_section 标题聚合识别坍缩五事件形态并按显示名聚合（label 优先，否则 `file > section` 拼接，复用 `ObsidianNoteReference::display`），`## [[mid]]` 重新可被 `![[t#mid]]` 命中，嵌入切片内 wikilink 照常展开为链接；字面单层方括号标题（`[WIP]` 类）因状态机回吐永不构成 `Text("[")+Text("[")` 相邻对而天然免疫误伤；引用文本含 `]` 的嵌套写法（`![[t#[[mid]]]]`）受 wikilink 语法限制（坍缩状态机遇 `]` 重置）仍按 missing-section 处理。
-- [x] serde_yaml 迁移：已通过 Cargo package rename 迁移至 `yaml_serde` 0.10（YAML 官方组织维护的 0.9.34 直系 fork；serde_norway 等候选已停滞故未采用）。公共路径 `obsidian_export::serde_yaml` 与解析/序列化行为不变（非破坏变更）；MSRV 由 1.80 升至 1.82。
-- [x] 章节锚点对齐 GitHub slug：已完成——format_anchor 委托 github-slugger crate（封装层先 trim 对齐 VS Code），全角标点无痕剔除、标点不再误产连字符、连字符不折叠不修剪；行为向量来自 2026-08 对 GitHub 网页渲染的实测（与 VS Code 官方包源码、github-slugger 三方一致），与上游 PR #373 同路线（fork 未用回 slug crate 的原因是其对中文做拼音化）。重复标题的去重后缀：check 侧已实现——`deduped_anchors` 以有状态 Slugger 按文档序生成 `-1`/`-2` 后缀（GitHub 同算法，`#dup-1` 类片段可验证）；导出写链有意无后缀（wikilink 引用恒指首个匹配标题，无后缀 slug 在 GitHub 上本就正确跳转）。
-- [x] vault 链接完整性检查（core + CLI check 子命令）：已完成——`Exporter::check()`（`src/linkcheck.rs`）walk 与导出同集的文件，逐链接验证：目标存在性、**越界即断**（逃出检查根的链接即使盘上存在也判 broken，根即导出边界）、wikilink 锚点按 Obsidian 原文语义（复用 reduce_to_section/reduce_to_block 聚合）、标准 md 链接锚点按 slug 语义（format_anchor 幂等匹配）、外部 URL 跳过；引用提取复用 parse_raw_note_with_refs（其新增的源偏移旁路供行号归因），md 链接经同一 parser flavor 二次遍历，代码块/行内代码剔除语义与导出一致。CLI：`obsidian-export check SOURCE`（`--start-at`/`--hidden`/`--no-git`/`--ignore-file` 可复用；gumdrop 禁止 command 与 free 并存，子命令靠首位关键字手动分流），逐条 `{source}:{line}: {status} [{raw}]` + 汇总，退出码沿用 0/1/2 契约（有任何 broken 即 1）。
 - [ ] 嵌入解析缓存与 walker 并行化：vault 索引已消除引用解析的主要瓶颈（基准 7200 文件 11.2s → 0.65s），剩余耗时以文件 IO/解析/渲染为主；两项优化待有真实大 vault 的 profile 数据支撑后再决定是否实施。
 
 已知限制（审查登记，后续迭代评估）：
@@ -208,25 +197,37 @@ obsidian-export-desktop/
 ├── docs/                   # 项目文档（mdBook+fork）
 │   ├── .obsidian/           # Obsidian 编辑器工作区配置
 │   ├── _combined.md         # README 生成的章节嵌入清单
+│   ├── _combined.zh.md      # 中文 README 章节嵌入清单
 │   ├── _edit-warning.md     # 勿直接编辑 README 的警告块
+│   ├── _edit-warning.zh.md  # 中文版勿直接编辑警告块
 │   ├── BUILD.md             # 中文构建指南（CLI 与桌面端）
 │   ├── CHANGELOG.md         # 指向根变更日志的指针文件
 │   ├── changes.md           # 更新日志引导页
+│   ├── changes.zh.md        # 中文更新日志引导页
 │   ├── contribute.md        # 贡献引导页
+│   ├── contribute.zh.md     # 中文贡献引导页
 │   ├── CONTRIBUTING.md      # 指向根贡献指南的指针文件
 │   ├── desktop.md           # Tauri 桌面端功能介绍
-│   ├── generate.sh          # 由 docs 生成 README 的脚本
+│   ├── desktop.zh.md        # 中文桌面端功能介绍
+│   ├── generate.sh          # 双语 README 生成脚本
 │   ├── installation.md      # 安装与升级指南
+│   ├── installation.zh.md   # 中文安装与升级指南
 │   ├── intro.md             # 项目简介与核心特性列表
+│   ├── intro.zh.md          # 中文简介与核心特性列表
 │   ├── license.md           # 许可证说明
+│   ├── license.zh.md        # 中文许可证说明
 │   ├── Release-checklist.md # 发布流程检查清单
 │   ├── sidecar-events.md    # 边车 JSON 事件流契约文档
 │   ├── usage-advanced.md    # CLI 高级选项与技巧
+│   ├── usage-advanced.zh.md # 中文高级选项与技巧
 │   ├── usage-basic.md       # CLI 基本用法说明
-│   └── usage-library.md     # Rust 库使用指引
+│   ├── usage-basic.zh.md    # 中文基本用法说明
+│   ├── usage-library.md     # Rust 库使用指引
+│   └── usage-library.zh.md  # 中文库使用指引
 ├── Justfile                # 核心任务入口（桌面端+发布）
 ├── LICENSE                 # 上游许可证全文
-├── README.md               # 项目自述（generate.sh 产物）
+├── README.md               # 英文自述（generate.sh 产物）
+├── README.zh.md            # 中文自述（generate.sh 产物）
 ├── rust-toolchain.toml     # 固定 Rust 工具链版本
 ├── rustfmt.toml            # 代码格式化规则（需 nightly）
 ├── src/                    # Rust 源码（CLI 与库）
@@ -255,33 +256,7 @@ obsidian-export-desktop/
 │       │   ├── same-filename-different-directories/ # 同名消解黄金输出树
 │       │   ├── single-file/                         # 单文件黄金输出树
 │       │   └── start-at/                            # start-at 黄金输出树
-│       └── input/    # 测试输入 vault（20 个场景）
-│           ├── block-refs/                          # 块引用嵌入定位数据
-│           ├── block-refs-edge/                     # 块引用边界情况数据
-│           ├── block-refs-self-loop/                # 块自引用循环数据
-│           ├── chinese-anchor/                      # 中文标题锚点数据
-│           ├── diagrams/                            # 四语言图表块样例 vault
-│           ├── diagrams-alias/                      # 语言别名图表块 vault
-│           ├── diagrams-fail/                       # 渲染失败保留场景 vault
-│           ├── diagrams-png/                        # png 回落场景 vault
-│           ├── embed-order/                         # 嵌入切片先于展开数据
-│           ├── escaped-pipe-refs/                   # 表格内转义竖线 wikilink 数据
-│           ├── filter-by-tags/                      # 标签过滤数据
-│           ├── formatting-refs/                     # 带格式标记 wikilink 数据
-│           ├── heading-wikilink/                    # 标题含 wikilink 嵌入数据
-│           ├── image-size/                          # 图片尺寸语法数据
-│           ├── infinite-recursion/                  # 循环嵌入测试数据
-│           ├── main-samples/                        # 主样例库（多测试复用）
-│           ├── missing-sections/                    # 缺失章节策略数据
-│           ├── mixed-health/                        # 混合健康度笔记数据
-│           ├── non-ascii/                           # 非 ASCII 文件名数据
-│           ├── numbered-section/                    # 编号章节锚点数据
-│           ├── postprocessors/                      # 后处理器测试数据
-│           ├── relative-references/                 # 相对路径引用数据
-│           ├── same-filename-different-directories/ # 同名文件歧义消解数据
-│           ├── section-variants/                    # 章节匹配变体数据
-│           ├── single-file/                         # 单文件导出数据
-│           └── start-at/                            # start-at 子路径数据
+│       └── input/…   # 测试输入 vault（23 场景子目录）
 └── towncrier.toml          # towncrier 变更日志配置
 <!-- file-tree:tree:end -->
 ```
