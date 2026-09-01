@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "sync-sidecar": "node scripts/sync-sidecar.mjs",
+    "release": "node scripts/release-desktop.mjs",
     "test": "vitest run"
   },
   "dependencies": {

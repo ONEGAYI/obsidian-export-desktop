@@ -108,3 +108,24 @@ pnpm -C desktop tauri icon <图标路径.png>
 3. `uvx towncrier==24.8.0 build --version <版本> --yes` 生成 CHANGELOG；
 4. `bash docs/generate.sh` 重新生成 README；
 5. 提交并打 tag（参见 Justfile 中 `make-new-release` 的完整流程）。
+
+### 上传桌面安装包
+
+tag 推送、release 已建（或至少 tag 已推送）后，一条命令完成桌面安装包的
+构建、改名与上传：
+
+```powershell
+just desktop-release vX.Y.Z
+```
+
+等价于 `just desktop-build` + 收集 `bundle/{msi,nsis}/` 产物 + 文件名空格
+改点连接 + `gh release upload vX.Y.Z … --clobber -R ONEGAYI/obsidian-export-desktop`。
+脚本会先校验每个产物文件名含目标版本号（防止版本错位上传），再改名上传；
+只想核对清单不上传时加 `--dry-run`：
+
+```powershell
+pnpm -C desktop run release -- vX.Y.Z --dry-run
+```
+
+其余发布细节（workflow 手动 dispatch、CLI 产物本地构建等）见
+[Release-checklist.md](Release-checklist.md)。

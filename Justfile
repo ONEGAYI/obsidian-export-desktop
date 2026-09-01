@@ -26,6 +26,12 @@ desktop-dev: desktop-sync-sidecar
 desktop-build: desktop-sync-sidecar
     pnpm -C desktop tauri build
 
+# Build the desktop bundle and upload its installers to an existing GitHub
+# release: renames spaces to dots and validates the filename carries the
+# tag's version before uploading to the fork (pass --dry-run to only list).
+desktop-release tag: desktop-build
+    pnpm -C desktop run release -- {{tag}}
+
 # Run the desktop crate's Rust tests
 desktop-test:
     cargo test --manifest-path desktop/src-tauri/Cargo.toml
