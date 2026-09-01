@@ -45,7 +45,6 @@
 ## 待定事项
 
 - [ ] 桌面端后续迭代：打包分发流水线（`tauri build`，与 cargo-dist 互不干扰）。
-- [x] Obsidian 注释转换（`%%` 百分号围栏）：已完成——`src/comments.rs` 事件流状态机 + `postprocessors::obsidian_comments(CommentsMode)`（Keep 默认/Convert 转 HTML 注释/Strip 移除），CLI `--comments` 三态、桌面端「转换行为」页三态单选。识别为非贪心纯文本配对（跨空行/列表/引用块边界支持，未闭合保持字面），免疫区与 Obsidian 一致（代码块/行内代码/公式/表格/链接文本内不识别，代码块内 `%%` 不提前闭合注释）；输出走 `Event::InlineHtml`（段内）与 `HtmlBlock` 三件套（跨块级，两端容器骨架重放保平衡，`Tag::to_end()` 转换），内容 `--` 清洗为 `- -`；测试为双黄金树（comments / comments-strip）+ keep 断言 + CLI 契约。
 - [ ] 嵌入解析缓存与 walker 并行化：vault 索引已消除引用解析的主要瓶颈（基准 7200 文件 11.2s → 0.65s），剩余耗时以文件 IO/解析/渲染为主；两项优化待有真实大 vault 的 profile 数据支撑后再决定是否实施。
 
 已知限制（审查登记，后续迭代评估）：
