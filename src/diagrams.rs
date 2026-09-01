@@ -19,6 +19,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -32,6 +33,13 @@ use crate::{encode_link_destination, Context, ExportEvent, MarkdownEvents};
 /// Generous enough for mmdc's headless-browser startup; prevents a wedged
 /// renderer from hanging the whole export.
 const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// How long the collecting side waits for a reader thread to hand over its
+/// buffer after the child is gone. Pipes normally hit EOF within
+/// milliseconds, but a descendant that inherited a pipe handle (e.g. a
+/// browser spawned by a jammed renderer) can keep it open indefinitely, so
+/// waiting must be bounded — its output is lost, the export is not.
+const READER_GRACE: Duration = Duration::from_secs(5);
 
 /// Cap on how much of a note's stem is carried over into asset filenames, so
 /// that `<stem>-<16 hex>.<ext>` stays clear of Windows path-length limits.
@@ -437,6 +445,7 @@ pub fn cmd_wrapper_line(script: &Path, args: &[OsString]) -> OsString {
     line
 }
 
+#[derive(Debug)]
 pub struct ToolOutput {
     pub status: ExitStatus,
     pub stdout: Vec<u8>,
@@ -482,35 +491,41 @@ pub fn run_command(
         })
     });
 
-    let stdout_reader = child.stdout.take().map(|mut pipe| {
+    // Readers deliver through a channel so the collecting side can wait with
+    // a deadline: on timeout the pipe may still be held open by a grandchild
+    // (see kill_process_tree), and joining a blocked reader would hang.
+    let (stdout_tx, stdout_rx) = mpsc::channel();
+    if let Some(mut pipe) = child.stdout.take() {
         thread::spawn(move || {
             let mut buffer = Vec::new();
             let _ = pipe.read_to_end(&mut buffer);
-            buffer
-        })
-    });
-    let stderr_reader = child.stderr.take().map(|mut pipe| {
+            let _ = stdout_tx.send(buffer);
+        });
+    }
+    let (stderr_tx, stderr_rx) = mpsc::channel();
+    if let Some(mut pipe) = child.stderr.take() {
         thread::spawn(move || {
             let mut buffer = Vec::new();
             let _ = pipe.read_to_end(&mut buffer);
-            buffer
-        })
-    });
+            let _ = stderr_tx.send(buffer);
+        });
+    }
 
     let deadline = Instant::now() + timeout;
     let status = loop {
         match child.try_wait().context(WaitSnafu)? {
             Some(status) => break status,
             None if Instant::now() >= deadline => {
+                kill_process_tree(child.id());
                 let _ = child.kill();
                 // Reap so the process handle and pipes are released before
-                // joining the reader threads.
+                // collecting the reader threads.
                 let _ = child.wait().context(WaitSnafu)?;
                 if let Some(writer) = stdin_writer {
                     let _ = writer.join();
                 }
-                let _ = join_reader(stdout_reader);
-                let _ = join_reader(stderr_reader);
+                let _ = collect_reader(&stdout_rx);
+                let _ = collect_reader(&stderr_rx);
                 return Err(ToolRunError::Timeout {
                     seconds: timeout.as_secs(),
                 });
@@ -522,8 +537,8 @@ pub fn run_command(
     if let Some(writer) = stdin_writer {
         let _ = writer.join();
     }
-    let stdout = join_reader(stdout_reader);
-    let stderr = join_reader(stderr_reader);
+    let stdout = collect_reader(&stdout_rx);
+    let stderr = collect_reader(&stderr_rx);
     Ok(ToolOutput {
         status,
         stdout,
@@ -531,10 +546,35 @@ pub fn run_command(
     })
 }
 
-fn join_reader(handle: Option<thread::JoinHandle<Vec<u8>>>) -> Vec<u8> {
-    handle
-        .and_then(|handle| handle.join().ok())
-        .unwrap_or_default()
+/// Wait for one reader thread's buffer, bounded by [`READER_GRACE`]. An
+/// empty buffer is returned when the deadline passes (the reader is left
+/// detached) or when there was no pipe to begin with.
+fn collect_reader(rx: &mpsc::Receiver<Vec<u8>>) -> Vec<u8> {
+    rx.recv_timeout(READER_GRACE).unwrap_or_default()
+}
+
+/// Best-effort kill of a process together with everything it spawned.
+/// `child.kill()` only terminates the direct child, which for `.cmd` shims
+/// is `cmd.exe` itself: the actual renderer would survive as a grandchild,
+/// still holding the stdout/stderr pipe handles open. On Windows `taskkill
+/// /T /F` walks the tree and takes them all down. On Unix, npm shims are
+/// exec'd directly (the direct kill reaches the renderer), so the bounded
+/// [`READER_GRACE`] is the only fallback kept there.
+fn kill_process_tree(pid: u32) {
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/T", "/F", "/PID"])
+            .arg(pid.to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = pid;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -709,8 +749,13 @@ pub fn render_to_asset(
                 .or_else(|_| {
                     // Rename can fail across filesystems; fall back to a copy
                     // plus removal, which loses atomicity but still lands the
-                    // complete file.
-                    fs::copy(&tmp_out, &target).and_then(|_| fs::remove_file(&tmp_out))
+                    // complete file. Unreachable today (the temporary file
+                    // lives in the same directory as the target) and kept as
+                    // defense in case the tmp placement ever changes. Once
+                    // the copy has landed, failing to remove the leftover
+                    // temporary file must not fail the render: the asset
+                    // itself is complete.
+                    fs::copy(&tmp_out, &target).and_then(|_| fs::remove_file(&tmp_out).or(Ok(())))
                 })
                 .context(IoSnafu {
                     context: format!("failed to move asset into place at '{}'", target.display()),
@@ -1352,12 +1397,11 @@ fn main() {}
 
         // Source carrying its own environment is embedded verbatim (no
         // double wrapping).
-        let wrapper = tikz_wrapper("\\begin{tikzpicture}\\draw;\\end{tikzpicture}");
+        let prewrapped = tikz_wrapper("\\begin{tikzpicture}\\draw;\\end{tikzpicture}");
         assert_eq!(
-            wrapper.matches("\\begin{tikzpicture}").count(),
+            prewrapped.matches("\\begin{tikzpicture}").count(),
             1,
-            "{}",
-            wrapper
+            "{prewrapped}"
         );
     }
 
@@ -1487,5 +1531,87 @@ fn main() {}
         assert_eq!(tail_utf8(b"abcdef", 3), "def");
         assert_eq!(tail_utf8(b"abc", 100), "abc");
         assert_eq!(tail_utf8(b"", 10), "");
+    }
+
+    /// A wedged tool must be reported as a timeout well before its own
+    /// runtime ends — the kill/collect path (tree kill, bounded reader
+    /// grace) has to return instead of hanging. On Windows the mock is a
+    /// `.cmd` script, exercising the cmd.exe wrapper on the timeout path.
+    #[test]
+    fn run_command_times_out_without_blocking() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+
+        #[cfg(windows)]
+        let (script, is_cmd) = {
+            let script = tmp.path().join("wedge.cmd");
+            // `timeout` needs an interactive console; ping is the classic
+            // ~10 second sleep substitute.
+            let body = "@ping -n 11 127.0.0.1 >nul\r\n";
+            fs::write(&script, body).expect("write wedge script");
+            (script, true)
+        };
+        #[cfg(not(windows))]
+        let (script, is_cmd) = {
+            use std::os::unix::fs::PermissionsExt;
+
+            let script = tmp.path().join("wedge");
+            fs::write(&script, "#!/bin/sh\nsleep 10\n").expect("write wedge script");
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("chmod");
+            (script, false)
+        };
+
+        let tool = ResolvedTool {
+            path: script,
+            is_cmd_script: is_cmd,
+        };
+        let command = build_command(&tool, &[]);
+        let started = Instant::now();
+        let result = run_command(command, None, Duration::from_millis(150));
+        assert!(
+            matches!(result, Err(ToolRunError::Timeout { seconds: 0 })),
+            "expected a timeout error, got {:?}",
+            result
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "run_command must return shortly after the timeout, not wait out the child (took {:?})",
+            started.elapsed()
+        );
+    }
+
+    /// A short-lived successful invocation still yields its stdout through
+    /// the channel-based readers.
+    #[test]
+    fn run_command_collects_stdout() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+
+        #[cfg(windows)]
+        let (script, is_cmd) = {
+            let script = tmp.path().join("hello.cmd");
+            fs::write(&script, "@echo hello\r\n").expect("write script");
+            (script, true)
+        };
+        #[cfg(not(windows))]
+        let (script, is_cmd) = {
+            use std::os::unix::fs::PermissionsExt;
+
+            let script = tmp.path().join("hello");
+            fs::write(&script, "#!/bin/sh\necho hello\n").expect("write script");
+            fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("chmod");
+            (script, false)
+        };
+
+        let tool = ResolvedTool {
+            path: script,
+            is_cmd_script: is_cmd,
+        };
+        let output = run_command(build_command(&tool, &[]), None, Duration::from_secs(10))
+            .expect("run should succeed");
+        assert!(output.status.success());
+        assert!(
+            String::from_utf8_lossy(&output.stdout).trim() == "hello",
+            "stdout: {:?}",
+            output.stdout
+        );
     }
 }

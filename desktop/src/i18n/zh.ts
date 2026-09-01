@@ -142,25 +142,25 @@ export const zh = {
     resetDefaults: "恢复默认",
     back: "返回",
     diagramsDescription:
-      "导出时把特殊代码块（```dot```、```mermaid``` 等）调用本机工具渲染为图片并嵌入产物。工具从 PATH 自动查找；缺失时导出开始前即报错退出，不会写出任何文件。",
+      "导出时把特殊代码块（dot、Mermaid 等）调用本机工具渲染为图片，并以标准图片引用嵌入产物。工具从 PATH 自动查找；缺失时导出开始前即报错退出，不会写出任何文件。",
     diagramRenderersLabel: "启用的渲染器",
     // 渲染器选项：药丸复选的标签与悬浮说明。
     diagramRendererChoices: {
       dot: {
         label: "dot",
-        description: "Graphviz DOT 图（```dot``` / ```graphviz``` 块），需要 dot",
+        description: "Graphviz DOT 图（dot / graphviz 代码块），需要 dot",
       },
       mermaid: {
         label: "Mermaid",
-        description: "Mermaid 图表（```mermaid``` 块），需要 mmdc（mermaid-cli）",
+        description: "Mermaid 图表（mermaid 代码块），需要 mmdc（mermaid-cli）",
       },
       wavedrom: {
         label: "WaveDrom",
-        description: "数字时序图（```wavedrom``` 块），需要 wavedrom",
+        description: "数字时序图（wavedrom 代码块），需要 wavedrom",
       },
       tikz: {
         label: "TikZ",
-        description: "TikZ 绘图（```tikz``` 块），需要 latex 与 dvisvgm（TeX 发行版）；图内中文可能渲染异常",
+        description: "TikZ 绘图（tikz 代码块），需要 latex 与 dvisvgm（TeX 发行版）；图内中文可能渲染异常",
       },
     },
     diagramFormatLabel: "输出格式",
@@ -232,6 +232,7 @@ export const zh = {
       hardLinebreaks: "硬换行",
       linkCheck: "导出后链接检查（{target}）",
       diagramRenderers: "图表渲染 ×{n}（{format}）",
+      diagramBins: "自定义工具路径 ×{n}",
     },
   },
   dialog: {

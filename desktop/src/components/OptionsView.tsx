@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   ArrowLeftIcon,
   ArrowRightLeftIcon,
@@ -160,18 +160,20 @@ function PillCheckbox({
   onCheckedChange,
 }: {
   label: string;
-  /** Extra description surfaced as a tooltip. */
+  /** Dependency notes; exposed both as a tooltip and to assistive tech. */
   hint: string;
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
 }) {
   const { t } = useI18n();
+  const hintId = useId();
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={checked}
       title={hint}
+      aria-describedby={hintId}
       aria-label={fmt(
         checked
           ? t.common.statefulControl.nameOn
@@ -186,6 +188,11 @@ function PillCheckbox({
       }`}
     >
       {label}
+      {/* The hint matters for the enable decision, so it must reach keyboard
+          and screen-reader users, not just hover. */}
+      <span className="sr-only" id={hintId}>
+        {hint}
+      </span>
     </button>
   );
 }
@@ -287,19 +294,21 @@ export function OptionsView({
                 aria-selected={page === item.id}
                 aria-controls="settings-tabpanel"
                 onClick={() => setPage(item.id)}
-                className={`flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm whitespace-nowrap transition-colors sm:justify-start ${
+                className={`flex min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors sm:justify-start ${
                   page === item.id
                     ? "bg-[var(--background-primary)] font-semibold text-[var(--interactive-accent)]"
                     : "text-muted-foreground hover:bg-[var(--background-modifier-hover)]"
                 }`}
               >
                 {item.icon}
-                {item.label}
+                {/* Truncatable so the badge can never push long labels out
+                    of the fixed-width side column. */}
+                <span className="min-w-0 truncate">{item.label}</span>
                 {/* First-level brief for the diagram page: how many renderers
                     are on, visible without opening the page. */}
                 {item.id === "diagrams" &&
                   options.diagramRenderers.length > 0 && (
-                    <span className="ml-auto rounded-full bg-[var(--interactive-accent)] px-1.5 py-0.5 text-[10px] leading-none font-semibold text-[var(--text-on-accent)]">
+                    <span className="ml-auto shrink-0 rounded-full bg-[var(--interactive-accent)] px-1.5 py-0.5 text-[10px] leading-none font-semibold text-[var(--text-on-accent)]">
                       {options.diagramRenderers.length}/
                       {DIAGRAM_RENDERER_VALUES.length}
                     </span>

@@ -59,6 +59,12 @@
 
 已知限制（审查登记，后续迭代评估）：
 
+- [ ] 渲染超时的进程树击杀平台不对称：Windows 走 `taskkill /T /F` 连孙进程根治；Unix 未设进程组（避免改变 Ctrl+C 传播语义），卡死的孙进程持有 pipe 时靠 5s reader 宽限兜底（reader 线程泄漏但 `run_command` 必返，不挂起导出）。
+- [ ] 嵌入展开的图表副本渲染为宿主笔记的独立资产（`<宿主stem>-<hash>` 与源笔记资产各一份，字节相同）：语义是「每份产物自包含」；代价是 `diagram-render` 的 `index` 可超过 `total`（预扫描只数源文件自身块，契约文档已声明 total 为估计值）。
+- [ ] cmd.exe 包装对工具路径含成对 `%` 的形态会做变量展开（引号不保护）：罕见路径建议 `--diagram-bin` 指向 `.exe` 绕过包装（usage-advanced.md 已注明）。
+- [ ] `.render-*` 临时文件在进程崩溃/被杀时残留于 `assets/`，无启动清扫（并行约束使「渲染前清目录」会误删其他 worker 的在写文件）；属垃圾累积，不影响正确性。
+- [ ] 预扫描对全 vault 做二次 read+parse（启用渲染时 IO 与解析翻倍，7200 文件基准约 +0.5s）：可优化为行扫描识别 fence，待 profile 数据支撑。
+- [ ] 图表 mock 集成测试整体 `#![cfg(debug_assertions)]`：`cargo test --release` 下该文件静默剔除（注入钩子 release 编译为 None，跑必假失败）。
 - [ ] 引用文本含换行时 `from_str` 的正则整体不匹配（`.*?` 不跨 `\n`），理论上可触发 `expect` panic（rayon worker 中）；ref_text 状态机按事件拼接、多行输入实际罕见，存量行为多年未见报告，改动需先证明可达性。
 - [ ] 同文件嵌入的嵌套解析是切片局部的：嵌入片段内的 `![[#Other]]` 只在切片内查找（Obsidian 从全文件解析），跨 section 引用在切片中查不到时按 missing-section 塌缩；块的优雅自引用终止正依赖此局部性，改为全文件解析需重新设计防环。
 
@@ -121,7 +127,8 @@ obsidian-export-desktop/
 ├── Cargo.lock              # 根 crate 依赖锁文件
 ├── Cargo.toml              # 主 crate 清单（lib+bin）
 ├── changelog.d/            # towncrier 变更片段目录
-│   └── .gitignore # 片段目录占位忽略文件
+│   ├── .gitignore   # 片段目录占位忽略文件
+│   └── 9.feature.md # 图表渲染功能变更片段
 ├── CHANGELOG.md            # 变更日志（towncrier 生成）
 ├── CLAUDE.md               # Claude 专属补充规则
 ├── cliff.toml              # git-cliff 备用变更日志配置
@@ -253,6 +260,7 @@ obsidian-export-desktop/
 │           ├── block-refs-self-loop/                # 块自引用循环数据
 │           ├── chinese-anchor/                      # 中文标题锚点数据
 │           ├── diagrams/                            # 四语言图表块样例 vault
+│           ├── diagrams-alias/                      # 语言别名图表块 vault
 │           ├── diagrams-fail/                       # 渲染失败保留场景 vault
 │           ├── diagrams-png/                        # png 回落场景 vault
 │           ├── embed-order/                         # 嵌入切片先于展开数据

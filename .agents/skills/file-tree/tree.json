@@ -351,6 +351,16 @@
           "tags": [
             "config"
           ]
+        },
+        "9.feature.md": {
+          "kind": "file",
+          "desc": "图表渲染功能变更片段",
+          "detail": [
+            "towncrier 片段：--render-diagrams/--diagram-format/--diagram-bin 与桌面端图表渲染页（PR 号暂定 9，合并时核对）"
+          ],
+          "tags": [
+            "docs"
+          ]
         }
       }
     },
@@ -2103,6 +2113,14 @@
                 "diagrams": {
                   "kind": "dir",
                   "desc": "四语言图表块样例 vault",
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "diagrams-alias": {
+                  "kind": "dir",
+                  "desc": "语言别名图表块 vault",
                   "tags": [
                     "fixture"
                   ],

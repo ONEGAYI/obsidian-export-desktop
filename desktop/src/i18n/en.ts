@@ -151,24 +151,24 @@ export const en: Dict = {
     resetDefaults: "Reset to defaults",
     back: "Back",
     diagramsDescription:
-      "Renders special code blocks (```dot```, ```mermaid```, …) into images through local tools during export and embeds them as regular Markdown images. Tools are looked up on PATH automatically; a missing tool aborts the export before any file is written.",
+      "Renders special code blocks (dot, Mermaid, …) into images through local tools during export and embeds them as regular Markdown images. Tools are looked up on PATH automatically; a missing tool aborts the export before any file is written.",
     diagramRenderersLabel: "Enabled renderers",
     diagramRendererChoices: {
       dot: {
         label: "dot",
-        description: "Graphviz DOT diagrams (```dot``` / ```graphviz``` blocks); requires dot",
+        description: "Graphviz DOT diagrams (dot / graphviz blocks); requires dot",
       },
       mermaid: {
         label: "Mermaid",
-        description: "Mermaid diagrams (```mermaid``` blocks); requires mmdc (mermaid-cli)",
+        description: "Mermaid diagrams (mermaid blocks); requires mmdc (mermaid-cli)",
       },
       wavedrom: {
         label: "WaveDrom",
-        description: "Digital timing diagrams (```wavedrom``` blocks); requires wavedrom",
+        description: "Digital timing diagrams (wavedrom blocks); requires wavedrom",
       },
       tikz: {
         label: "TikZ",
-        description: "TikZ drawings (```tikz``` blocks); requires latex and dvisvgm (a TeX distribution); CJK text inside may render poorly",
+        description: "TikZ drawings (tikz blocks); requires latex and dvisvgm (a TeX distribution); CJK text inside may render poorly",
       },
     },
     diagramFormatLabel: "Output format",
@@ -239,6 +239,7 @@ export const en: Dict = {
       hardLinebreaks: "Hard line breaks",
       linkCheck: "Link check after export ({target})",
       diagramRenderers: "Diagram rendering ×{n} ({format})",
+      diagramBins: "Custom tool paths ×{n}",
     },
   },
   dialog: {

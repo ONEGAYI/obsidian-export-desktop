@@ -789,7 +789,10 @@ impl<'a> Exporter<'a> {
     /// written, so an unresolvable tool aborts the export atomically. The
     /// walk honors the same `start_at` filter as the export itself; tag
     /// filtering is deliberately not simulated (notes skipped by
-    /// `StopAndSkipNote` still count), erring on the stricter side.
+    /// `StopAndSkipNote` still count), erring on the stricter side. Files
+    /// that cannot be read are skipped here — the main pass reports them as
+    /// per-file failures, which keeps a prescan error from failing the
+    /// whole export.
     #[allow(clippy::arithmetic_side_effects)]
     fn prepare_diagram_state(&mut self) -> Result<()> {
         let contents = self
@@ -803,7 +806,13 @@ impl<'a> Exporter<'a> {
             .iter()
             .filter(|file| file.starts_with(&self.start_at) && is_markdown_file(file))
         {
-            let text = fs::read_to_string(file).context(ReadSnafu { path: file })?;
+            // A file the prescan cannot read (IO error, non-UTF-8) is
+            // reported as a per-file failure by the main pass; skipping it
+            // here keeps the prescan as forgiving as the export itself
+            // instead of failing the whole run up front.
+            let Ok(text) = fs::read_to_string(file) else {
+                continue;
+            };
             let hit = diagrams::prescan_note(&text, &self.diagram_renderers);
             total += hit.renderable_blocks;
             renderers_needed.extend(hit.renderers);

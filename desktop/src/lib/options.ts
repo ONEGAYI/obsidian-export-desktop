@@ -302,6 +302,14 @@ export function summarizeOptions(options: ExportOptions, t: Dict): string[] {
         format: t.options.diagramFormatChoices[options.diagramFormat].label,
       }),
     );
+    // Custom tool paths change what the CLI runs; they belong in the
+    // confirmation even though their values stay in the settings page.
+    const binCount = Object.values(options.diagramBins).filter((path) =>
+      path.trim(),
+    ).length;
+    if (binCount > 0) {
+      items.push(fmt(t, "diagramBins", { n: binCount }));
+    }
   }
   return items;
 }

@@ -259,7 +259,8 @@ pub struct ExportOptions {
     pub diagram_format: DiagramFormatChoice,
     /// Explicit executable paths overriding the PATH lookup, keyed by tool
     /// name (dot/mmdc/wavedrom/latex/dvisvgm). Blank values are treated as
-    /// unset, mirroring the CLI filter.
+    /// unset — a GUI-side convenience the CLI does not share: it rejects an
+    /// empty `--diagram-bin` path as a usage error instead of ignoring it.
     pub diagram_bins: std::collections::BTreeMap<String, String>,
 }
 

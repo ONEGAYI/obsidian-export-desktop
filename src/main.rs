@@ -434,6 +434,14 @@ fn main() {
         exporter.diagram_renderers(diagram_renderers);
         exporter.diagram_format(args.diagram_format);
         exporter.diagram_bins(diagram_bins);
+    } else if !diagram_bins.is_empty() || args.diagram_format != DiagramFormat::Svg {
+        // Both flags only take effect alongside --render-diagrams; without
+        // it they would be silently dropped, which reads like a bug.
+        eprintln!(
+            "Warning: --diagram-format and --diagram-bin have no effect without --render-diagrams"
+        );
+    } else {
+        // Nothing diagram-related configured.
     }
 
     if let Some(path) = args.start_at {
