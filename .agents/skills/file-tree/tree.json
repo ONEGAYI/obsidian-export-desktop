@@ -352,36 +352,6 @@
           "tags": [
             "config"
           ]
-        },
-        "12.new.md": {
-          "kind": "file",
-          "desc": "注释转换功能变更片段",
-          "detail": [
-            "towncrier 片段：--comments keep|convert|strip 三态、识别语义与免疫区、桌面端转换行为页三态单选（PR #12）"
-          ],
-          "tags": [
-            "docs"
-          ]
-        },
-        "14.fix.md": {
-          "kind": "file",
-          "desc": "注释转换审查修复变更片段",
-          "detail": [
-            "towncrier 片段：PR #12 审查发现的 P0/P1 修复（容器误删、格式跨界失衡、-- 折叠复活 -->）与文档同步（PR #14）"
-          ],
-          "tags": [
-            "docs"
-          ]
-        },
-        "9.feature.md": {
-          "kind": "file",
-          "desc": "图表渲染功能变更片段",
-          "detail": [
-            "towncrier 片段：--render-diagrams/--diagram-format/--diagram-bin 与桌面端图表渲染页（PR 号暂定 9，合并时核对）"
-          ],
-          "tags": [
-            "docs"
-          ]
         }
       }
     },

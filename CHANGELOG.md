@@ -2,6 +2,16 @@
 
 <!-- towncrier release notes start -->
 
+## [26.9.0](https://github.com/zoni/obsidian-export/tree/26.9.0) - 2026-09-02
+
+This release adds two features: diagram rendering (dot/mermaid/wavedrom/tikz code blocks rendered to image assets via local tools and embedded in the output) and three-state handling of Obsidian comments (`%%` fenced: keep, convert to HTML comments, or strip). The README also gained a Chinese edition.
+
+### New Features
+
+- 导出时将 Obsidian 特殊代码块（dot/mermaid/wavedrom/tikz）通过本机工具渲染为图片资产并嵌入产物：内容寻址命名与增量缓存、png 模式按渲染器回落 svg、单块渲染失败保留原代码块、工具缺失在预扫描阶段原子化报错（零输出）。工具优先显式路径（`--diagram-bin`），回落 PATH 查找（Windows 含 PATHEXT 与 `.cmd` 包装执行）；导出事件流新增 `diagram-render` 进度事件；桌面端设置新增「图表渲染」页（药丸复选 + 格式与路径覆盖）。([#9](https://github.com/ONEGAYI/obsidian-export-desktop/pull/9))
+- 导出时可转换 Obsidian 注释（`%%` 百分号围栏）：新增 `--comments keep|convert|strip` 三态选项（默认 keep 保持现状）。convert 模式将注释改写为 HTML 注释（`<!-- -->`，源码保留、渲染隐藏），strip 模式彻底移除。识别遵循 Obsidian 纯文本配对语义（非贪心、跨空行与列表/引用块边界、未闭合保持字面），代码块、行内代码、公式、表格与链接文本内不识别；注释内容中会破坏 HTML 注释语法的 `--` 序列自动中和。库用户经 `obsidian_export::postprocessors::obsidian_comments(CommentsMode)` 挂载同一后处理器；桌面端「转换行为」设置页新增三态单选。([#12](https://github.com/ONEGAYI/obsidian-export-desktop/pull/12))
+
+
 ## [26.8.7](https://github.com/zoni/obsidian-export/tree/26.8.7) - 2026-08-28
 
 Patch release for the reference parser: wikilinks that escape their alias pipe as `\|` (required inside Markdown tables) now resolve normally instead of being treated as missing.
@@ -1161,3 +1171,4 @@ notable new feature.
 - [v26.8.5](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.4...v26.8.5)
 - [v26.8.6](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.5...v26.8.6)
 - [v26.8.7](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.6...v26.8.7)
+- [v26.9.0](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.7...v26.9.0)

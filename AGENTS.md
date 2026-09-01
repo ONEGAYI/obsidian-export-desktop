@@ -120,10 +120,7 @@ obsidian-export-desktop/
 ├── Cargo.lock              # 根 crate 依赖锁文件
 ├── Cargo.toml              # 主 crate 清单（lib+bin）
 ├── changelog.d/            # towncrier 变更片段目录
-│   ├── .gitignore   # 片段目录占位忽略文件
-│   ├── 12.new.md    # 注释转换功能变更片段
-│   ├── 14.fix.md    # 注释转换审查修复变更片段
-│   └── 9.feature.md # 图表渲染功能变更片段
+│   └── .gitignore # 片段目录占位忽略文件
 ├── CHANGELOG.md            # 变更日志（towncrier 生成）
 ├── CLAUDE.md               # Claude 专属补充规则
 ├── cliff.toml              # git-cliff 备用变更日志配置
