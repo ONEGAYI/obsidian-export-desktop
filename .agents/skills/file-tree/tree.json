@@ -352,12 +352,11 @@
             "config"
           ]
         },
-        "10.new.md": {
+        "12.new.md": {
           "kind": "file",
           "desc": "注释转换功能变更片段",
           "detail": [
-            "towncrier 片段：--comments keep|convert|strip 三态、识别语义与免疫区、桌面端转换行为页三态单选",
-            "（PR 号暂定 10，合并时核对）"
+            "towncrier 片段：--comments keep|convert|strip 三态、识别语义与免疫区、桌面端转换行为页三态单选（PR #12）"
           ],
           "tags": [
             "docs"

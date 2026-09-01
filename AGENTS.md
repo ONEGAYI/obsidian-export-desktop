@@ -121,7 +121,7 @@ obsidian-export-desktop/
 ├── Cargo.toml              # 主 crate 清单（lib+bin）
 ├── changelog.d/            # towncrier 变更片段目录
 │   ├── .gitignore   # 片段目录占位忽略文件
-│   ├── 10.new.md    # 注释转换功能变更片段
+│   ├── 12.new.md    # 注释转换功能变更片段
 │   └── 9.feature.md # 图表渲染功能变更片段
 ├── CHANGELOG.md            # 变更日志（towncrier 生成）
 ├── CLAUDE.md               # Claude 专属补充规则
