@@ -8,7 +8,6 @@
  > quote with <!-- note --> inside
 
 * outer 
-
 <!--
 starts here
 
@@ -23,22 +22,18 @@ starts here
  > crosses items --> quoted tail
 
  > 
-
-<!--
-opens in first paragraph
-
-closes in second paragraph
--->
-
+ > <!--
+ > opens in first paragraph
+ > 
+ > closes in second paragraph
+ > -->
  > 
  > still inside
 
-* 
-
-<!--
-item opens in first paragraph
-
-closes in second paragraph
--->
-
-* item tail
+* <!--
+  item opens in first paragraph
+  
+  closes in second paragraph
+  -->
+  
+  item tail

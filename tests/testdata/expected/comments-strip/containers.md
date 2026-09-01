@@ -8,7 +8,6 @@
  > quote with  inside
 
 * outer 
-
 * tail
 * third
 
@@ -16,10 +15,6 @@
  > quoted tail
 
  > 
-
- > 
  > still inside
-
-* 
 
 * item tail
