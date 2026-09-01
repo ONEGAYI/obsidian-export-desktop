@@ -38,6 +38,7 @@
     - fork 的 CI 在 PR #6 前从未全绿（历史 PR 手动合并不等待），Linux 侧存量债一次性清偿后才成为基线：`cfg(not(windows))` 测试本地不可见（平台断言、`tail_expr_drop_order`）、nightly rustfmt 行为演进（imports 粒度变化需全量重排）、tarpaulin 插桩拖慢执行暴露速率类时序断言——本地 Windows 全绿不代表 CI 绿，动测试时留意平台耦合与耗时假设。
     - `docs/CHANGELOG.md` 与 `docs/CONTRIBUTING.md` 是 **git symlink（mode 120000）**：Windows checkout 把它们物化成「内容为目标路径的普通文本文件」，当普通文件编辑（哪怕只追加换行）会污染 blob，Linux 上 symlink 目标带上 `\n` 变 broken（pre-commit 的 check-symlinks 挂）。修复方式 `git hash-object -w --stdin` + `update-index --cacheinfo 120000,<hash>,<path>`；改文件前先 `git ls-files -s` 看 mode。
     - towncrier 片段正文首行**不要带 `- ` 列表前缀**（towncrier 生成时自己加，双前缀 `- - ` 需手工修 CHANGELOG）；生成后条目链接按 issue_format 指向 zoni issues，需手工替换为 fork 的 pull 链接。
+    - **（PR #9 实践）rustfmt 工具链已钉 dated nightly `nightly-2026-08-20`**：裸 `nightly` 会随 rustfmt 演进漂移（CI 装到的比本地新就全仓重排、CI 红）。三处同步维护：`Justfile` 的 `rustfmt_toolchain` 变量（`just fmt` 一键安装+格式化）、`.github/workflows/ci.yml` 的 fmt matrix 项、`.pre-commit-config.yaml` 的 rustfmt hook。升级流程：改三处日期 → `just fmt` 全量重排 → 同一提交入库；pre-commit 的 rustfmt hook 要求本地已装该 dated 工具链（未装时 hook 报 toolchain 不存在，跑一次 `just fmt` 即装）。本地 `nightly` 别名恰为同构建时可临时用 `cargo +nightly fmt`，但别依赖（`rustup update` 后即漂移）。
 - 通用行为准则、提交与发布规范以用户级 AGENTS.md 为准，此处不重复。
 
 ## 待定事项

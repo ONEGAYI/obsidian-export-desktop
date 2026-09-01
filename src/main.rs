@@ -8,9 +8,23 @@ use eyre::{eyre, Result};
 use gumdrop::Options;
 use obsidian_export::postprocessors::{filter_by_tags, softbreaks_to_hardbreaks};
 use obsidian_export::{
-    AssetTarget, DiagramFormat, DiagramRenderer, DownloadProgress, DownloadProgressReporter,
-    ExportError, ExportEvent, Exporter, FrontmatterStrategy, LinkCheckReport, LinkCheckStatus,
-    LinkKind, MissingSectionStrategy, ToolName, UpdateClient, UpdateStatus, UreqUpdateClient,
+    AssetTarget,
+    DiagramFormat,
+    DiagramRenderer,
+    DownloadProgress,
+    DownloadProgressReporter,
+    ExportError,
+    ExportEvent,
+    Exporter,
+    FrontmatterStrategy,
+    LinkCheckReport,
+    LinkCheckStatus,
+    LinkKind,
+    MissingSectionStrategy,
+    ToolName,
+    UpdateClient,
+    UpdateStatus,
+    UreqUpdateClient,
     WalkOptions,
 };
 use serde_json::json;

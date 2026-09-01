@@ -120,8 +120,8 @@ enum MockVariant {
 /// Write the mock script for one tool, matching the argument layout the
 /// render pipeline actually invokes:
 ///
-/// - `dot`:     `dot -Tsvg|-Tpng IN -o OUT` (the format flag is recorded in
-///   the calls log so tests can pin the `-Tpng`/`-Tsvg` pass-through)
+/// - `dot`:     `dot -Tsvg|-Tpng IN -o OUT` (the format flag is recorded in the calls log so tests
+///   can pin the `-Tpng`/`-Tsvg` pass-through)
 /// - `mmdc`:    `mmdc -i IN -o OUT`
 /// - `wavedrom`: `wavedrom --input IN`, SVG on stdout
 /// - `latex`:   `latex -interaction=nonstopmode -halt-on-error -output-directory DIR IN`
@@ -170,7 +170,7 @@ fn write_mock_script(dir: &Path, tool: &str, variant: MockVariant) -> PathBuf {
     };
 
     #[cfg(not(windows))]
-    let (path, script) = {
+    let path = {
         use std::os::unix::fs::PermissionsExt;
 
         let path = dir.join(tool);
@@ -202,9 +202,9 @@ fn write_mock_script(dir: &Path, tool: &str, variant: MockVariant) -> PathBuf {
             ),
             (other, _) => panic!("unknown mock tool {}", other),
         };
-        fs::write(&path, body).expect("write mock script");
+        fs::write(&path, &body).expect("write mock script");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod mock script");
-        (path, body)
+        path
     };
 
     #[cfg(windows)]
@@ -829,20 +829,23 @@ fn single_file_export_renders_into_sibling_assets_dir() {
     // filename; assets land in an `assets/` directory next to the output
     // file, named after the output file's stem.
     let mocks = install_mock_tools(&["dot"]);
-    let (dest, dest_str) = dest_dir();
-    let out_path = format!("{dest_str}\\out.md");
+    let (dest, _dest_str) = dest_dir();
+    // Joined as a path, not a string: a literal `\` would end up inside the
+    // filename on Unix.
+    let out_file = dest.path().join("out.md");
+    let out_arg = out_file.to_string_lossy().into_owned();
     let out = run_cli_env(
         &[
             "--render-diagrams",
             "dot",
             "tests/testdata/input/diagrams/note.md",
-            &out_path,
+            &out_arg,
         ],
         &mocks.envs,
     );
     assert_eq!(out.code, Some(0), "stderr: {}", out.stderr);
 
-    let note = fs::read_to_string(dest.path().join("out.md")).expect("read exported note");
+    let note = fs::read_to_string(&out_file).expect("read exported note");
     assert!(
         note.contains("![diagram (dot)](assets/out-"),
         "image reference must target the sibling assets dir, note:\n{}",

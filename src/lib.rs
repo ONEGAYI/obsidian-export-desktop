@@ -39,9 +39,18 @@ use references::{ObsidianNoteReference, RefParser, RefParserState, RefType};
 use snafu::{ResultExt, Snafu};
 use unicode_normalization::UnicodeNormalization;
 pub use update::{
-    check_update, current_target_triple, validate_asset_name, write_atomic_bytes, AssetTarget,
-    DownloadProgress, DownloadProgressReporter, ReleaseAsset, UpdateClient, UpdateError,
-    UpdateStatus, UreqUpdateClient,
+    check_update,
+    current_target_triple,
+    validate_asset_name,
+    write_atomic_bytes,
+    AssetTarget,
+    DownloadProgress,
+    DownloadProgressReporter,
+    ReleaseAsset,
+    UpdateClient,
+    UpdateError,
+    UpdateStatus,
+    UreqUpdateClient,
 };
 pub use walker::{vault_contents, WalkOptions};
 

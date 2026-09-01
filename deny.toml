@@ -73,6 +73,11 @@ skip = [
     # ureq 2.x（更新检查）依赖树引入 syn 3 与 windows-* 0.53 系，与既有
     # 0.52/2.x 并存；按惯例登记最旧版本，随依赖升级自然告警提醒清理。
     "syn:<=2.0.106",
+    # tempfile 3.21（图表渲染临时目录）经 getrandom 0.3 引入新版 getrandom
+    # 与 wasi，而 ureq→rustls→ring 链仍钉在 getrandom 0.2 / wasi 0.11
+    # （ring 对 getrandom 版本敏感，不可强统一）；同样登记最旧版本。
+    "getrandom:<=0.2.17",
+    "wasi:<=0.11.1",
     "windows-sys:<=0.52.0",
     "windows-targets:<=0.52.6",
     "windows_aarch64_gnullvm:<=0.52.6",
