@@ -170,7 +170,7 @@ fn write_mock_script(dir: &Path, tool: &str, variant: MockVariant) -> PathBuf {
     };
 
     #[cfg(not(windows))]
-    let (path, script) = {
+    let path = {
         use std::os::unix::fs::PermissionsExt;
 
         let path = dir.join(tool);
@@ -202,10 +202,9 @@ fn write_mock_script(dir: &Path, tool: &str, variant: MockVariant) -> PathBuf {
             ),
             (other, _) => panic!("unknown mock tool {}", other),
         };
-        // Borrowed: the tuple below hands `body` back to the caller.
         fs::write(&path, &body).expect("write mock script");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod mock script");
-        (path, body)
+        path
     };
 
     #[cfg(windows)]
