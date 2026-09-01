@@ -830,20 +830,23 @@ fn single_file_export_renders_into_sibling_assets_dir() {
     // filename; assets land in an `assets/` directory next to the output
     // file, named after the output file's stem.
     let mocks = install_mock_tools(&["dot"]);
-    let (dest, dest_str) = dest_dir();
-    let out_path = format!("{dest_str}\\out.md");
+    let (dest, _dest_str) = dest_dir();
+    // Joined as a path, not a string: a literal `\` would end up inside the
+    // filename on Unix.
+    let out_file = dest.path().join("out.md");
+    let out_arg = out_file.to_string_lossy().into_owned();
     let out = run_cli_env(
         &[
             "--render-diagrams",
             "dot",
             "tests/testdata/input/diagrams/note.md",
-            &out_path,
+            &out_arg,
         ],
         &mocks.envs,
     );
     assert_eq!(out.code, Some(0), "stderr: {}", out.stderr);
 
-    let note = fs::read_to_string(dest.path().join("out.md")).expect("read exported note");
+    let note = fs::read_to_string(&out_file).expect("read exported note");
     assert!(
         note.contains("![diagram (dot)](assets/out-"),
         "image reference must target the sibling assets dir, note:\n{}",
