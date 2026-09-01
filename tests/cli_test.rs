@@ -1206,3 +1206,50 @@ fn update_without_matching_asset_still_exits_zero() {
     assert_eq!(out.code, Some(0_i32), "无资产引导手动下载，不是失败");
     assert!(out.stdout.contains("manually"), "stdout: {:?}", out.stdout);
 }
+
+#[test]
+fn comments_flag_modes_and_rejection() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let source = tmp_dir.path().join("vault");
+    std::fs::create_dir_all(&source).expect("failed to create vault");
+    std::fs::write(source.join("note.md"), "a %%note%% b\n").expect("failed to write note");
+
+    for (mode, expected) in [
+        ("keep", "a %%note%% b"),
+        ("convert", "a <!-- note --> b"),
+        ("strip", "a  b"),
+    ] {
+        let dest = tmp_dir.path().join(format!("out-{mode}"));
+        std::fs::create_dir_all(&dest).expect("failed to create dest");
+        let out = run_cli(&[
+            source.to_str().unwrap(),
+            dest.to_str().unwrap(),
+            "--comments",
+            mode,
+        ]);
+        assert_eq!(out.code, Some(0_i32), "mode {mode} failed: {}", out.stderr);
+        let text = std::fs::read_to_string(dest.join("note.md")).unwrap();
+        assert!(
+            text.contains(expected),
+            "mode {mode} produced {:?}, expected {:?} in it",
+            text,
+            expected
+        );
+    }
+
+    // An invalid value is a usage error: exit code 2, message on stderr.
+    let dest = tmp_dir.path().join("out-bogus");
+    std::fs::create_dir_all(&dest).expect("failed to create dest");
+    let out = run_cli(&[
+        source.to_str().unwrap(),
+        dest.to_str().unwrap(),
+        "--comments",
+        "bogus",
+    ]);
+    assert_eq!(out.code, Some(2_i32));
+    assert!(
+        out.stderr.contains("must be one of"),
+        "stderr should explain valid values, got: {:?}",
+        out.stderr
+    );
+}

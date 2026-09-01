@@ -10,7 +10,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use obsidian_export::postprocessors::obsidian_comments;
 use obsidian_export::{
+    CommentsMode,
     ExportError,
     ExportEvent,
     Exporter,
@@ -20,6 +22,37 @@ use obsidian_export::{
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 use walkdir::WalkDir;
+
+/// Compare every file under the temporary export dir against the golden
+/// tree `tests/testdata/expected/<golden>/`.
+fn assert_matches_golden(tmp_dir: &TempDir, golden: &str) {
+    let walker = WalkDir::new(format!("tests/testdata/expected/{golden}/"))
+        // Without sorting here, different test runs may trigger the first assertion failure in
+        // unpredictable order.
+        .sort_by(|a, b| a.file_name().cmp(b.file_name()))
+        .into_iter();
+    for entry in walker {
+        let entry = entry.unwrap();
+        if entry.metadata().unwrap().is_dir() {
+            continue;
+        }
+        let filename = entry.file_name().to_string_lossy().into_owned();
+        let expected = read_to_string(entry.path()).unwrap_or_else(|_| {
+            panic!(
+                "failed to read {} from testdata/expected/{golden}/",
+                entry.path().display()
+            )
+        });
+        let actual = read_to_string(tmp_dir.path().join(PathBuf::from(&filename)))
+            .unwrap_or_else(|_| panic!("failed to read {} from temporary exportdir", filename));
+
+        assert_eq!(
+            expected, actual,
+            "{} does not have expected content",
+            filename
+        );
+    }
+}
 
 #[test]
 fn test_main_variants_with_default_options() {
@@ -1233,4 +1266,53 @@ fn test_same_filename_different_directories() {
 
     let actual = read_to_string(tmp_dir.path().join(PathBuf::from("Note.md"))).unwrap();
     assert_eq!(expected, actual);
+}
+
+#[test]
+fn test_comments_convert() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let comments = obsidian_comments(CommentsMode::Convert);
+    let mut exporter = Exporter::new(
+        PathBuf::from("tests/testdata/input/comments/"),
+        tmp_dir.path().to_path_buf(),
+    );
+    exporter.add_postprocessor(&comments);
+    exporter.run().expect("exporter returned error");
+    assert_matches_golden(&tmp_dir, "comments");
+}
+
+#[test]
+fn test_comments_strip() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let comments = obsidian_comments(CommentsMode::Strip);
+    let mut exporter = Exporter::new(
+        PathBuf::from("tests/testdata/input/comments/"),
+        tmp_dir.path().to_path_buf(),
+    );
+    exporter.add_postprocessor(&comments);
+    exporter.run().expect("exporter returned error");
+    assert_matches_golden(&tmp_dir, "comments-strip");
+}
+
+#[test]
+fn test_comments_kept_by_default() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    Exporter::new(
+        PathBuf::from("tests/testdata/input/comments/"),
+        tmp_dir.path().to_path_buf(),
+    )
+    .run()
+    .expect("exporter returned error");
+
+    let actual = read_to_string(tmp_dir.path().join(PathBuf::from("Note.md"))).unwrap();
+    // assert! messages are plain literals on edition 2018 (no format
+    // expansion), so the failing value is left to the assertion context.
+    assert!(
+        actual.contains("%%inline%%"),
+        "without the postprocessor, comments must stay verbatim"
+    );
+    assert!(
+        !actual.contains("<!--"),
+        "default export must not emit HTML comments"
+    );
 }

@@ -24,6 +24,18 @@ Block references (`![[note#^block-id]]`) locate the block the id marks (a paragr
 
 Same-file section and block embeds (`![[#Heading]]` / `![[#^block-id]]`) are supported too, with two caveats: references inside a same-file embed resolve against the embedded slice only (a section that lives elsewhere in the note won't be found inside the slice and degrades per `--missing-section`), and any same-file embed appearing inside an expansion of the same file degrades to a plain link (the check is file-level, so this includes same-file references to other sections that would be safe to expand).
 
+## Obsidian comments
+
+Obsidian comments (`%%like this%%`, including multi-line block comments) are only visible in Obsidian's editing views. By default they are kept verbatim, which renders as literal `%%` text in plain Markdown consumers. Use `--comments` to choose what happens to them:
+
+* `--comments keep` (the default): comments stay as literal `%%...%%` text.
+* `--comments convert`: each comment becomes an HTML comment (`<!-- ... -->`) that survives in the output source but is not rendered.
+* `--comments strip`: comments are removed from the output entirely.
+
+Recognition follows Obsidian's plain-text pairing: the first `%%` pairs with the next `%%`, even across blank lines and list or quote boundaries, and an unclosed `%%` stays literal. `%%` inside code blocks, inline code, math, tables and link labels is never treated as a comment marker — the same places Obsidian itself declines to interpret the syntax. Content that would break the HTML comment syntax is neutralized (`--` becomes `- -`).
+
+A comment spanning block boundaries splits the surrounding structure at the comment (e.g. a list item ends, the HTML comment follows as its own block, the remaining list restarts below); comments wholly inside one paragraph are rewritten in place.
+
 ## Failing files
 
 By default, a note that fails to export (e.g. broken YAML frontmatter) is recorded and the export continues with the remaining notes; at the end, a summary listing every failing note is printed. Use `--fail-fast` to instead stop on the first failing file. Note that with parallel exports, files already being processed when the failure occurs may still complete.

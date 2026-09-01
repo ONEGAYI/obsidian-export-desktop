@@ -3,7 +3,7 @@
 use pulldown_cmark::Event;
 use serde_yaml::Value;
 
-use super::{Context, MarkdownEvents, PostprocessorResult};
+use super::{comments, CommentsMode, Context, MarkdownEvents, PostprocessorResult};
 
 /// This postprocessor converts all soft line breaks to hard line breaks. Enabling this mimics
 /// Obsidian's _'Strict line breaks'_ setting.
@@ -17,6 +17,24 @@ pub fn softbreaks_to_hardbreaks(
         }
     }
     PostprocessorResult::Continue
+}
+
+/// Rewrite Obsidian `%%...%%` comments according to `mode`.
+///
+/// Comments are recognized everywhere Obsidian recognizes them, except
+/// inside code blocks, inline code, math, tables and link labels. A comment
+/// spanning blank lines or other block boundaries is emitted as an HTML
+/// block so the surrounding container structure stays balanced. See the
+/// [`comments`](crate::comments) module for the full recognition contract.
+///
+/// With [`CommentsMode::Keep`] this is a no-op.
+pub fn obsidian_comments(
+    mode: CommentsMode,
+) -> impl Fn(&mut Context, &mut MarkdownEvents<'_>) -> PostprocessorResult {
+    move |_context: &mut Context, events: &mut MarkdownEvents<'_>| -> PostprocessorResult {
+        comments::rewrite_events(events, mode);
+        PostprocessorResult::Continue
+    }
 }
 
 pub fn filter_by_tags(

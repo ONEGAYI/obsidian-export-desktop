@@ -88,6 +88,7 @@ export const zh = {
     updateAutoCheckHint: "启动时检查新版本（每天至多一次）",
     frontmatterLabel: "Frontmatter 处理",
     missingSectionLabel: "缺失章节的处理方式",
+    commentsLabel: "Obsidian 注释（%% 围栏）的处理",
     hardLinebreaks: {
       title: "硬换行",
       description: "软换行转为硬换行，贴近 Obsidian「严格换行」设置",
@@ -216,6 +217,20 @@ export const zh = {
         description: "该笔记导出失败并计入结果",
       },
     },
+    commentsChoices: {
+      keep: {
+        label: "保留原样",
+        description: "%% 注释按字面保留（默认）",
+      },
+      convert: {
+        label: "转为 HTML 注释",
+        description: "转换为 <!-- -->，源码可见但渲染时隐藏",
+      },
+      strip: {
+        label: "彻底移除",
+        description: "从导出结果中删除注释",
+      },
+    },
     // summarizeOptions 的条目文案（导出确认弹窗中的摘要行）。
     summary: {
       startAt: "仅导出 {name}",
@@ -230,6 +245,7 @@ export const zh = {
       missingSection: "缺失章节：{label}",
       failFast: "快速失败",
       hardLinebreaks: "硬换行",
+      comments: "注释：{label}",
       linkCheck: "导出后链接检查（{target}）",
       diagramRenderers: "图表渲染 ×{n}（{format}）",
       diagramBins: "自定义工具路径 ×{n}",

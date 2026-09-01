@@ -6,6 +6,7 @@
 pub use pulldown_cmark;
 pub use serde_yaml;
 
+mod comments;
 mod context;
 mod diagrams;
 mod frontmatter;
@@ -24,6 +25,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::{fmt, str};
 
+pub use comments::CommentsMode;
 pub use context::Context;
 pub use diagrams::{DiagramFormat, DiagramRenderer, ToolName};
 use diagrams::{DiagramState, DiagramToolset, ToolResolutionError};
