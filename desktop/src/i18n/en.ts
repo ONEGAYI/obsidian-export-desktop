@@ -91,6 +91,7 @@ export const en: Dict = {
       "Check on launch (at most once a day)",
     frontmatterLabel: "Frontmatter handling",
     missingSectionLabel: "Missing section handling",
+    commentsLabel: "Obsidian comment handling (%% fences)",
     hardLinebreaks: {
       title: "Hard line breaks",
       description:
@@ -224,6 +225,20 @@ export const en: Dict = {
         description: "Fail the note and count it in the results",
       },
     },
+    commentsChoices: {
+      keep: {
+        label: "Keep as-is",
+        description: "Leave %% comments verbatim (default)",
+      },
+      convert: {
+        label: "Convert to HTML comments",
+        description: "Rewrite to <!-- -->, visible in source but never rendered",
+      },
+      strip: {
+        label: "Remove entirely",
+        description: "Drop comments from the exported output",
+      },
+    },
     summary: {
       startAt: "Only exporting {name}",
       frontmatter: "Frontmatter: {label}",
@@ -237,6 +252,7 @@ export const en: Dict = {
       missingSection: "Missing section: {label}",
       failFast: "Fail fast",
       hardLinebreaks: "Hard line breaks",
+      comments: "Comments: {label}",
       linkCheck: "Link check after export ({target})",
       diagramRenderers: "Diagram rendering ×{n} ({format})",
       diagramBins: "Custom tool paths ×{n}",

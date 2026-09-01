@@ -221,6 +221,26 @@ impl DiagramFormatChoice {
     }
 }
 
+/// Obsidian `%%` comment handling; mirrors the CLI `--comments` enum.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CommentsChoice {
+    #[default]
+    Keep,
+    Convert,
+    Strip,
+}
+
+impl CommentsChoice {
+    fn as_flag(self) -> &'static str {
+        match self {
+            CommentsChoice::Keep => "keep",
+            CommentsChoice::Convert => "convert",
+            CommentsChoice::Strip => "strip",
+        }
+    }
+}
+
 /// User-configurable export options, one field per CLI flag of the sidecar.
 ///
 /// Defaults mirror the CLI defaults: `build_args` only emits flags for
@@ -245,6 +265,10 @@ pub struct ExportOptions {
     pub missing_section: MissingSectionChoice,
     pub fail_fast: bool,
     pub hard_linebreaks: bool,
+    /// What to do with Obsidian `%%` comments (keep default, convert to
+    /// HTML comments, or strip). Pure text transformation, so the check
+    /// subcommand never receives it.
+    pub comments: CommentsChoice,
     /// GUI-only preference: run the link checker after a successful export.
     /// Never part of `build_args`; the frontend orchestrates the follow-up
     /// `start_check` invocation.
@@ -320,6 +344,12 @@ fn build_args(options: &ExportOptions, source: &str, target: &str) -> Vec<String
     }
     if options.hard_linebreaks {
         args.push("--hard-linebreaks".to_owned());
+    }
+    if options.comments != CommentsChoice::Keep {
+        args.extend([
+            "--comments".to_owned(),
+            options.comments.as_flag().to_owned(),
+        ]);
     }
     if !options.diagram_renderers.is_empty() {
         args.push("--render-diagrams".to_owned());
@@ -1027,6 +1057,32 @@ mod tests {
                 "DST",
             ]
         );
+    }
+
+    #[test]
+    fn comments_choice_maps_to_flag() {
+        for (choice, flag) in [
+            (CommentsChoice::Convert, "convert"),
+            (CommentsChoice::Strip, "strip"),
+        ] {
+            let options = ExportOptions {
+                comments: choice,
+                ..ExportOptions::default()
+            };
+            let args = build_args(&options, "SRC", "DST");
+            assert_eq!(
+                args,
+                vec!["--progress", "json", "--comments", flag, "SRC", "DST"]
+            );
+        }
+        // The default (keep) matches the CLI default and stays silent, like
+        // every other default enum.
+        let options = ExportOptions {
+            comments: CommentsChoice::Keep,
+            ..ExportOptions::default()
+        };
+        let args = build_args(&options, "SRC", "DST");
+        assert!(!args.iter().any(|a| a == "--comments"));
     }
 
     #[test]

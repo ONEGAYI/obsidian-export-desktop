@@ -11,6 +11,8 @@ export type DiagramRendererId = "dot" | "mermaid" | "wavedrom" | "tikz";
 /** External tools the diagram renderers shell out to (path overrides). */
 export type DiagramToolId = "dot" | "mmdc" | "wavedrom" | "latex" | "dvisvgm";
 export type DiagramFormat = "svg" | "png";
+/** What to do with Obsidian `%%` comments. */
+export type CommentsMode = "keep" | "convert" | "strip";
 
 export interface ExportOptions {
   /** Absolute sub-path of the vault; `null` exports everything. */
@@ -27,6 +29,8 @@ export interface ExportOptions {
   missingSection: MissingSectionStrategy;
   failFast: boolean;
   hardLinebreaks: boolean;
+  /** Obsidian %% comments: keep, convert to HTML comments, or strip. */
+  comments: CommentsMode;
   /** Run the link checker automatically after a successful export. */
   linkCheckEnabled: boolean;
   linkCheckTarget: LinkCheckTarget;
@@ -53,6 +57,7 @@ export const DEFAULT_OPTIONS: ExportOptions = {
   missingSection: "skip",
   failFast: false,
   hardLinebreaks: false,
+  comments: "keep",
   linkCheckEnabled: false,
   linkCheckTarget: "source",
   autoCheckUpdates: true,
@@ -97,6 +102,12 @@ export const DIAGRAM_TOOL_VALUES: readonly DiagramToolId[] = [
 ];
 
 export const DIAGRAM_FORMAT_VALUES: readonly DiagramFormat[] = ["svg", "png"];
+
+export const COMMENTS_VALUES: readonly CommentsMode[] = [
+  "keep",
+  "convert",
+  "strip",
+];
 
 const OPTIONS_KEY = "obsidian-export-options";
 const LEGACY_MISSING_SECTION_KEY = "obsidian-export-missing-section";
@@ -182,6 +193,7 @@ function sanitizeOptions(raw: unknown): ExportOptions {
     missingSection: oneOf(value.missingSection, MISSING_SECTION_VALUES, "skip"),
     failFast: bool(value.failFast),
     hardLinebreaks: bool(value.hardLinebreaks),
+    comments: oneOf(value.comments, COMMENTS_VALUES, "keep"),
     linkCheckEnabled: bool(value.linkCheckEnabled),
     linkCheckTarget: oneOf(
       value.linkCheckTarget,
@@ -287,6 +299,13 @@ export function summarizeOptions(options: ExportOptions, t: Dict): string[] {
   }
   if (options.hardLinebreaks) {
     items.push(t.options.summary.hardLinebreaks);
+  }
+  if (options.comments !== DEFAULT_OPTIONS.comments) {
+    items.push(
+      fmt(t, "comments", {
+        label: t.options.commentsChoices[options.comments].label,
+      }),
+    );
   }
   if (options.linkCheckEnabled) {
     items.push(

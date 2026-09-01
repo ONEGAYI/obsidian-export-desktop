@@ -28,12 +28,14 @@ import { Switch } from "@/components/ui/switch";
 import { fmt, useI18n } from "@/i18n";
 import {
   DEFAULT_OPTIONS,
+  COMMENTS_VALUES,
   DIAGRAM_FORMAT_VALUES,
   DIAGRAM_RENDERER_VALUES,
   DIAGRAM_TOOL_VALUES,
   FRONTMATTER_VALUES,
   LINK_CHECK_TARGET_VALUES,
   MISSING_SECTION_VALUES,
+  type CommentsMode,
   type DiagramFormat,
   type ExportOptions,
   type FrontmatterStrategy,
@@ -224,6 +226,10 @@ export function OptionsView({
     value,
     ...t.options.missingSectionChoices[value],
   })) satisfies { value: MissingSectionStrategy; label: string; description: string }[];
+  const commentsChoices = COMMENTS_VALUES.map((value) => ({
+    value,
+    ...t.options.commentsChoices[value],
+  })) satisfies { value: CommentsMode; label: string; description: string }[];
   const linkCheckTargetChoices = LINK_CHECK_TARGET_VALUES.map((value) => ({
     value,
     ...t.options.linkCheckTargetChoices[value],
@@ -343,6 +349,15 @@ export function OptionsView({
                       choices={missingSectionChoices}
                       groupLabel={t.options.missingSectionLabel}
                       onChange={(missingSection) => patch({ missingSection })}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5 pb-2.5">
+                    <FieldLabel>{t.options.commentsLabel}</FieldLabel>
+                    <EnumChoice
+                      value={options.comments}
+                      choices={commentsChoices}
+                      groupLabel={t.options.commentsLabel}
+                      onChange={(comments) => patch({ comments })}
                     />
                   </div>
                   <SwitchRow

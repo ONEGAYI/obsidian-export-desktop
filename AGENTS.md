@@ -45,10 +45,13 @@
 ## 待定事项
 
 - [ ] 桌面端后续迭代：打包分发流水线（`tauri build`，与 cargo-dist 互不干扰）。
+- [x] Obsidian 注释转换（`%%` 百分号围栏）：已完成——`src/comments.rs` 事件流状态机 + `postprocessors::obsidian_comments(CommentsMode)`（Keep 默认/Convert 转 HTML 注释/Strip 移除），CLI `--comments` 三态、桌面端「转换行为」页三态单选。识别为非贪心纯文本配对（跨空行/列表/引用块边界支持，未闭合保持字面），免疫区与 Obsidian 一致（代码块/行内代码/公式/表格/链接文本内不识别，代码块内 `%%` 不提前闭合注释）；输出走 `Event::InlineHtml`（段内）与 `HtmlBlock` 三件套（跨块级，两端容器骨架重放保平衡，`Tag::to_end()` 转换），内容 `--` 清洗为 `- -`；测试为双黄金树（comments / comments-strip）+ keep 断言 + CLI 契约。
 - [ ] 嵌入解析缓存与 walker 并行化：vault 索引已消除引用解析的主要瓶颈（基准 7200 文件 11.2s → 0.65s），剩余耗时以文件 IO/解析/渲染为主；两项优化待有真实大 vault 的 profile 数据支撑后再决定是否实施。
 
 已知限制（审查登记，后续迭代评估）：
 
+- [ ] 注释转换与 Obsidian 渲染的刻意差异（Obsidian 自身各视图间行为本就不一致，实现取自洽保守语义）：嵌套 `%%` 按非贪心配对（Obsidian 阅读视图会渲染错乱）；注释内嵌代码块被折叠进注释（Obsidian 阅读视图显示内容仅隐藏标记）；注释内容合成的容器字面是近似（列表 bullet 恒为 `-`、代码块 fence 恒为三反引号，仅影响注释内可读性）；跨块级边界的注释会把列表等结构在注释处断开再重启（CommonMark HTML 块无法内嵌于列表项中间，结构性必然）。
+- [ ] linkcheck 报告注释内的 wikilink（check 走 `parse_raw_note_with_refs` 原文层，与 `--comments` 选项无关）：属 check「看原文」的既有语义（Obsidian Publish 的 graph 同样收集注释内链接），登记不视为缺陷。
 - [ ] 渲染超时的进程树击杀平台不对称：Windows 走 `taskkill /T /F` 连孙进程根治；Unix 未设进程组（避免改变 Ctrl+C 传播语义），卡死的孙进程持有 pipe 时靠 5s reader 宽限兜底（reader 线程泄漏但 `run_command` 必返，不挂起导出）。
 - [ ] 嵌入展开的图表副本渲染为宿主笔记的独立资产（`<宿主stem>-<hash>` 与源笔记资产各一份，字节相同）：语义是「每份产物自包含」；代价是 `diagram-render` 的 `index` 可超过 `total`（预扫描只数源文件自身块，契约文档已声明 total 为估计值）。
 - [ ] cmd.exe 包装对工具路径含成对 `%` 的形态会做变量展开（引号不保护）：罕见路径建议 `--diagram-bin` 指向 `.exe` 绕过包装（usage-advanced.md 已注明）。
@@ -118,6 +121,7 @@ obsidian-export-desktop/
 ├── Cargo.toml              # 主 crate 清单（lib+bin）
 ├── changelog.d/            # towncrier 变更片段目录
 │   ├── .gitignore   # 片段目录占位忽略文件
+│   ├── 12.new.md    # 注释转换功能变更片段
 │   └── 9.feature.md # 图表渲染功能变更片段
 ├── CHANGELOG.md            # 变更日志（towncrier 生成）
 ├── CLAUDE.md               # Claude 专属补充规则
@@ -231,6 +235,7 @@ obsidian-export-desktop/
 ├── rust-toolchain.toml     # 固定 Rust 工具链版本
 ├── rustfmt.toml            # 代码格式化规则（需 nightly）
 ├── src/                    # Rust 源码（CLI 与库）
+│   ├── comments.rs       # Obsidian 注释识别与改写状态机
 │   ├── context.rs        # 笔记解析上下文与嵌套追踪
 │   ├── diagrams.rs       # 图表渲染：渲染器注册表与外部工具编排
 │   ├── frontmatter.rs    # frontmatter 类型与序列化
@@ -247,7 +252,9 @@ obsidian-export-desktop/
 │   ├── export_test.rs         # 库级导出功能集成测试
 │   ├── postprocessors_test.rs # 后处理器行为测试
 │   └── testdata/              # 测试 vault fixtures
-│       ├── expected/ # 黄金输出树（8 个场景）
+│       ├── expected/ # 黄金输出树（10 个场景）
+│       │   ├── comments/                            # 注释转换黄金输出树
+│       │   ├── comments-strip/                      # 注释移除模式黄金输出树
 │       │   ├── filter-by-tags/                      # 标签过滤黄金输出树
 │       │   ├── infinite-recursion/                  # 循环嵌入降级输出树
 │       │   ├── main-samples/                        # 主样例黄金输出树
@@ -256,7 +263,7 @@ obsidian-export-desktop/
 │       │   ├── same-filename-different-directories/ # 同名消解黄金输出树
 │       │   ├── single-file/                         # 单文件黄金输出树
 │       │   └── start-at/                            # start-at 黄金输出树
-│       └── input/…   # 测试输入 vault（23 场景子目录）
+│       └── input/…   # 测试输入 vault（24 场景子目录）
 └── towncrier.toml          # towncrier 变更日志配置
 <!-- file-tree:tree:end -->
 ```

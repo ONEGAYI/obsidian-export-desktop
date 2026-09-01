@@ -352,6 +352,16 @@
             "config"
           ]
         },
+        "12.new.md": {
+          "kind": "file",
+          "desc": "注释转换功能变更片段",
+          "detail": [
+            "towncrier 片段：--comments keep|convert|strip 三态、识别语义与免疫区、桌面端转换行为页三态单选（PR #12）"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
         "9.feature.md": {
           "kind": "file",
           "desc": "图表渲染功能变更片段",
@@ -1851,6 +1861,23 @@
         "rust"
       ],
       "children": {
+        "comments.rs": {
+          "kind": "file",
+          "desc": "Obsidian 注释识别与改写状态机",
+          "detail": [
+            "%%注释%% 识别与转换核心：CommentsMode（Keep/Convert/Strip）与 rewrite_events 状态机，",
+            "非贪心文本配对（跨空行/列表/引用块边界、未闭合回放字面）、免疫区剔除（代码块/行内代码/",
+            "公式/表格/链接文本，免疫区内 %% 不提前闭合注释）、内容合成器（格式事件逆向合成字面）、",
+            "-- 清洗（- - 插空格）；输出段内走 InlineHtml、跨块级走 HtmlBlock 三件套 + 两端容器骨架重放",
+            "（含首尾空容器消解）；postprocessors::obsidian_comments 为公开挂载入口。"
+          ],
+          "rel": [
+            "src/postprocessors.rs"
+          ],
+          "tags": [
+            "rust"
+          ]
+        },
         "context.rs": {
           "kind": "file",
           "desc": "笔记解析上下文与嵌套追踪",
@@ -2074,7 +2101,7 @@
           "children": {
             "expected": {
               "kind": "dir",
-              "desc": "黄金输出树（8 个场景）",
+              "desc": "黄金输出树（10 个场景）",
               "detail": [
                 "与 input 同名配对的期望导出结果，供测试全量比对；场景目录粗粒度收录。"
               ],
@@ -2082,6 +2109,28 @@
                 "fixture"
               ],
               "children": {
+                "comments": {
+                  "kind": "dir",
+                  "desc": "注释转换黄金输出树",
+                  "detail": [
+                    "convert 模式黄金输出（六文件对照 input/comments）"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "comments-strip": {
+                  "kind": "dir",
+                  "desc": "注释移除模式黄金输出树",
+                  "detail": [
+                    "strip 模式黄金输出（同 input/comments，第二棵树）"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
                 "filter-by-tags": {
                   "kind": "dir",
                   "desc": "标签过滤黄金输出树",
@@ -2198,7 +2247,7 @@
             },
             "input": {
               "kind": "dir",
-              "desc": "测试输入 vault（23 场景子目录）",
+              "desc": "测试输入 vault（24 场景子目录）",
               "detail": [
                 "按测试场景分组的输入笔记目录，场景目录粗粒度收录。"
               ],
@@ -2258,6 +2307,19 @@
                   "rel": [
                     "tests/cli_test.rs",
                     "tests/export_test.rs"
+                  ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "comments": {
+                  "kind": "dir",
+                  "desc": "注释转换场景输入 vault",
+                  "detail": [
+                    "六文件场景：Note（行内/跨行/未闭合/双横/格式合成）、block-comment（跨空行块级）、",
+                    "containers（列表内与跨列表项）、immunity（代码块/行内代码/公式/表格/链接免疫）、",
+                    "embed-host+embedded（嵌入片段内与跨嵌入边界注释）。"
                   ],
                   "tags": [
                     "fixture"

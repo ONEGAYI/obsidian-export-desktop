@@ -6,9 +6,14 @@ use std::sync::Arc;
 
 use eyre::{eyre, Result};
 use gumdrop::Options;
-use obsidian_export::postprocessors::{filter_by_tags, softbreaks_to_hardbreaks};
+use obsidian_export::postprocessors::{
+    filter_by_tags,
+    obsidian_comments,
+    softbreaks_to_hardbreaks,
+};
 use obsidian_export::{
     AssetTarget,
+    CommentsMode,
     DiagramFormat,
     DiagramRenderer,
     DownloadProgress,
@@ -113,6 +118,15 @@ struct Opts {
         default = "skip"
     )]
     missing_section: MissingSectionStrategy,
+
+    #[options(
+        no_short,
+        help = "What to do with Obsidian %% comments (one of: keep, convert, strip)",
+        long = "comments",
+        parse(try_from_str = "comments_mode_from_str"),
+        default = "keep"
+    )]
+    comments: CommentsMode,
 
     #[options(
         no_short,
@@ -225,6 +239,10 @@ fn missing_section_from_str(input: &str) -> Result<MissingSectionStrategy> {
 
 fn diagram_format_from_str(input: &str) -> Result<DiagramFormat> {
     DiagramFormat::from_name(input).ok_or_else(|| eyre!("must be one of: svg, png"))
+}
+
+fn comments_mode_from_str(input: &str) -> Result<CommentsMode> {
+    CommentsMode::from_name(input).ok_or_else(|| eyre!("must be one of: keep, convert, strip"))
 }
 
 /// Parse `--render-diagrams` (comma-separated renderer names, order and
@@ -419,6 +437,11 @@ fn main() {
 
     if args.hard_linebreaks {
         exporter.add_postprocessor(&softbreaks_to_hardbreaks);
+    }
+
+    let comments_postprocessor = obsidian_comments(args.comments);
+    if args.comments != CommentsMode::Keep {
+        exporter.add_postprocessor(&comments_postprocessor);
     }
 
     let tags_postprocessor = filter_by_tags(args.skip_tags, args.only_tags);
