@@ -120,8 +120,8 @@ enum MockVariant {
 /// Write the mock script for one tool, matching the argument layout the
 /// render pipeline actually invokes:
 ///
-/// - `dot`:     `dot -Tsvg|-Tpng IN -o OUT` (the format flag is recorded in
-///   the calls log so tests can pin the `-Tpng`/`-Tsvg` pass-through)
+/// - `dot`:     `dot -Tsvg|-Tpng IN -o OUT` (the format flag is recorded in the calls log so tests
+///   can pin the `-Tpng`/`-Tsvg` pass-through)
 /// - `mmdc`:    `mmdc -i IN -o OUT`
 /// - `wavedrom`: `wavedrom --input IN`, SVG on stdout
 /// - `latex`:   `latex -interaction=nonstopmode -halt-on-error -output-directory DIR IN`
@@ -202,7 +202,8 @@ fn write_mock_script(dir: &Path, tool: &str, variant: MockVariant) -> PathBuf {
             ),
             (other, _) => panic!("unknown mock tool {}", other),
         };
-        fs::write(&path, body).expect("write mock script");
+        // Borrowed: the tuple below hands `body` back to the caller.
+        fs::write(&path, &body).expect("write mock script");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod mock script");
         (path, body)
     };

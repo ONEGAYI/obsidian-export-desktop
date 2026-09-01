@@ -15,7 +15,10 @@ repos:
     hooks:
       - id: rustfmt
         name: Check formatting
-        entry: cargo +nightly fmt --
+        # Pinned dated nightly, same as the fmt job in ci.yml and the `fmt`
+        # target in the Justfile (a bare `nightly` drifts with rustfmt
+        # releases). `just fmt` installs the toolchain locally.
+        entry: cargo +nightly-2026-08-20 fmt --
         language: system
         files: \.rs$
       - id: tests

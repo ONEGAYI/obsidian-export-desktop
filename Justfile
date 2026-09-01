@@ -1,5 +1,12 @@
 towncrier_cmd := "uvx towncrier==24.8.0"
 
+# Pinned nightly used for formatting. Keep in sync with the fmt job in
+# .github/workflows/ci.yml and the rustfmt hook in .pre-commit-config.yaml:
+# a bare `nightly` drifts as rustfmt evolves and would reformat the repo
+# from under us. To upgrade: bump the date in all three places and run
+# `just fmt` in the same commit.
+rustfmt_toolchain := "nightly-2026-08-20"
+
 # --- Desktop app (Tauri) -----------------------------------------------------
 
 # On Windows, delegate everything to pnpm/Node/PowerShell: spawning msys bash
@@ -32,6 +39,10 @@ clean scope:
     @if ("{{scope}}" -in @("sidecar", "all")) { if (Test-Path desktop/src-tauri/binaries) { Remove-Item -Recurse -Force desktop/src-tauri/binaries; "removed desktop/src-tauri/binaries" } }
 
 # -----------------------------------------------------------------------------
+# Install the pinned formatting nightly if missing, then format everything.
+fmt:
+    rustup toolchain install {{rustfmt_toolchain}} --profile minimal --component rustfmt
+    cargo +{{rustfmt_toolchain}} fmt --all
 
 _default:
     @{{just_executable()}} --choose

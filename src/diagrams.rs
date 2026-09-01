@@ -13,15 +13,16 @@
 //! `CreateProcess` cannot execute command scripts directly.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::ffi::{OsStr, OsString};
-use std::fs;
+#[cfg(windows)]
+use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::thread;
 use std::time::{Duration, Instant};
+use std::{fs, thread};
 
 use pathdiff::diff_paths;
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, Parser, Tag, TagEnd};
@@ -366,12 +367,14 @@ fn pathext_extensions() -> Vec<String> {
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
 
-    match fs::metadata(path) {
-        Ok(metadata) => metadata.is_file() && metadata.permissions().mode() & 0o111 != 0,
-        Err(_) => false,
-    }
+    fs::metadata(path).map_or(false, |metadata| {
+        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+    })
 }
 
+// The path is only consulted on Windows; the Unix body is a constant, which
+// also makes the function trivially const-able there.
+#[cfg_attr(not(windows), allow(unused_variables, clippy::missing_const_for_fn))]
 fn is_cmd_script(path: &Path) -> bool {
     #[cfg(windows)]
     {
@@ -432,6 +435,8 @@ pub fn build_command(tool: &ResolvedTool, args: &[OsString]) -> Command {
 /// is sacrificed to that rule, leaving each component properly quoted. Quote
 /// characters cannot occur in paths (illegal in Windows filenames), so
 /// quoting is always safe here.
+// Windows-only by design; other platforms have no cmd.exe shims to wrap.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn cmd_wrapper_line(script: &Path, args: &[OsString]) -> OsString {
     let mut line = OsString::from("\"\"");
     line.push(script.as_os_str());
@@ -554,6 +559,9 @@ fn collect_reader(rx: &mpsc::Receiver<Vec<u8>>) -> Vec<u8> {
 /// /T /F` walks the tree and takes them all down. On Unix, npm shims are
 /// exec'd directly (the direct kill reaches the renderer), so the bounded
 /// [`READER_GRACE`] is the only fallback kept there.
+// The Unix body is empty (npm shims are exec'd directly), which makes the
+// function trivially const-able there.
+#[cfg_attr(not(windows), allow(clippy::missing_const_for_fn))]
 fn kill_process_tree(pid: u32) {
     #[cfg(windows)]
     {
@@ -1216,8 +1224,9 @@ fn tail_utf8(output: &[u8], max: usize) -> String {
 #[cfg(test)]
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
 mod tests {
-    use super::*;
     use rstest::rstest;
+
+    use super::*;
 
     #[rstest]
     #[case(&[], 0xcbf2_9ce4_8422_2325)]
@@ -1486,7 +1495,7 @@ fn main() {}
 
             assert_eq!(
                 find_in_paths("dot", &[dir_a.clone(), dir_b.clone()], &[]),
-                Some(executable.clone())
+                Some(executable)
             );
             // Not executable: skipped, not matched.
             assert_eq!(find_in_paths("dot", &[dir_b], &[]), None);
@@ -1542,6 +1551,13 @@ fn main() {}
     /// runtime ends — the kill/collect path (tree kill, bounded reader
     /// grace) has to return instead of hanging. On Windows the mock is a
     /// `.cmd` script, exercising the cmd.exe wrapper on the timeout path.
+    ///
+    /// The elapsed bound is the timeout plus at most two full reader grace
+    /// periods (a CI machine can be too slow for the tree kill to land
+    /// inside the grace, in which case both collectors burn their full 5s
+    /// by design) with headroom for process startup; it stays far below
+    /// the child's own 30s runtime, which is what a regressed
+    /// implementation that waits out the child would hit.
     #[test]
     fn run_command_times_out_without_blocking() {
         let tmp = tempfile::tempdir().expect("tempdir");
@@ -1550,8 +1566,9 @@ fn main() {}
         let (script, is_cmd) = {
             let script = tmp.path().join("wedge.cmd");
             // `timeout` needs an interactive console; ping is the classic
-            // ~10 second sleep substitute.
-            let body = "@ping -n 11 127.0.0.1 >nul\r\n";
+            // sleep substitute (~30s here, both streams redirected away
+            // from the pipes).
+            let body = "@ping -n 31 127.0.0.1 >nul 2>&1\r\n";
             fs::write(&script, body).expect("write wedge script");
             (script, true)
         };
@@ -1560,7 +1577,7 @@ fn main() {}
             use std::os::unix::fs::PermissionsExt;
 
             let script = tmp.path().join("wedge");
-            fs::write(&script, "#!/bin/sh\nsleep 10\n").expect("write wedge script");
+            fs::write(&script, "#!/bin/sh\nexec sleep 30\n").expect("write wedge script");
             fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("chmod");
             (script, false)
         };
@@ -1578,8 +1595,8 @@ fn main() {}
             result
         );
         assert!(
-            started.elapsed() < Duration::from_secs(8),
-            "run_command must return shortly after the timeout, not wait out the child (took {:?})",
+            started.elapsed() < Duration::from_secs(13),
+            "run_command must return within timeout + reader grace, not wait out the child (took {:?})",
             started.elapsed()
         );
     }
