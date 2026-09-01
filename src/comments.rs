@@ -341,25 +341,51 @@ fn owned(text: String) -> CowStr<'static> {
     CowStr::Boxed(text.into_boxed_str())
 }
 
-/// Counts of container `End` events per kind occurring in the comment
-/// region `[start_idx..=close_idx]`, immune regions included (immune
-/// containers never appear on the skeleton stack, so their Ends never match
-/// a lookup). Counts rather than a set: nested same-typed containers each
-/// need their own End to be legitimately elided.
-#[allow(clippy::indexing_slicing)]
-fn region_end_counts(
-    source: &[Event<'_>],
+/// Replay the skeleton evolution across the comment region
+/// `[start_idx..=close_idx]`, starting from `initial`. Returns the stack at
+/// the closing point plus, per container kind, how many containers that
+/// were open *before* the region the region closed (the "crossed" count —
+/// Ends that only close containers opened inside the region do not count:
+/// a same-typed container fully opened and closed mid-region must not lend
+/// its End to a stack container). Birth flags, not stack depth, decide:
+/// depth alone cannot tell an inner container from an initial one once
+/// intermediate pushes and pops cancel out. Immune containers are tracked
+/// for nesting but never reach the skeleton.
+#[allow(
+    clippy::type_complexity,
+    clippy::arithmetic_side_effects,
+    clippy::indexing_slicing
+)]
+fn replay_region<'a>(
+    source: &[Event<'a>],
     start_idx: usize,
     close_idx: usize,
-) -> std::collections::BTreeMap<TagEnd, usize> {
-    let mut counts = std::collections::BTreeMap::new();
+    initial: Vec<Tag<'a>>,
+) -> (Vec<Tag<'a>>, std::collections::BTreeMap<TagEnd, usize>) {
+    // (tag, born_inside_region)
+    let mut stack: Vec<(Tag<'a>, bool)> = initial.into_iter().map(|tag| (tag, false)).collect();
+    let mut crossed: std::collections::BTreeMap<TagEnd, usize> = std::collections::BTreeMap::new();
+    let mut immune = 0_usize;
     for event in &source[start_idx..=close_idx] {
-        if let Event::End(end) = event {
-            let count: &mut usize = counts.entry(*end).or_default();
-            *count = count.saturating_add(1);
+        match event {
+            Event::Start(tag) if is_immune_start(tag) => immune += 1,
+            Event::End(end) if is_immune_end(*end) => immune = immune.saturating_sub(1),
+            Event::Start(tag) if immune == 0 && is_block_start(tag) => {
+                stack.push((tag.clone(), true));
+            }
+            Event::End(_) if immune == 0 => {
+                if let Some((tag, born_inside)) = stack.last() {
+                    if !born_inside {
+                        let count: &mut usize = crossed.entry(tag.to_end()).or_default();
+                        *count = count.saturating_add(1);
+                    }
+                }
+                stack.pop();
+            }
+            _ => {}
         }
     }
-    counts
+    (stack.into_iter().map(|(tag, _)| tag).collect(), crossed)
 }
 
 /// Net surplus of inline formatting containers per tag type opened
@@ -708,16 +734,20 @@ fn emit_comment<'a>(
     // Block-level comment. Three skeleton moves, from the outside in:
     //
     // 1. Elide empty containers directly above the comment: if `out` ends with exactly the Start of
-    //    the innermost open container and the region contains an End of that kind (one per
-    //    same-typed container already elided — a set would let nested quotes borrow each other's
-    //    End), both the Start and the stack entry are dropped.
-    // 2. Close the *crossed* innermost run of containers: those whose Ends the region contains. The
-    //    first container whose End lies outside the region was never left, so it stays open and the
-    //    comment block is emitted inside it.
+    //    the innermost open container and the region really crosses out of that container, both the
+    //    Start and the stack entry are dropped.
+    // 2. Close the *crossed* innermost run of containers. The first container the comment never
+    //    left stays open, and the comment block is emitted inside it.
     // 3. Reopen, below the comment, whatever the closing point had open beyond the still-held
     //    containers.
+    //
+    // "Crossing" is measured by replaying the region on the pre-elision
+    // stack: only Ends that pop a layer which was already open *before* the
+    // region count — a same-typed container fully opened and closed inside
+    // the region must not lend its End to a container on the stack.
     let stack_before_elision = stack.clone();
-    let mut kind_budget = region_end_counts(source, start_idx, close_idx);
+    let (mut closing_stack, mut kind_budget) =
+        replay_region(source, start_idx, close_idx, stack_before_elision);
     while let Some(tag) = stack.last() {
         let kind = tag.to_end();
         if out.last() == Some(&Event::Start(tag.clone()))
@@ -757,27 +787,6 @@ fn emit_comment<'a>(
         out.push(Event::End(TagEnd::HtmlBlock));
     }
 
-    // Advance a copy of the skeleton to the containers open at the closing
-    // point by replaying the block-level boundaries swallowed by the
-    // comment region. The replay starts from the *pre-elision* stack: an
-    // elided container's End occurs inside the region and must consume that
-    // very container, not whatever sits innermost on the elided stack.
-    let mut closing_stack = stack_before_elision;
-    let mut immune = 0_usize;
-    for event in &source[start_idx..=close_idx] {
-        match event {
-            Event::Start(tag) if is_immune_start(tag) => immune += 1,
-            Event::End(end) if is_immune_end(*end) => immune = immune.saturating_sub(1),
-            Event::Start(tag) if immune == 0 && is_block_start(tag) => {
-                closing_stack.push(tag.clone());
-            }
-            Event::End(end) if immune == 0 && is_block_end(*end) => {
-                closing_stack.pop();
-            }
-            _ => {}
-        }
-    }
-
     // Containers still open in `out` (the held prefix) must not be
     // re-emitted; the closing stack contains them as its prefix because
     // replay never pops a layer whose End lies outside the region.
@@ -795,9 +804,12 @@ fn emit_comment<'a>(
 
     // No trailing text: elide empty containers directly below the comment.
     // If the events right after the closing marker are exactly the End
-    // events of the innermost open containers, consume them and emit the
-    // matching Starts only for whatever remains open.
-    let next = elide_trailing_empty(source, close_idx + 1, &mut closing_stack);
+    // events of the innermost *reopened* containers, consume them and emit
+    // the matching Starts only for whatever remains open. The held prefix
+    // is a hard floor: its containers are still open in `out`, so their
+    // Ends belong to the main loop — consuming one here would leave the
+    // stream unbalanced and swallow following content into the container.
+    let next = elide_trailing_empty(source, close_idx + 1, &mut closing_stack, held);
     let reopen_from = held.min(closing_stack.len());
     let reopened = closing_stack.len() > reopen_from;
     for tag in &closing_stack[reopen_from..] {
@@ -821,15 +833,22 @@ fn emit_comment<'a>(
 /// containers; those Starts are dropped instead of being re-emitted, so no
 /// empty pair survives below a fully-consumed comment. Returns the index of
 /// the first event left unconsumed and trims `stack` accordingly.
-fn elide_trailing_empty(source: &[Event<'_>], next: usize, stack: &mut Vec<Tag<'_>>) -> usize {
+fn elide_trailing_empty(
+    source: &[Event<'_>],
+    next: usize,
+    stack: &mut Vec<Tag<'_>>,
+    floor: usize,
+) -> usize {
     let mut next = next;
-    while let Some(tag) = stack.last() {
-        if source.get(next) == Some(&Event::End(tag.to_end())) {
-            stack.pop();
-            next = next.saturating_add(1);
-        } else {
-            break;
+    while stack.len() > floor {
+        if let Some(tag) = stack.last() {
+            if source.get(next) == Some(&Event::End(tag.to_end())) {
+                stack.pop();
+                next = next.saturating_add(1);
+                continue;
+            }
         }
+        break;
     }
     next
 }
@@ -1163,6 +1182,39 @@ mod tests {
             }
         }
         assert!(comment_in_outer_quote, "comment escaped the outer quote");
+    }
+
+    #[test]
+    fn same_kind_fully_inside_region_does_not_lend_its_end() {
+        // A quote fully opened *and* closed inside the comment region must
+        // not lend its End to the outer quote on the stack: the comment
+        // never left the outer one, so its block stays prefixed with `> `.
+        let output = convert("> %%a\n> > inner\n>\n> b%% c\n");
+        assert!(output.contains("> <!--"), "comment escaped the quote");
+        assert!(output.contains("inner"), "inner quote lost from body");
+        strip("> %%a\n> > inner\n>\n> b%% c\n");
+    }
+
+    #[test]
+    fn comment_as_last_content_of_container_keeps_stream_balanced() {
+        // A block comment ending a container (no trailing text): the End
+        // events below it belong to the still-held containers and must be
+        // left to the main loop — consuming one would unbalance the stream
+        // and swallow following content into the container. The run()
+        // stack-based balance assertion guards both modes.
+        convert("> %%a\n>\n> b%%\n");
+        strip("> %%a\n>\n> b%%\n");
+
+        let output = convert("> %%a\n>\n> b%%\n\nafter\n");
+        assert!(
+            !output.contains("> after"),
+            "top-level paragraph swallowed into the quote"
+        );
+        let output = strip("> %%a\n>\n> b%%\n\nafter\n");
+        assert!(
+            !output.contains("> after"),
+            "top-level paragraph swallowed into the quote"
+        );
     }
 
     #[test]

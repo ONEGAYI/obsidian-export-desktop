@@ -20,3 +20,14 @@
 - %%item opens in first paragraph
 
   closes in second paragraph%% item tail
+
+> %%a
+> > inner
+>
+> b%% c
+
+> %%ends the quote
+>
+> without trailing text%%
+
+after stays top-level
