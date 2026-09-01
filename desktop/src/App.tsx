@@ -341,18 +341,39 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  // Subscriptions that don't reference the active dictionary live in their
-  // own effect: re-subscribing on language change would open a window in
-  // which sidecar-exit (the auto-check trigger) or check-exit could be
-  // missed. Only sidecar-event needs the dictionary (its warning label).
+  // All sidecar subscriptions live in a single effect with no dependencies.
+  // The one per-language value they need (the export log's warning label)
+  // travels through a ref instead of the closure: re-subscribing on
+  // language change opened a microtask window where the old handler's
+  // unlisten had not run yet, so sidecar-event was folded by both handlers
+  // (double done counts, duplicated log lines) — and re-subscribing at all
+  // could miss sidecar-exit (the auto-check trigger) or check-exit mid-flight.
+  const warningLogRef = useRef(t.app.warningLog);
+  useEffect(() => {
+    warningLogRef.current = t.app.warningLog;
+  }, [t]);
+
   useEffect(() => {
     // The CLI bursts every link report in one go after checking finishes;
     // folding each event into state individually is quadratic on big vaults.
-    // Events are buffered and folded once per animation frame instead.
+    // Events are buffered and folded once per animation frame instead. The
+    // frame callback never fires while the WebView is minimized or hidden
+    // (rAF is paused there), so a short timer rides along as the fallback:
+    // background timers get throttled to roughly one per second but still
+    // flush, keeping the progress current instead of buffering in memory.
+    const FALLBACK_FLUSH_MS = 250;
     let buffer: CheckEvent[] = [];
     let frame: number | null = null;
+    let timer: number | null = null;
     const flush = () => {
-      frame = null;
+      if (frame !== null) {
+        cancelAnimationFrame(frame);
+        frame = null;
+      }
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
       if (buffer.length === 0) return;
       const events = buffer;
       buffer = [];
@@ -360,6 +381,11 @@ export default function App() {
     };
 
     const unlisteners: Promise<() => void>[] = [
+      // The warning label comes from the ref so this subscription never
+      // needs re-creating on a language switch (see the comment above).
+      onSidecarEvent((event) =>
+        setProgress((p) => foldEvent(p, event, warningLogRef.current)),
+      ),
       onSidecarExit((payload) => {
         setExit(payload);
         setPhase("result");
@@ -390,11 +416,13 @@ export default function App() {
         if (frame === null) {
           frame = requestAnimationFrame(flush);
         }
+        if (timer === null) {
+          timer = window.setTimeout(flush, FALLBACK_FLUSH_MS);
+        }
       }),
       // Exit is the definitive end of the stream: flush pending reports
       // first so the end summary (and the done/failed verdict) sees them.
       onCheckExit((payload) => {
-        if (frame !== null) cancelAnimationFrame(frame);
         flush();
         // Exit 1 covers both "broken links found" (a completed run, the end
         // event is present) and "the check itself failed" (no end event);
@@ -433,22 +461,12 @@ export default function App() {
     ];
     return () => {
       if (frame !== null) cancelAnimationFrame(frame);
+      if (timer !== null) clearTimeout(timer);
       for (const p of unlisteners) {
         p.then((unlisten) => unlisten());
       }
     };
   }, []);
-
-  // Re-subscribed when the language changes so log placeholders follow the
-  // active dictionary.
-  useEffect(() => {
-    const unlisten = onSidecarEvent((event) =>
-      setProgress((p) => foldEvent(p, event, t.app.warningLog)),
-    );
-    return () => {
-      unlisten.then((u) => u());
-    };
-  }, [t]);
 
   /** Persist a picked path immediately so it survives a restart. */
   const rememberPath = useCallback(
