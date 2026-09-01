@@ -94,6 +94,8 @@ interface ExportProgress {
   failures: { path: string; message: string }[];
   warnings: { path: string | null; message: string }[];
   lines: LogLine[];
+  /** Current diagram rendering slot (index/total), null when not rendering. */
+  diagram: { index: number; total: number; language: string } | null;
 }
 
 const EMPTY_PROGRESS: ExportProgress = {
@@ -104,6 +106,7 @@ const EMPTY_PROGRESS: ExportProgress = {
   failures: [],
   warnings: [],
   lines: [],
+  diagram: null,
 };
 
 const REMEMBER_PATHS_KEY = "obsidian-export-remember-paths";
@@ -164,8 +167,17 @@ function foldEvent(
           },
         ],
       };
+    case "diagram-render":
+      return {
+        ...progress,
+        diagram: {
+          index: event.index,
+          total: event.total,
+          language: event.language,
+        },
+      };
     case "end":
-      return { ...progress, endSeen: true };
+      return { ...progress, endSeen: true, diagram: null };
   }
 }
 

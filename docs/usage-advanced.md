@@ -28,6 +28,32 @@ Same-file section and block embeds (`![[#Heading]]` / `![[#^block-id]]`) are sup
 
 By default, a note that fails to export (e.g. broken YAML frontmatter) is recorded and the export continues with the remaining notes; at the end, a summary listing every failing note is printed. Use `--fail-fast` to instead stop on the first failing file. Note that with parallel exports, files already being processed when the failure occurs may still complete.
 
+## Diagram rendering
+
+Obsidian renders special fenced code blocks (` ```dot `, ` ```mermaid `, …) through plugins, but plain Markdown consumers show them as literal code. With `--render-diagrams`, such blocks are rendered into standalone image files by shelling out to the corresponding local tools, and the export embeds a regular Markdown image reference instead:
+
+```sh
+obsidian-export --render-diagrams dot,mermaid,wavedrom,tikz SOURCE TARGET
+```
+
+Renderers and the external tools they require:
+
+| Renderer | Code block languages | Requires | Formats |
+|----------|----------------------|----------|---------|
+| dot | `dot`, `graphviz` | [Graphviz](https://graphviz.org/download/) (`dot`) | svg, png |
+| mermaid | `mermaid`, `mmd` | [mermaid-cli](https://github.com/mermaid-js/mermaid-cli) (`mmdc`) | svg, png |
+| wavedrom | `wavedrom` | [wavedrom](https://www.npmjs.com/package/wavedrom) | svg |
+| tikz | `tikz` | a TeX distribution with `latex` and `dvisvgm` (e.g. TeX Live) | svg |
+
+Behavior details:
+
+* **Tool discovery** prefers an explicit path (`--diagram-bin dot=/path/to/dot`, repeatable) and otherwise scans `PATH`. On Windows the scan honors `PATHEXT` and runs npm's `.cmd` shims through `cmd.exe`, so global npm installs work out of the box.
+* **Atomicity**: tools are resolved in a prescan, for the languages actually present in the vault, *before* any output file is written. A missing tool aborts the export with exit code 1 and an install hint, leaving the destination untouched.
+* **Per-block failures are non-fatal**: a diagram whose code the tool rejects stays a code block and produces a warning; the export always completes.
+* **Output format**: `--diagram-format png` requests raster output; renderers without it (wavedrom, tikz) fall back to svg with a warning.
+* **Assets** are written next to each note under `assets/<note>-<hash>.<ext>` (content-addressed over renderer + language + source + format), so unchanged blocks resolve to the same file across runs and re-exports skip the external tool entirely.
+* **tikz** block content is the *inside* of a `tikzpicture` environment (Obsidian plugin convention); a source carrying its own `\begin{tikzpicture}` is embedded verbatim. Fonts are converted to paths (`dvisvgm --no-fonts`) for renderer compatibility; CJK text inside tikz drawings may render poorly — prefer mermaid or dot for those.
+
 ## Progress events
 
 Passing `--progress json` emits machine-readable progress events on stdout as JSON Lines, one JSON object per line. This is intended for programs driving obsidian-export as a child process: the first line declares the schema version, followed by per-file progress, warnings, and a final end event. Without this flag, stdout stays silent.

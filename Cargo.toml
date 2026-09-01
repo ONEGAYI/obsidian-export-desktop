@@ -44,11 +44,12 @@ filetime = "0.2.23"
 # ureq 2.x 维护分支（MSRV 1.71）：3.x 需要 MSRV 1.85，超出本 crate 的
 # 1.82。仅开 rustls TLS，禁 gzip/charset 精简依赖面。
 ureq = { version = "2.12", default-features = false, features = ["tls"] }
+# 渲染临时工作目录（diagram 源文件与 tikz 中间产物），随 drop 自动清理。
+tempfile = "3.10.1"
 
 [dev-dependencies]
 pretty_assertions = "1.4.0"
 rstest = "0.26.0"
-tempfile = "3.10.1"
 walkdir = "2.5.0"
 
 # The profile that 'cargo dist' will build with

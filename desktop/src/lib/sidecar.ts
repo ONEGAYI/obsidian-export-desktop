@@ -11,6 +11,7 @@ export type SidecarEvent =
   | { type: "file-skipped"; path: string }
   | { type: "file-failed"; path: string; message: string }
   | { type: "warning"; path: string | null; message: string }
+  | { type: "diagram-render"; language: string; index: number; total: number }
   | { type: "end"; failed: string[] };
 
 /** Mirrors the `check` dialect of the same schema (CheckEvent in events.rs). */

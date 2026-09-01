@@ -7,6 +7,7 @@ pub use pulldown_cmark;
 pub use serde_yaml;
 
 mod context;
+mod diagrams;
 mod frontmatter;
 mod linkcheck;
 pub mod postprocessors;
@@ -14,7 +15,7 @@ mod references;
 mod update;
 mod walker;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::OsString;
 use std::fs::{self, File};
 use std::io::prelude::*;
@@ -24,6 +25,8 @@ use std::sync::{Arc, Mutex};
 use std::{fmt, str};
 
 pub use context::Context;
+pub use diagrams::{DiagramFormat, DiagramRenderer, ToolName};
+use diagrams::{DiagramState, DiagramToolset, ToolResolutionError};
 use filetime::set_file_mtime;
 use frontmatter::{frontmatter_from_str, frontmatter_to_str};
 pub use frontmatter::{Frontmatter, FrontmatterStrategy};
@@ -36,18 +39,9 @@ use references::{ObsidianNoteReference, RefParser, RefParserState, RefType};
 use snafu::{ResultExt, Snafu};
 use unicode_normalization::UnicodeNormalization;
 pub use update::{
-    check_update,
-    current_target_triple,
-    validate_asset_name,
-    write_atomic_bytes,
-    AssetTarget,
-    DownloadProgress,
-    DownloadProgressReporter,
-    ReleaseAsset,
-    UpdateClient,
-    UpdateError,
-    UpdateStatus,
-    UreqUpdateClient,
+    check_update, current_target_triple, validate_asset_name, write_atomic_bytes, AssetTarget,
+    DownloadProgress, DownloadProgressReporter, ReleaseAsset, UpdateClient, UpdateError,
+    UpdateStatus, UreqUpdateClient,
 };
 pub use walker::{vault_contents, WalkOptions};
 
@@ -267,6 +261,22 @@ pub enum ExportError {
         path: PathBuf,
         source: std::io::Error,
     },
+
+    #[snafu(display(
+        "diagram tool '{}' required by renderer '{}' is unavailable: {}",
+        tool,
+        renderer,
+        hint
+    ))]
+    /// This occurs when diagram rendering is enabled and a required external
+    /// tool is neither explicitly configured nor found on `PATH`. Raised by
+    /// the prescan in [`Exporter::run`], before any output file is written,
+    /// so a missing tool fails the export atomically.
+    DiagramToolNotFound {
+        tool: String,
+        renderer: String,
+        hint: String,
+    },
 }
 
 /// A single failed file, as reported by [`ExportError::ExportCompletedWithErrors`].
@@ -304,6 +314,20 @@ pub enum ExportEvent {
     Warning {
         path: Option<PathBuf>,
         message: String,
+    },
+    /// A diagram code block is about to be rendered through an external tool.
+    ///
+    /// `index` is 1-based within `total`, the number of renderable blocks
+    /// found by the prescan. Rendering failures of individual blocks are
+    /// reported separately as [`ExportEvent::Warning`], keeping the export
+    /// itself going.
+    DiagramRender {
+        /// The fenced code block language, verbatim first word (e.g. `mermaid`).
+        language: String,
+        /// 1-based position within the run's total renderable blocks.
+        index: usize,
+        /// Total renderable blocks found by the prescan.
+        total: usize,
     },
     /// Emitted once after processing stops. `failed` lists the source paths of all
     /// files that failed. Emitted on every termination of a started run — successful,
@@ -368,6 +392,13 @@ pub struct Exporter<'a> {
     preserve_mtime: bool,
     missing_section_strategy: MissingSectionStrategy,
     fail_fast: bool,
+    diagram_renderers: Vec<DiagramRenderer>,
+    diagram_format: DiagramFormat,
+    diagram_bins: BTreeMap<ToolName, PathBuf>,
+    /// Populated by the prescan in [`Exporter::run`] when diagram rendering
+    /// is enabled; shared (immutable, with atomics for progress) across
+    /// worker threads.
+    diagram_state: Option<Arc<DiagramState>>,
     event_callback: Option<ExportEventCallback>,
     postprocessors: Vec<&'a Postprocessor<'a>>,
     embed_postprocessors: Vec<&'a Postprocessor<'a>>,
@@ -387,6 +418,9 @@ impl fmt::Debug for Exporter<'_> {
             )
             .field("missing_section_strategy", &self.missing_section_strategy)
             .field("fail_fast", &self.fail_fast)
+            .field("diagram_renderers", &self.diagram_renderers)
+            .field("diagram_format", &self.diagram_format)
+            .field("diagram_bins", &self.diagram_bins)
             .field(
                 "event_callback",
                 &match self.event_callback {
@@ -425,6 +459,10 @@ impl<'a> Exporter<'a> {
             preserve_mtime: false,
             missing_section_strategy: MissingSectionStrategy::default(),
             fail_fast: false,
+            diagram_renderers: vec![],
+            diagram_format: DiagramFormat::Svg,
+            diagram_bins: BTreeMap::new(),
+            diagram_state: None,
             event_callback: None,
             vault_contents: None,
             vault_index: None,
@@ -500,6 +538,35 @@ impl<'a> Exporter<'a> {
         self
     }
 
+    /// Enable rendering of diagram code blocks through external tools
+    /// (default: none).
+    ///
+    /// For each enabled renderer, the tools it requires must be resolvable —
+    /// through [`Exporter::diagram_bins`] or a `PATH` scan — whenever a
+    /// language it covers occurs in the vault. [`Exporter::run`] verifies
+    /// this in a prescan before any output file is written, failing
+    /// atomically with [`ExportError::DiagramToolNotFound`] otherwise.
+    pub fn diagram_renderers(&mut self, renderers: Vec<DiagramRenderer>) -> &mut Self {
+        self.diagram_renderers = renderers;
+        self
+    }
+
+    /// Set the output format for rendered diagrams (default:
+    /// [`DiagramFormat::Svg`]). Renderers without raster output fall back to
+    /// SVG and emit a warning.
+    pub const fn diagram_format(&mut self, format: DiagramFormat) -> &mut Self {
+        self.diagram_format = format;
+        self
+    }
+
+    /// Set explicit executable paths for external diagram tools, overriding
+    /// `PATH` lookup (default: none). Tool keys are the canonical executable
+    /// names (`dot`, `mmdc`, `wavedrom`, `latex`, `dvisvgm`).
+    pub fn diagram_bins(&mut self, bins: BTreeMap<ToolName, PathBuf>) -> &mut Self {
+        self.diagram_bins = bins;
+        self
+    }
+
     /// Register a callback receiving [`ExportEvent`]s during [`Exporter::run`].
     ///
     /// The callback is invoked from parallel worker threads and must therefore be
@@ -556,6 +623,14 @@ impl<'a> Exporter<'a> {
         // of a linear scan over the whole vault.
         self.vault_index = Some(VaultIndex::build(&contents));
         self.vault_contents = Some(contents);
+
+        // Diagram rendering prescan: count the renderable blocks actually
+        // present and resolve every external tool they need. Runs before any
+        // output file is written so a missing tool fails the export
+        // atomically, leaving the destination untouched.
+        if !self.diagram_renderers.is_empty() {
+            self.prepare_diagram_state()?;
+        }
 
         // When a single file is specified, just need to export that specific file instead of
         // iterating over all discovered files. This also allows us to accept destination as either
@@ -707,6 +782,63 @@ impl<'a> Exporter<'a> {
         }
     }
 
+    /// Count renderable diagram blocks across the export file set and
+    /// resolve every external tool they need, populating `diagram_state`.
+    ///
+    /// Runs inside [`Exporter::run`] before the first output file is
+    /// written, so an unresolvable tool aborts the export atomically. The
+    /// walk honors the same `start_at` filter as the export itself; tag
+    /// filtering is deliberately not simulated (notes skipped by
+    /// `StopAndSkipNote` still count), erring on the stricter side.
+    #[allow(clippy::arithmetic_side_effects)]
+    fn prepare_diagram_state(&mut self) -> Result<()> {
+        let contents = self
+            .vault_contents
+            .as_ref()
+            .expect("vault_contents is always populated by run() before the diagram prescan");
+
+        let mut total = 0;
+        let mut renderers_needed: BTreeSet<DiagramRenderer> = BTreeSet::new();
+        for file in contents
+            .iter()
+            .filter(|file| file.starts_with(&self.start_at) && is_markdown_file(file))
+        {
+            let text = fs::read_to_string(file).context(ReadSnafu { path: file })?;
+            let hit = diagrams::prescan_note(&text, &self.diagram_renderers);
+            total += hit.renderable_blocks;
+            renderers_needed.extend(hit.renderers);
+        }
+
+        let toolset = DiagramToolset::resolve(
+            &renderers_needed.into_iter().collect::<Vec<_>>(),
+            &self.diagram_bins,
+        )
+        .map_err(|error| match error {
+            ToolResolutionError::ExplicitMissing { tool, path } => {
+                ExportError::DiagramToolNotFound {
+                    tool: tool.as_str().into(),
+                    renderer: tool.primary_renderer().name().into(),
+                    hint: format!("explicit path '{}' does not exist", path.display()),
+                }
+            }
+            ToolResolutionError::NotFoundOnPath { tool, hint } => {
+                ExportError::DiagramToolNotFound {
+                    tool: tool.as_str().into(),
+                    renderer: tool.primary_renderer().name().into(),
+                    hint: hint.into(),
+                }
+            }
+        })?;
+
+        self.diagram_state = Some(Arc::new(DiagramState::new(
+            toolset,
+            self.diagram_format,
+            self.diagram_renderers.clone(),
+            total,
+        )));
+        Ok(())
+    }
+
     /// Resolve a reference string to a vault file via the prebuilt index.
     fn resolve_reference(&self, file: &str, context: &Context) -> Option<&PathBuf> {
         let index = self
@@ -779,6 +911,20 @@ impl<'a> Exporter<'a> {
                 PostprocessorResult::StopAndSkipNote => return Ok(None),
                 PostprocessorResult::Continue => (),
             }
+        }
+
+        // Diagram rendering is a built-in final stage rather than a
+        // postprocessor: it needs Exporter-owned state (resolved tools, the
+        // event callback) and runs after user postprocessors, so those keep
+        // seeing the original code blocks.
+        if let Some(state) = &self.diagram_state {
+            diagrams::process_diagram_events(
+                state,
+                &context,
+                &mut markdown_events,
+                &|event: &ExportEvent| self.emit(event),
+                &|message: String| self.warn(None, message),
+            );
         }
 
         let mut outfile = create_file(&context.destination)?;

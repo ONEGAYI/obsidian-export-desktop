@@ -1702,6 +1702,19 @@
             "rust"
           ]
         },
+        "diagrams.rs": {
+          "kind": "file",
+          "desc": "图表渲染：渲染器注册表与外部工具编排",
+          "detail": [
+            "特殊代码块（dot/mermaid/wavedrom/tikz）渲染引擎：渲染器与工具注册表、",
+            "PATH+PATHEXT 工具解析（Windows 下 .cmd 经 cmd.exe 包装执行）、外部进程执行",
+            "（超时/stderr 捕获）、tikz 双步管线（latex+dvisvgm）、内容寻址资产命名（FNV-1a）",
+            "与缓存、事件流改写（代码块替换为图片引用）与预扫描。"
+          ],
+          "tags": [
+            "rust"
+          ]
+        },
         "frontmatter.rs": {
           "kind": "file",
           "desc": "frontmatter 类型与序列化",
@@ -1839,6 +1852,18 @@
           ],
           "tags": [
             "sidecar",
+            "test"
+          ]
+        },
+        "diagrams_cli_test.rs": {
+          "kind": "file",
+          "desc": "图表渲染 CLI 集成测试",
+          "detail": [
+            "debug-only 环境变量注入跨平台假渲染器脚本（Windows .cmd / Unix sh，输出固定 SVG、",
+            "FAIL 标记触发失败、调用计数），覆盖四渲染器成功、png 回落、单块失败保留、",
+            "工具缺失原子化、增量幂等、显式路径覆盖 PATH、按需预扫描与参数校验八场景。"
+          ],
+          "tags": [
             "test"
           ]
         },
@@ -2070,6 +2095,30 @@
                     "tests/cli_test.rs",
                     "tests/export_test.rs"
                   ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "diagrams": {
+                  "kind": "dir",
+                  "desc": "四语言图表块样例 vault",
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "diagrams-fail": {
+                  "kind": "dir",
+                  "desc": "渲染失败保留场景 vault",
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "diagrams-png": {
+                  "kind": "dir",
+                  "desc": "png 回落场景 vault",
                   "tags": [
                     "fixture"
                   ],

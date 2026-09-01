@@ -1,5 +1,10 @@
 import { useEffect, useRef } from "react";
-import { CircleAlertIcon, CircleCheckIcon, MinusCircleIcon } from "lucide-react";
+import {
+  CircleAlertIcon,
+  CircleCheckIcon,
+  Loader2Icon,
+  MinusCircleIcon,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +28,8 @@ export interface ExportProgressData {
   done: number;
   skipped: number;
   lines: LogLine[];
+  /** Current diagram rendering slot, null while no diagram is rendering. */
+  diagram: { index: number; total: number; language: string } | null;
 }
 
 const LINE_COLOR: Record<LogLine["kind"], string> = {
@@ -86,6 +93,16 @@ export function ExportRunView({
               n: progress.lines.filter((l) => l.kind === "failed").length,
             })}
           </span>
+          {progress.diagram && (
+            <span className="flex items-center gap-1">
+              <Loader2Icon className="size-3.5 animate-spin" />
+              {fmt(t.run.diagramProgress, {
+                index: progress.diagram.index,
+                total: progress.diagram.total,
+                language: progress.diagram.language,
+              })}
+            </span>
+          )}
         </div>
         <div
           ref={logRef}

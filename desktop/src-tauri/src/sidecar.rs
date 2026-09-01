@@ -202,6 +202,25 @@ pub enum LinkCheckTarget {
     Destination,
 }
 
+/// Output format for rendered diagrams; mirrors the CLI `--diagram-format`
+/// enum.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiagramFormatChoice {
+    #[default]
+    Svg,
+    Png,
+}
+
+impl DiagramFormatChoice {
+    fn as_flag(self) -> &'static str {
+        match self {
+            DiagramFormatChoice::Svg => "svg",
+            DiagramFormatChoice::Png => "png",
+        }
+    }
+}
+
 /// User-configurable export options, one field per CLI flag of the sidecar.
 ///
 /// Defaults mirror the CLI defaults: `build_args` only emits flags for
@@ -232,6 +251,16 @@ pub struct ExportOptions {
     pub link_check_enabled: bool,
     /// GUI-only preference: which tree that automatic check walks.
     pub link_check_target: LinkCheckTarget,
+    /// Diagram renderers to enable (a subset of dot/mermaid/wavedrom/tikz);
+    /// empty keeps the CLI default of no diagram rendering.
+    pub diagram_renderers: Vec<String>,
+    /// Output format for rendered diagrams (svg default; renderers without
+    /// raster output fall back to svg with a warning).
+    pub diagram_format: DiagramFormatChoice,
+    /// Explicit executable paths overriding the PATH lookup, keyed by tool
+    /// name (dot/mmdc/wavedrom/latex/dvisvgm). Blank values are treated as
+    /// unset, mirroring the CLI filter.
+    pub diagram_bins: std::collections::BTreeMap<String, String>,
 }
 
 /// Build the sidecar argv. `--progress json` is always passed (the desktop
@@ -290,6 +319,26 @@ fn build_args(options: &ExportOptions, source: &str, target: &str) -> Vec<String
     }
     if options.hard_linebreaks {
         args.push("--hard-linebreaks".to_owned());
+    }
+    if !options.diagram_renderers.is_empty() {
+        args.push("--render-diagrams".to_owned());
+        args.push(options.diagram_renderers.join(","));
+    }
+    if options.diagram_format != DiagramFormatChoice::Svg {
+        args.extend([
+            "--diagram-format".to_owned(),
+            options.diagram_format.as_flag().to_owned(),
+        ]);
+    }
+    for (tool, path) in &options.diagram_bins {
+        // Blank strings count as unset, same rule as the scalar string
+        // options above.
+        if !path.trim().is_empty() {
+            args.extend([
+                "--diagram-bin".to_owned(),
+                format!("{tool}={path}"),
+            ]);
+        }
     }
     args.push(source.to_owned());
     args.push(target.to_owned());
@@ -899,6 +948,48 @@ mod tests {
     #[test]
     fn default_options_pass_no_extra_flags() {
         let args = build_args(&ExportOptions::default(), "SRC", "DST");
+        assert_eq!(args, vec!["--progress", "json", "SRC", "DST"]);
+    }
+
+    #[test]
+    fn diagram_options_map_to_flags() {
+        let options = ExportOptions {
+            diagram_renderers: vec!["dot".into(), "mermaid".into()],
+            diagram_format: DiagramFormatChoice::Png,
+            diagram_bins: std::collections::BTreeMap::from([
+                ("mmdc".into(), r"C:\Tools\mmdc.cmd".into()),
+                // Blank paths are unset and must not reach the CLI.
+                ("latex".into(), "  ".into()),
+            ]),
+            ..ExportOptions::default()
+        };
+        let args = build_args(&options, "SRC", "DST");
+        assert_eq!(
+            args,
+            vec![
+                "--progress",
+                "json",
+                "--render-diagrams",
+                "dot,mermaid",
+                "--diagram-format",
+                "png",
+                "--diagram-bin",
+                "mmdc=C:\\Tools\\mmdc.cmd",
+                "SRC",
+                "DST",
+            ]
+        );
+    }
+
+    #[test]
+    fn diagram_defaults_pass_no_flags() {
+        // Explicit defaults (svg format, empty renderer list) stay silent,
+        // keeping the CLI the single source of default behavior.
+        let options = ExportOptions {
+            diagram_format: DiagramFormatChoice::Svg,
+            ..ExportOptions::default()
+        };
+        let args = build_args(&options, "SRC", "DST");
         assert_eq!(args, vec!["--progress", "json", "SRC", "DST"]);
     }
 

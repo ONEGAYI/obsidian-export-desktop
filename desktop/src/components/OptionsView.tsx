@@ -7,6 +7,7 @@ import {
   InfoIcon,
   Link2Icon,
   RotateCcwIcon,
+  ShapesIcon,
 } from "lucide-react";
 
 import { PathPicker } from "@/components/PathPicker";
@@ -27,9 +28,13 @@ import { Switch } from "@/components/ui/switch";
 import { fmt, useI18n } from "@/i18n";
 import {
   DEFAULT_OPTIONS,
+  DIAGRAM_FORMAT_VALUES,
+  DIAGRAM_RENDERER_VALUES,
+  DIAGRAM_TOOL_VALUES,
   FRONTMATTER_VALUES,
   LINK_CHECK_TARGET_VALUES,
   MISSING_SECTION_VALUES,
+  type DiagramFormat,
   type ExportOptions,
   type FrontmatterStrategy,
   type LinkCheckTarget,
@@ -53,7 +58,13 @@ interface OptionsViewProps {
 }
 
 /** Settings pages: each maps to one option group in the side-nav. */
-type Page = "conversion" | "filtering" | "process" | "linkCheck" | "about";
+type Page =
+  | "conversion"
+  | "filtering"
+  | "process"
+  | "diagrams"
+  | "linkCheck"
+  | "about";
 
 /**
  * Radio list for a string-enum option: one card with one row per choice
@@ -139,6 +150,47 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 }
 
 /**
+ * Pill-shaped checkbox (semantic checkbox, visual pill): selected pills fill
+ * with the accent color. Used for the diagram renderer multi-select.
+ */
+function PillCheckbox({
+  label,
+  hint,
+  checked,
+  onCheckedChange,
+}: {
+  label: string;
+  /** Extra description surfaced as a tooltip. */
+  hint: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      title={hint}
+      aria-label={fmt(
+        checked
+          ? t.common.statefulControl.nameOn
+          : t.common.statefulControl.nameOff,
+        { title: label },
+      )}
+      onClick={() => onCheckedChange(!checked)}
+      className={`rounded-full border px-3 py-1.5 text-sm whitespace-nowrap transition-colors ${
+        checked
+          ? "border-transparent bg-[var(--interactive-accent)] text-[var(--text-on-accent)]"
+          : "bg-[var(--background-primary)] text-muted-foreground hover:bg-[var(--background-modifier-hover)]"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+/**
  * Full options panel mirroring the CLI flags of the sidecar, paginated into
  * a side-nav (page selection) and a content area. All choices are persisted
  * by the parent as they are made; only non-default values are forwarded to
@@ -169,6 +221,10 @@ export function OptionsView({
     value,
     ...t.options.linkCheckTargetChoices[value],
   })) satisfies { value: LinkCheckTarget; label: string; description: string }[];
+  const diagramFormatChoices = DIAGRAM_FORMAT_VALUES.map((value) => ({
+    value,
+    ...t.options.diagramFormatChoices[value],
+  })) satisfies { value: DiagramFormat; label: string; description: string }[];
 
   const navItems: {
     id: Page;
@@ -178,6 +234,7 @@ export function OptionsView({
     { id: "conversion", label: t.options.sectionConversion, icon: <ArrowRightLeftIcon className="size-4 shrink-0" /> },
     { id: "filtering", label: t.options.sectionFiltering, icon: <FilterIcon className="size-4 shrink-0" /> },
     { id: "process", label: t.options.sectionProcess, icon: <FileCogIcon className="size-4 shrink-0" /> },
+    { id: "diagrams", label: t.options.sectionDiagrams, icon: <ShapesIcon className="size-4 shrink-0" /> },
     { id: "linkCheck", label: t.options.sectionLinkCheck, icon: <Link2Icon className="size-4 shrink-0" /> },
     { id: "about", label: t.options.sectionAbout, icon: <InfoIcon className="size-4 shrink-0" /> },
   ];
@@ -238,6 +295,15 @@ export function OptionsView({
               >
                 {item.icon}
                 {item.label}
+                {/* First-level brief for the diagram page: how many renderers
+                    are on, visible without opening the page. */}
+                {item.id === "diagrams" &&
+                  options.diagramRenderers.length > 0 && (
+                    <span className="ml-auto rounded-full bg-[var(--interactive-accent)] px-1.5 py-0.5 text-[10px] leading-none font-semibold text-[var(--text-on-accent)]">
+                      {options.diagramRenderers.length}/
+                      {DIAGRAM_RENDERER_VALUES.length}
+                    </span>
+                  )}
               </button>
             ))}
           </nav>
@@ -364,6 +430,87 @@ export function OptionsView({
                     checked={options.failFast}
                     onCheckedChange={(failFast) => patch({ failFast })}
                   />
+                </div>
+              </section>
+            )}
+
+            {page === "diagrams" && (
+              <section className="flex flex-col gap-2.5">
+                <h3 className="text-sm font-semibold">{t.options.sectionDiagrams}</h3>
+                <div className="flex max-w-lg flex-col gap-2.5">
+                  <p className="text-muted-foreground text-xs">
+                    {t.options.diagramsDescription}
+                  </p>
+                  <div className="flex flex-col gap-1.5">
+                    <FieldLabel>{t.options.diagramRenderersLabel}</FieldLabel>
+                    <div
+                      role="group"
+                      aria-label={t.options.diagramRenderersLabel}
+                      className="flex flex-wrap gap-2"
+                    >
+                      {DIAGRAM_RENDERER_VALUES.map((renderer) => (
+                        <PillCheckbox
+                          key={renderer}
+                          label={t.options.diagramRendererChoices[renderer].label}
+                          hint={t.options.diagramRendererChoices[renderer].description}
+                          checked={options.diagramRenderers.includes(renderer)}
+                          onCheckedChange={(checked) =>
+                            patch({
+                              diagramRenderers: checked
+                                ? [...options.diagramRenderers, renderer]
+                                : options.diagramRenderers.filter(
+                                    (r) => r !== renderer,
+                                  ),
+                            })
+                          }
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5 pb-2.5">
+                    <FieldLabel>{t.options.diagramFormatLabel}</FieldLabel>
+                    <EnumChoice
+                      value={options.diagramFormat}
+                      choices={diagramFormatChoices}
+                      groupLabel={t.options.diagramFormatLabel}
+                      onChange={(diagramFormat) => patch({ diagramFormat })}
+                    />
+                    <p className="text-[var(--text-faint)] text-xs">
+                      {t.options.diagramFormatFallbackNote}
+                    </p>
+                  </div>
+                  <details className="rounded-md border bg-[var(--background-primary)] p-2.5">
+                    <summary className="cursor-pointer text-sm font-medium">
+                      {t.options.diagramBinsTitle}
+                    </summary>
+                    <p className="text-muted-foreground mt-1.5 text-xs">
+                      {t.options.diagramBinsHint}
+                    </p>
+                    <div className="mt-2 flex flex-col gap-2">
+                      {DIAGRAM_TOOL_VALUES.map((tool) => (
+                        <div key={tool} className="flex flex-col gap-1">
+                          <FieldLabel>
+                            {t.options.diagramToolNames[tool]}
+                          </FieldLabel>
+                          <Input
+                            value={options.diagramBins[tool] ?? ""}
+                            placeholder={t.options.diagramBinsPlaceholder}
+                            onChange={(e) => {
+                              // Blank means PATH lookup; storing it as absent
+                              // keeps the payload and the summary in sync.
+                              const bins = { ...options.diagramBins };
+                              if (e.target.value === "") {
+                                delete bins[tool];
+                              } else {
+                                bins[tool] = e.target.value;
+                              }
+                              patch({ diagramBins: bins });
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 </div>
               </section>
             )}
