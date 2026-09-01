@@ -480,16 +480,16 @@ pub fn run_command(
 
     let mut child = command.spawn().context(SpawnSnafu)?;
 
-    // Feed stdin on a writer thread: the child may exit without reading it
-    // all (broken pipe is fine, the error is deliberately ignored).
-    let stdin_writer = stdin_data.and_then(|data| {
+    // Feed stdin on a detached writer thread: the child may exit without
+    // reading it all (broken pipe is fine, the error is deliberately
+    // ignored). Detached like the readers — a grandchild inheriting the
+    // read end could otherwise block write_all past the child's death.
+    if let (Some(data), Some(mut stdin)) = (stdin_data, child.stdin.take()) {
         let data = data.to_vec();
-        child.stdin.take().map(|mut stdin| {
-            thread::spawn(move || {
-                let _ = stdin.write_all(&data);
-            })
-        })
-    });
+        thread::spawn(move || {
+            let _ = stdin.write_all(&data);
+        });
+    }
 
     // Readers deliver through a channel so the collecting side can wait with
     // a deadline: on timeout the pipe may still be held open by a grandchild
@@ -521,9 +521,6 @@ pub fn run_command(
                 // Reap so the process handle and pipes are released before
                 // collecting the reader threads.
                 let _ = child.wait().context(WaitSnafu)?;
-                if let Some(writer) = stdin_writer {
-                    let _ = writer.join();
-                }
                 let _ = collect_reader(&stdout_rx);
                 let _ = collect_reader(&stderr_rx);
                 return Err(ToolRunError::Timeout {
@@ -534,9 +531,6 @@ pub fn run_command(
         }
     };
 
-    if let Some(writer) = stdin_writer {
-        let _ = writer.join();
-    }
     let stdout = collect_reader(&stdout_rx);
     let stderr = collect_reader(&stderr_rx);
     Ok(ToolOutput {
@@ -563,13 +557,17 @@ fn collect_reader(rx: &mpsc::Receiver<Vec<u8>>) -> Vec<u8> {
 fn kill_process_tree(pid: u32) {
     #[cfg(windows)]
     {
+        // Spawn-and-forget: waiting on taskkill itself could stall on a
+        // target stuck in uninterruptible kernel mode. It finishes in
+        // milliseconds in practice, and the direct kill below reaps what
+        // it missed either way.
         let _ = Command::new("taskkill")
             .args(["/T", "/F", "/PID"])
             .arg(pid.to_string())
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .status();
+            .spawn();
     }
     #[cfg(not(windows))]
     {
@@ -755,7 +753,14 @@ pub fn render_to_asset(
                     // the copy has landed, failing to remove the leftover
                     // temporary file must not fail the render: the asset
                     // itself is complete.
-                    fs::copy(&tmp_out, &target).and_then(|_| fs::remove_file(&tmp_out).or(Ok(())))
+                    fs::copy(&tmp_out, &target)
+                        .and_then(|_| fs::remove_file(&tmp_out).or(Ok(())))
+                        .inspect_err(|_| {
+                            // A half-written target would be cache-hit as a
+                            // corrupt asset on the next run; remove it so
+                            // this failure stays a failure.
+                            let _ = fs::remove_file(&target);
+                        })
                 })
                 .context(IoSnafu {
                     context: format!("failed to move asset into place at '{}'", target.display()),

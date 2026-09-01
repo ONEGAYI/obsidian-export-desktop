@@ -374,7 +374,11 @@ fn png_format_produces_png_where_supported_and_falls_back_to_svg() {
     // actual `-Tpng` pass-through (a mock that ignored its arguments would
     // render "png" files with SVG bytes unnoticed).
     let dot_calls = fs::read_to_string(mocks.dir.path().join("dot.calls")).expect("read dot calls");
-    assert_eq!(dot_calls.trim(), "-Tpng", "dot must be asked for PNG output");
+    assert_eq!(
+        dot_calls.trim(),
+        "-Tpng",
+        "dot must be asked for PNG output"
+    );
 }
 
 #[test]
@@ -635,7 +639,11 @@ fn invalid_render_diagrams_value_is_rejected() {
         ],
         &[],
     );
-    assert_eq!(out_bad_tool.code, Some(2), "bad tool names are usage errors");
+    assert_eq!(
+        out_bad_tool.code,
+        Some(2),
+        "bad tool names are usage errors"
+    );
     assert!(
         out_bad_tool.stderr.contains("not-a-tool") || out_bad_tool.stderr.contains("tool"),
         "error should name the bad tool, got: {}",
@@ -684,7 +692,9 @@ fn empty_tool_output_degrades_to_warning() {
         .filter_map(|event| event.get("message").and_then(Value::as_str))
         .collect();
     assert!(
-        warnings.iter().any(|message| message.contains("produced no")),
+        warnings
+            .iter()
+            .any(|message| message.contains("produced no")),
         "expected an output-missing warning, got: {:?}",
         warnings
     );
@@ -723,7 +733,9 @@ fn latex_without_dvi_degrades_to_warning() {
         .filter_map(|event| event.get("message").and_then(Value::as_str))
         .collect();
     assert!(
-        warnings.iter().any(|message| message.contains("produced no")),
+        warnings
+            .iter()
+            .any(|message| message.contains("produced no")),
         "expected an output-missing warning, got: {:?}",
         warnings
     );
@@ -836,7 +848,10 @@ fn single_file_export_renders_into_sibling_assets_dir() {
         "image reference must target the sibling assets dir, note:\n{}",
         note
     );
-    assert!(note.contains("```mermaid"), "other languages stay untouched");
+    assert!(
+        note.contains("```mermaid"),
+        "other languages stay untouched"
+    );
 
     let assets = list_assets(dest.path());
     assert_eq!(assets.len(), 1, "assets: {:?}", assets);
