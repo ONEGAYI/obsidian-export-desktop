@@ -9,3 +9,4 @@ trap 'rm -rf "$TMPDIR"' EXIT
 
 cargo run docs "$TMPDIR"
 cp "${TMPDIR}/_combined.md" README.md
+cp "${TMPDIR}/_combined.zh.md" README.zh.md

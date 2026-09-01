@@ -58,6 +58,30 @@ obsidian-export my-obsidian-vault --start-at my-obsidian-vault/Books exported-no
 
 In this mode, all notes under the source (the first argument) are considered part of the vault so any references to these files will remain intact, even if they're not part of the exported notes.
 
+## Checking links
+
+The `check` command verifies every link in a vault without writing anything:
+
+```sh
+obsidian-export check /path/to/my-obsidian-vault
+```
+
+It walks the same file set an export would, and reports broken wikilinks and standard Markdown links — missing files, missing sections, missing block ids — one `source:line` entry per problem.
+Links pointing outside the vault root are treated as broken; external URLs are ignored.
+The exit code follows the usual convention (0 = all healthy, 1 = broken links found, 2 = usage error), so it fits right into scripts and CI.
+Walk options like `--start-at`, `--hidden`, `--no-git` and `--ignore-file` apply here as well.
+
+## Updating
+
+The `update` command checks GitHub for a newer release and prints what it finds:
+
+```sh
+obsidian-export update
+```
+
+Add `--download` to also fetch the artifact — the CLI binary by default, or the Windows desktop installer with `--asset desktop` — into a temporary downloads directory (override with `--output`).
+The check exits 0 either way; scripts can parse the machine-readable stream of `--progress json` to act on the result.
+
 ## Character encodings
 
 At present, UTF-8 character encoding is assumed for all note text as well as filenames.

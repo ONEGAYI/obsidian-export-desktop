@@ -1402,6 +1402,17 @@
             "docs"
           ]
         },
+        "_combined.zh.md": {
+          "kind": "file",
+          "desc": "中文 README 章节嵌入清单",
+          "detail": [
+            "列出中文版 README 的章节嵌入顺序（警告/简介/安装/基本用法/高级用法/库用法/桌面端/贡献/许可证/变更日志），generate.sh 展开它生成 README.zh.md。"
+          ],
+          "tags": [
+            "docs",
+            "generated"
+          ]
+        },
         "_edit-warning.md": {
           "kind": "file",
           "desc": "勿直接编辑 README 的警告块",
@@ -1410,6 +1421,16 @@
           ],
           "rel": [
             "docs/_combined.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "_edit-warning.zh.md": {
+          "kind": "file",
+          "desc": "中文版勿直接编辑警告块",
+          "detail": [
+            "README.zh.md 顶部的 HTML 注释警告块：勿直接编辑生成产物，应改 docs 下的 .zh.md 源并重跑 generate.sh。"
           ],
           "tags": [
             "docs"
@@ -1456,6 +1477,19 @@
             "docs"
           ]
         },
+        "changes.zh.md": {
+          "kind": "file",
+          "desc": "中文更新日志引导页",
+          "detail": [
+            "中文版变更日志引导页，将 CHANGELOG 嵌入塌缩为指向根 CHANGELOG.md 的链接。"
+          ],
+          "rel": [
+            "docs/changes.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
         "contribute.md": {
           "kind": "file",
           "desc": "贡献引导页",
@@ -1465,6 +1499,19 @@
           "rel": [
             "docs/_combined.md",
             "docs/CONTRIBUTING.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "contribute.zh.md": {
+          "kind": "file",
+          "desc": "中文贡献引导页",
+          "detail": [
+            "中文版贡献引导页，链至 CONTRIBUTING.md（英文）。"
+          ],
+          "rel": [
+            "docs/contribute.md"
           ],
           "tags": [
             "docs"
@@ -1497,11 +1544,24 @@
             "docs"
           ]
         },
+        "desktop.zh.md": {
+          "kind": "file",
+          "desc": "中文桌面端功能介绍",
+          "detail": [
+            "桌面端（Tauri）功能中文介绍：主题/双语/选项面板/图表渲染/进度与取消/链接检查/关于与更新，与英文 desktop.md 对照。"
+          ],
+          "rel": [
+            "docs/desktop.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
         "generate.sh": {
           "kind": "file",
-          "desc": "由 docs 生成 README 的脚本",
+          "desc": "双语 README 生成脚本",
           "detail": [
-            "切到仓库根，用 cargo run（obsidian-export 自身）把 docs 导出到临时目录，展开嵌入后的 _combined.md 复制为根 README.md；README.md 是其产物。"
+            "切到仓库根，用 cargo run（obsidian-export 自身）把 docs 导出到临时目录，展开嵌入后的 _combined.md 与 _combined.zh.md 分别复制为根 README.md 与 README.zh.md；两份 README 均是其产物。"
           ],
           "rel": [
             "docs/_combined.md",
@@ -1524,6 +1584,19 @@
             "docs"
           ]
         },
+        "installation.zh.md": {
+          "kind": "file",
+          "desc": "中文安装与升级指南",
+          "detail": [
+            "中文版安装指南：fork releases 下载预编译产物（桌面端内置 CLI）、从本仓库源码构建、升级（含 update 子命令），与英文 installation.md 对照。"
+          ],
+          "rel": [
+            "docs/installation.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
         "intro.md": {
           "kind": "file",
           "desc": "项目简介与核心特性列表",
@@ -1537,6 +1610,19 @@
             "docs"
           ]
         },
+        "intro.zh.md": {
+          "kind": "file",
+          "desc": "中文简介与核心特性列表",
+          "detail": [
+            "中文版项目简介与核心特性列表（含图表渲染、链接检查、自更新、桌面端等 fork 新特性），顶部带中英语言入口。"
+          ],
+          "rel": [
+            "docs/intro.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
         "license.md": {
           "kind": "file",
           "desc": "许可证说明",
@@ -1545,6 +1631,19 @@
           ],
           "rel": [
             "docs/_combined.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "license.zh.md": {
+          "kind": "file",
+          "desc": "中文许可证说明",
+          "detail": [
+            "中文版许可证说明（BSD-2-Clause Plus Patent License），注明英文原文为准。"
+          ],
+          "rel": [
+            "docs/license.md"
           ],
           "tags": [
             "docs"
@@ -1589,6 +1688,19 @@
             "docs"
           ]
         },
+        "usage-advanced.zh.md": {
+          "kind": "file",
+          "desc": "中文高级选项与技巧",
+          "detail": [
+            "中文版高级用法：frontmatter、缺失章节、失败文件、图表渲染、进度事件、忽略文件、递归嵌入、Hugo 相对链接，与英文 usage-advanced.md 对照。"
+          ],
+          "rel": [
+            "docs/usage-advanced.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
         "usage-basic.md": {
           "kind": "file",
           "desc": "CLI 基本用法说明",
@@ -1602,6 +1714,19 @@
             "docs"
           ]
         },
+        "usage-basic.zh.md": {
+          "kind": "file",
+          "desc": "中文基本用法说明",
+          "detail": [
+            "中文版基本用法：导出笔记、部分导出、链接检查（check）、更新（update）、字符编码，与英文 usage-basic.md 对照。"
+          ],
+          "rel": [
+            "docs/usage-basic.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
         "usage-library.md": {
           "kind": "file",
           "desc": "Rust 库使用指引",
@@ -1610,6 +1735,19 @@
           ],
           "rel": [
             "docs/_combined.md"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "usage-library.zh.md": {
+          "kind": "file",
+          "desc": "中文库使用指引",
+          "detail": [
+            "中文版库使用指引，链至 docs.rs 的 obsidian_export 文档。"
+          ],
+          "rel": [
+            "docs/usage-library.md"
           ],
           "tags": [
             "docs"
@@ -1647,13 +1785,28 @@
     },
     "README.md": {
       "kind": "file",
-      "desc": "项目自述（generate.sh 产物）",
+      "desc": "英文自述（generate.sh 产物）",
       "detail": [
-        "由 docs/generate.sh 用 obsidian-export 自身展开 docs/_combined.md 的嵌入生成，顶部带勿直接编辑警告；修改须改 docs 下文件再重新生成。"
+        "由 docs/generate.sh 用 obsidian-export 自身展开 docs/_combined.md 的嵌入生成，顶部带勿直接编辑警告与中英双语入口；修改须改 docs 下文件再重新生成。"
       ],
       "rel": [
         "docs/_combined.md",
-        "docs/generate.sh"
+        "README.zh.md"
+      ],
+      "tags": [
+        "docs",
+        "generated"
+      ]
+    },
+    "README.zh.md": {
+      "kind": "file",
+      "desc": "中文自述（generate.sh 产物）",
+      "detail": [
+        "由 docs/generate.sh 展开docs/_combined.zh.md 的嵌入生成，与英文版 README.md 内容对照、顶部互为语言入口；修改须改 docs 下 .zh.md 文件再重新生成。"
+      ],
+      "rel": [
+        "docs/_combined.zh.md",
+        "README.md"
       ],
       "tags": [
         "docs",
@@ -2045,13 +2198,14 @@
             },
             "input": {
               "kind": "dir",
-              "desc": "测试输入 vault（20 个场景）",
+              "desc": "测试输入 vault（23 场景子目录）",
               "detail": [
                 "按测试场景分组的输入笔记目录，场景目录粗粒度收录。"
               ],
               "tags": [
                 "fixture"
               ],
+              "collapsed": true,
               "children": {
                 "block-refs": {
                   "kind": "dir",
