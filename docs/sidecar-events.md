@@ -28,6 +28,7 @@
 | `file-skipped` | `path: string` | 文件被后处理器跳过（如 `--skip-tags`） |
 | `file-failed` | `path: string`, `message: string` | 文件导出失败；`message` 为完整错误链（外层：内层：根因）。默认策略下其余文件继续 |
 | `warning` | `path: string \| null`, `message: string` | 非致命警告（死链、缺失章节等）；`path` 为警告来源笔记，无法确定时为 `null` |
+| `diagram-render` | `language: string`, `index: number`, `total: number` | 即将渲染一个图表代码块（`--render-diagrams` 启用时）。`index` 为 1 基，`total` 为预扫描统计的可渲染块总数（**估计值**：预扫描只数各笔记自身的块，嵌入展开产生的副本会计入 `index` 但不计入 `total`，故 `index` 可能大于 `total`，GUI 应容忍）；`language` 为围栏首词原样（别名如 `graphviz` 不折叠为 `dot`）。渲染失败以 `warning` 单独上报，流不中断；缓存命中的块同样发本事件 |
 | `end` | `failed: string[]` | 流终止。列出失败文件的来源路径 |
 
 除首尾外的事件顺序不保证（导出并行执行）；`start` 之后、`end` 之前，
@@ -60,6 +61,10 @@ GUI 的状态机因此可以单一判定：**收到 `end` 即本次运行终结*
 
 - `--fail-fast` 首错后停止调度新任务，但并发在飞的文件仍会完成并照常
   上报（`file-done` 可能出现在失败之后）。
+- `--render-diagrams` 启用时，工具缺失属于**前置校验失败**：schema 行已
+  出、无 `start`/`end`，原因（工具名与安装建议）在 stderr，退出码 `1`，
+  且未写出任何输出文件（原子化）。单个图表渲染失败不中断导出，走
+  `warning`，原代码块保留。
 - 非 UTF-8 参数经无损替换（U+FFFD）后按路径处理，通常报「路径不存在」
   （退出码 1）。Windows GUI 的 UTF-16 参数不受影响。
 - 默认（不带 `--progress json`）stdout 完全静默，警告与错误走 stderr，

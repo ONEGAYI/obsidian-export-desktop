@@ -62,6 +62,7 @@ export const en: Dict = {
     sectionConversion: "Conversion",
     sectionFiltering: "Content Filtering",
     sectionProcess: "Files & Process",
+    sectionDiagrams: "Diagram Rendering",
     sectionLinkCheck: "Link Check",
     sectionAbout: "About & Updates",
     updateCurrentVersion: "Current version",
@@ -149,6 +150,51 @@ export const en: Dict = {
     footer: "All options are remembered and reused on the next launch.",
     resetDefaults: "Reset to defaults",
     back: "Back",
+    diagramsDescription:
+      "Renders special code blocks (dot, Mermaid, …) into images through local tools during export and embeds them as regular Markdown images. Tools are looked up on PATH automatically; a missing tool aborts the export before any file is written.",
+    diagramRenderersLabel: "Enabled renderers",
+    diagramRendererChoices: {
+      dot: {
+        label: "dot",
+        description: "Graphviz DOT diagrams (dot / graphviz blocks); requires dot",
+      },
+      mermaid: {
+        label: "Mermaid",
+        description: "Mermaid diagrams (mermaid blocks); requires mmdc (mermaid-cli)",
+      },
+      wavedrom: {
+        label: "WaveDrom",
+        description: "Digital timing diagrams (wavedrom blocks); requires wavedrom",
+      },
+      tikz: {
+        label: "TikZ",
+        description: "TikZ drawings (tikz blocks); requires latex and dvisvgm (a TeX distribution); CJK text inside may render poorly",
+      },
+    },
+    diagramFormatLabel: "Output format",
+    diagramFormatChoices: {
+      svg: {
+        label: "SVG",
+        description: "Vector format, scales without quality loss (default)",
+      },
+      png: {
+        label: "PNG",
+        description: "Raster format, best compatibility",
+      },
+    },
+    diagramFormatFallbackNote:
+      "Renderers without the chosen format fall back to SVG with a warning (WaveDrom and TikZ have no PNG output).",
+    diagramBinsTitle: "Advanced: executable paths",
+    diagramBinsHint:
+      "Defaults to a PATH lookup. Only fill in when a tool is not on PATH or a specific version is needed; an invalid path fails before the export starts.",
+    diagramBinsPlaceholder: "Leave blank to look up on PATH",
+    diagramToolNames: {
+      dot: "dot (Graphviz)",
+      mmdc: "mmdc (mermaid-cli)",
+      wavedrom: "wavedrom",
+      latex: "latex (TeX)",
+      dvisvgm: "dvisvgm (TeX)",
+    },
     frontmatterChoices: {
       auto: {
         label: "Auto",
@@ -192,6 +238,8 @@ export const en: Dict = {
       failFast: "Fail fast",
       hardLinebreaks: "Hard line breaks",
       linkCheck: "Link check after export ({target})",
+      diagramRenderers: "Diagram rendering ×{n} ({format})",
+      diagramBins: "Custom tool paths ×{n}",
     },
   },
   dialog: {
@@ -212,6 +260,7 @@ export const en: Dict = {
     doneCount: "{n} done",
     skippedCount: "{n} skipped",
     failedCount: "{n} failed",
+    diagramProgress: "Rendering diagram {index}/{total} ({language})",
     waiting: "Waiting for sidecar events…",
     cancel: "Cancel Export",
   },

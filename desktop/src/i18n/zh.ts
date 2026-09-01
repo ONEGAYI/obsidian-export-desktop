@@ -62,6 +62,7 @@ export const zh = {
     sectionConversion: "转换行为",
     sectionFiltering: "内容过滤",
     sectionProcess: "文件与过程",
+    sectionDiagrams: "图表渲染",
     sectionLinkCheck: "链接检查",
     sectionAbout: "关于与更新",
     updateCurrentVersion: "当前版本",
@@ -140,6 +141,52 @@ export const zh = {
     footer: "全部选项均已记住，下次启动自动沿用。",
     resetDefaults: "恢复默认",
     back: "返回",
+    diagramsDescription:
+      "导出时把特殊代码块（dot、Mermaid 等）调用本机工具渲染为图片，并以标准图片引用嵌入产物。工具从 PATH 自动查找；缺失时导出开始前即报错退出，不会写出任何文件。",
+    diagramRenderersLabel: "启用的渲染器",
+    // 渲染器选项：药丸复选的标签与悬浮说明。
+    diagramRendererChoices: {
+      dot: {
+        label: "dot",
+        description: "Graphviz DOT 图（dot / graphviz 代码块），需要 dot",
+      },
+      mermaid: {
+        label: "Mermaid",
+        description: "Mermaid 图表（mermaid 代码块），需要 mmdc（mermaid-cli）",
+      },
+      wavedrom: {
+        label: "WaveDrom",
+        description: "数字时序图（wavedrom 代码块），需要 wavedrom",
+      },
+      tikz: {
+        label: "TikZ",
+        description: "TikZ 绘图（tikz 代码块），需要 latex 与 dvisvgm（TeX 发行版）；图内中文可能渲染异常",
+      },
+    },
+    diagramFormatLabel: "输出格式",
+    diagramFormatChoices: {
+      svg: {
+        label: "SVG",
+        description: "矢量格式，任意缩放不失真（默认）",
+      },
+      png: {
+        label: "PNG",
+        description: "位图格式，兼容性最好",
+      },
+    },
+    diagramFormatFallbackNote:
+      "所选格式渲染器不支持时自动回落为 SVG 并提示（WaveDrom、TikZ 无 PNG 输出）。",
+    diagramBinsTitle: "高级：可执行文件路径",
+    diagramBinsHint:
+      "默认从 PATH 自动查找。仅当工具不在 PATH 或需要指定版本时填写；路径无效会在导出前报错。",
+    diagramBinsPlaceholder: "留空则从 PATH 查找",
+    diagramToolNames: {
+      dot: "dot（Graphviz）",
+      mmdc: "mmdc（mermaid-cli）",
+      wavedrom: "wavedrom",
+      latex: "latex（TeX）",
+      dvisvgm: "dvisvgm（TeX）",
+    },
     // 选项值的双语文案：OptionsView 单选列表与导出确认摘要共用。
     frontmatterChoices: {
       auto: {
@@ -184,6 +231,8 @@ export const zh = {
       failFast: "快速失败",
       hardLinebreaks: "硬换行",
       linkCheck: "导出后链接检查（{target}）",
+      diagramRenderers: "图表渲染 ×{n}（{format}）",
+      diagramBins: "自定义工具路径 ×{n}",
     },
   },
   dialog: {
@@ -204,6 +253,7 @@ export const zh = {
     doneCount: "{n} 成功",
     skippedCount: "{n} 跳过",
     failedCount: "{n} 失败",
+    diagramProgress: "正在渲染图表 {index}/{total}（{language}）",
     waiting: "等待边车事件…",
     cancel: "取消导出",
   },

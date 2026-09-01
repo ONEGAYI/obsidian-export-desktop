@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
@@ -7,20 +8,9 @@ use eyre::{eyre, Result};
 use gumdrop::Options;
 use obsidian_export::postprocessors::{filter_by_tags, softbreaks_to_hardbreaks};
 use obsidian_export::{
-    AssetTarget,
-    DownloadProgress,
-    DownloadProgressReporter,
-    ExportError,
-    ExportEvent,
-    Exporter,
-    FrontmatterStrategy,
-    LinkCheckReport,
-    LinkCheckStatus,
-    LinkKind,
-    MissingSectionStrategy,
-    UpdateClient,
-    UpdateStatus,
-    UreqUpdateClient,
+    AssetTarget, DiagramFormat, DiagramRenderer, DownloadProgress, DownloadProgressReporter,
+    ExportError, ExportEvent, Exporter, FrontmatterStrategy, LinkCheckReport, LinkCheckStatus,
+    LinkKind, MissingSectionStrategy, ToolName, UpdateClient, UpdateStatus, UreqUpdateClient,
     WalkOptions,
 };
 use serde_json::json;
@@ -132,6 +122,29 @@ struct Opts {
         default = "false"
     )]
     hard_linebreaks: bool,
+
+    #[options(
+        no_short,
+        help = "Render diagram code blocks into image assets via local tools (comma-separated subset of: dot,mermaid,wavedrom,tikz)",
+        long = "render-diagrams"
+    )]
+    render_diagrams: Option<String>,
+
+    #[options(
+        no_short,
+        help = "Output format for rendered diagrams (one of: svg, png). Renderers without raster output fall back to svg with a warning",
+        long = "diagram-format",
+        parse(try_from_str = "diagram_format_from_str"),
+        default = "svg"
+    )]
+    diagram_format: DiagramFormat,
+
+    #[options(
+        no_short,
+        help = "Explicit executable path for a diagram tool, overriding PATH lookup (TOOL=PATH, repeatable; TOOL one of: dot,mmdc,wavedrom,latex,dvisvgm)",
+        long = "diagram-bin"
+    )]
+    diagram_bins: Vec<String>,
 }
 
 /// Options for `obsidian-export check`: walk the vault and verify every
@@ -196,6 +209,50 @@ fn missing_section_from_str(input: &str) -> Result<MissingSectionStrategy> {
     }
 }
 
+fn diagram_format_from_str(input: &str) -> Result<DiagramFormat> {
+    DiagramFormat::from_name(input).ok_or_else(|| eyre!("must be one of: svg, png"))
+}
+
+/// Parse `--render-diagrams` (comma-separated renderer names, order and
+/// duplicates irrelevant).
+fn parse_render_diagrams(input: &str) -> Result<Vec<DiagramRenderer>> {
+    let mut renderers = Vec::new();
+    for name in input.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+        let renderer = DiagramRenderer::from_name(name).ok_or_else(|| {
+            eyre!(
+                "unknown diagram renderer '{name}' (must be one of: dot, mermaid, wavedrom, tikz)"
+            )
+        })?;
+        if !renderers.contains(&renderer) {
+            renderers.push(renderer);
+        }
+    }
+    if renderers.is_empty() {
+        return Err(eyre!(
+            "--render-diagrams requires at least one of: dot, mermaid, wavedrom, tikz"
+        ));
+    }
+    Ok(renderers)
+}
+
+/// Parse repeatable `--diagram-bin TOOL=PATH` entries into a map.
+fn parse_diagram_bins(entries: &[String]) -> Result<BTreeMap<ToolName, PathBuf>> {
+    let mut bins = BTreeMap::new();
+    for entry in entries {
+        let Some((tool, path)) = entry.split_once('=') else {
+            return Err(eyre!("--diagram-bin expects TOOL=PATH, got '{entry}'"));
+        };
+        let tool = ToolName::from_name(tool.trim()).ok_or_else(|| {
+            eyre!(
+                "unknown diagram tool '{}' (must be one of: dot, mmdc, wavedrom, latex, dvisvgm)",
+                tool.trim()
+            )
+        })?;
+        bins.insert(tool, PathBuf::from(path.trim()));
+    }
+    Ok(bins)
+}
+
 fn asset_target_from_str(input: &str) -> Result<AssetTarget> {
     match input {
         "cli" => Ok(AssetTarget::Cli),
@@ -245,6 +302,7 @@ struct UpdateOpts {
     progress: ProgressFormat,
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     // Lossy conversion avoids panicking on non-UTF-8 arguments; gumdrop's built-in
     // parse_args_default_or_exit panics on those (see the "# Panics" section of its docs).
@@ -351,6 +409,40 @@ fn main() {
 
     let tags_postprocessor = filter_by_tags(args.skip_tags, args.only_tags);
     exporter.add_postprocessor(&tags_postprocessor);
+
+    // A match rather than map_or_else: the error branch exits the process,
+    // and the Ok arm feeds the exporter setup below.
+    #[allow(clippy::option_if_let_else)]
+    let diagram_renderers = match &args.render_diagrams {
+        Some(csv) => match parse_render_diagrams(csv) {
+            Ok(renderers) => renderers,
+            Err(error) => {
+                eprintln!("Error: {error}");
+                std::process::exit(2);
+            }
+        },
+        None => Vec::new(),
+    };
+    let diagram_bins = match parse_diagram_bins(&args.diagram_bins) {
+        Ok(bins) => bins,
+        Err(error) => {
+            eprintln!("Error: {error}");
+            std::process::exit(2);
+        }
+    };
+    if !diagram_renderers.is_empty() {
+        exporter.diagram_renderers(diagram_renderers);
+        exporter.diagram_format(args.diagram_format);
+        exporter.diagram_bins(diagram_bins);
+    } else if !diagram_bins.is_empty() || args.diagram_format != DiagramFormat::Svg {
+        // Both flags only take effect alongside --render-diagrams; without
+        // it they would be silently dropped, which reads like a bug.
+        eprintln!(
+            "Warning: --diagram-format and --diagram-bin have no effect without --render-diagrams"
+        );
+    } else {
+        // Nothing diagram-related configured.
+    }
 
     if let Some(path) = args.start_at {
         exporter.start_at(path);
@@ -958,6 +1050,16 @@ fn event_to_json(event: &ExportEvent) -> Option<String> {
             "type": "warning",
             "path": path.as_ref().map(|p| p.display().to_string()),
             "message": message,
+        }),
+        ExportEvent::DiagramRender {
+            language,
+            index,
+            total,
+        } => json!({
+            "type": "diagram-render",
+            "language": language,
+            "index": index,
+            "total": total,
         }),
         ExportEvent::End { failed } => json!({
             "type": "end",

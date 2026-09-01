@@ -11,11 +11,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use obsidian_export::{
-    ExportError,
-    ExportEvent,
-    Exporter,
-    FrontmatterStrategy,
-    MissingSectionStrategy,
+    ExportError, ExportEvent, Exporter, FrontmatterStrategy, MissingSectionStrategy,
 };
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;

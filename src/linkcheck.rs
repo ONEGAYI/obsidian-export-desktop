@@ -28,15 +28,8 @@ use unicode_normalization::UnicodeNormalization;
 
 use crate::references::ObsidianNoteReference;
 use crate::{
-    aggregate_inline_text,
-    collapsed_ref_display,
-    format_anchor,
-    normalize_lexically,
-    vault_contents,
-    ExportError,
-    Exporter,
-    RawNoteRef,
-    VaultIndex,
+    aggregate_inline_text, collapsed_ref_display, format_anchor, normalize_lexically,
+    vault_contents, ExportError, Exporter, RawNoteRef, VaultIndex,
 };
 
 /// What kind of link a [`LinkCheckReport`] describes.

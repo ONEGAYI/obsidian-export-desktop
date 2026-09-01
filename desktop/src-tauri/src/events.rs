@@ -32,6 +32,13 @@ pub enum SidecarEvent {
         path: Option<String>,
         message: String,
     },
+    /// A diagram code block is about to be rendered; `index` is 1-based
+    /// within `total`. Rendering failures arrive as [`SidecarEvent::Warning`].
+    DiagramRender {
+        language: String,
+        index: u32,
+        total: u32,
+    },
     End {
         failed: Vec<String>,
     },
@@ -200,7 +207,8 @@ pub fn parse_line(line: &str) -> Result<ParsedLine, String> {
         serde_json::from_str(trimmed).map_err(|err| format!("invalid JSON line: {err}"))?;
 
     let event: SidecarEvent = match tag.tag.as_str() {
-        "schema" | "start" | "file-done" | "file-skipped" | "file-failed" | "warning" | "end" => {
+        "schema" | "start" | "file-done" | "file-skipped" | "file-failed" | "warning"
+        | "diagram-render" | "end" => {
             serde_json::from_str(trimmed)
                 .map_err(|err| format!("malformed {} event: {err}", tag.tag))?
         }
@@ -348,6 +356,20 @@ mod tests {
             SidecarEvent::Warning {
                 path: None,
                 message: "m".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_diagram_render_event() {
+        assert_eq!(
+            parse_ok(
+                r#"{"type":"diagram-render","language":"mermaid","index":3,"total":12}"#
+            ),
+            SidecarEvent::DiagramRender {
+                language: "mermaid".into(),
+                index: 3,
+                total: 12,
             }
         );
     }

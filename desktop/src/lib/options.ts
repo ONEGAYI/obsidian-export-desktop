@@ -6,6 +6,11 @@ export type FrontmatterStrategy = "auto" | "always" | "never";
 export type MissingSectionStrategy = "skip" | "embed-full" | "fail";
 /** Which tree the post-export link check walks; GUI-only, never a CLI flag. */
 export type LinkCheckTarget = "source" | "destination";
+/** External diagram renderers that may be enabled for an export. */
+export type DiagramRendererId = "dot" | "mermaid" | "wavedrom" | "tikz";
+/** External tools the diagram renderers shell out to (path overrides). */
+export type DiagramToolId = "dot" | "mmdc" | "wavedrom" | "latex" | "dvisvgm";
+export type DiagramFormat = "svg" | "png";
 
 export interface ExportOptions {
   /** Absolute sub-path of the vault; `null` exports everything. */
@@ -27,6 +32,12 @@ export interface ExportOptions {
   linkCheckTarget: LinkCheckTarget;
   /** Check for app updates automatically on launch (at most once per day). */
   autoCheckUpdates: boolean;
+  /** Diagram code blocks rendered through local tools; empty disables. */
+  diagramRenderers: DiagramRendererId[];
+  /** Output format for rendered diagrams; renderers without png fall back. */
+  diagramFormat: DiagramFormat;
+  /** Explicit executable paths per tool overriding the PATH lookup. */
+  diagramBins: Partial<Record<DiagramToolId, string>>;
 }
 
 export const DEFAULT_OPTIONS: ExportOptions = {
@@ -45,6 +56,9 @@ export const DEFAULT_OPTIONS: ExportOptions = {
   linkCheckEnabled: false,
   linkCheckTarget: "source",
   autoCheckUpdates: true,
+  diagramRenderers: [],
+  diagramFormat: "svg",
+  diagramBins: {},
 };
 
 // Legal values for the string-enum options; the user-facing labels live in
@@ -66,6 +80,23 @@ export const LINK_CHECK_TARGET_VALUES: readonly LinkCheckTarget[] = [
   "source",
   "destination",
 ];
+
+export const DIAGRAM_RENDERER_VALUES: readonly DiagramRendererId[] = [
+  "dot",
+  "mermaid",
+  "wavedrom",
+  "tikz",
+];
+
+export const DIAGRAM_TOOL_VALUES: readonly DiagramToolId[] = [
+  "dot",
+  "mmdc",
+  "wavedrom",
+  "latex",
+  "dvisvgm",
+];
+
+export const DIAGRAM_FORMAT_VALUES: readonly DiagramFormat[] = ["svg", "png"];
 
 const OPTIONS_KEY = "obsidian-export-options";
 const LEGACY_MISSING_SECTION_KEY = "obsidian-export-missing-section";
@@ -113,6 +144,28 @@ function boolOr(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
+/** Keep only known renderer ids, deduplicated in order. */
+function rendererList(value: unknown): DiagramRendererId[] {
+  return tagList(value).filter((name): name is DiagramRendererId =>
+    DIAGRAM_RENDERER_VALUES.includes(name as DiagramRendererId),
+  );
+}
+
+/** Keep only known tools with non-blank paths (blank means PATH lookup). */
+function diagramBins(value: unknown): Partial<Record<DiagramToolId, string>> {
+  if (typeof value !== "object" || value === null) {
+    return {};
+  }
+  const result: Partial<Record<DiagramToolId, string>> = {};
+  for (const tool of DIAGRAM_TOOL_VALUES) {
+    const path = (value as Record<string, unknown>)[tool];
+    if (typeof path === "string" && path.trim() !== "") {
+      result[tool] = path;
+    }
+  }
+  return result;
+}
+
 /** Field-by-field validation so a corrupted payload degrades to defaults. */
 function sanitizeOptions(raw: unknown): ExportOptions {
   const value = (raw ?? {}) as Record<string, unknown>;
@@ -136,6 +189,9 @@ function sanitizeOptions(raw: unknown): ExportOptions {
       "source",
     ),
     autoCheckUpdates: boolOr(value.autoCheckUpdates, true),
+    diagramRenderers: rendererList(value.diagramRenderers),
+    diagramFormat: oneOf(value.diagramFormat, DIAGRAM_FORMAT_VALUES, "svg"),
+    diagramBins: diagramBins(value.diagramBins),
   };
 }
 
@@ -238,6 +294,22 @@ export function summarizeOptions(options: ExportOptions, t: Dict): string[] {
         target: t.options.linkCheckTargetChoices[options.linkCheckTarget].label,
       }),
     );
+  }
+  if (options.diagramRenderers.length > 0) {
+    items.push(
+      fmt(t, "diagramRenderers", {
+        n: options.diagramRenderers.length,
+        format: t.options.diagramFormatChoices[options.diagramFormat].label,
+      }),
+    );
+    // Custom tool paths change what the CLI runs; they belong in the
+    // confirmation even though their values stay in the settings page.
+    const binCount = Object.values(options.diagramBins).filter((path) =>
+      path.trim(),
+    ).length;
+    if (binCount > 0) {
+      items.push(fmt(t, "diagramBins", { n: binCount }));
+    }
   }
   return items;
 }

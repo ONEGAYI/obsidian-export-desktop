@@ -46,6 +46,7 @@
 - [x] 桌面端完整选项面板：独立设置视图（`OptionsView`）暴露全部 CLI 选项，按「转换行为 / 内容过滤 / 文件与过程」分组；选项持久化于 localStorage（`obsidian-export-options`），Rust 侧 `build_args` 仅将非默认值传给边车（默认值语义始终以 CLI 为准）。
 - [x] 导出后自动链接检查：已完成——check 子命令支持 `--progress json`（独立 check 事件方言、共享 schema 版本常量，契约见 `docs/sidecar-events.md` 的 check 章节）；桌面端 `start_check` 编排复用导出的 child 槽（同时仅一个边车进程），导出成功（exit 0）且开关开启时由前端自动触发；开关与检查目标（默认 vault 源，可选导出产物——两者语义不等价：死链 wikilink 导出后已塌缩为纯文本，查产物抓不到）持久化为 GUI 偏好字段（`linkCheckEnabled`/`linkCheckTarget`），不进 build_args；`LinkCheckPanel` 展示逐条报告（结构化判定本地化 + 筛选页签 + 渲染上限兜底）。
 - [x] 检查更新与下载（双端）：已完成——根 crate `src/update.rs` 承载全部业务（GitHub `releases/latest` 检测、三段版本比较（CalVer 兼容，tag 不规范宁可不提示）、双意图资产挑选（cli 按编译期平台 triple 匹配 cargo-dist 产物并排除 `.sha256`；desktop 挑含 `setup` 的 NSIS 安装包）、ureq 2.12 流式下载（2.x 维护分支，MSRV 1.71；3.x 需 1.85 不可用，代理走环境变量）与原子落盘、资产名纯文件名校验；debug 构建支持 `OBSIDIAN_EXPORT_UPDATE_API_BASE` 注入本地 mock（release 无此路径））。CLI `update` 子命令（首位关键字分流，`--download`/`--output`/`--asset cli|desktop`/`--progress json`）输出第三方言（`update-result`/`download-start`/`download-progress`/`download-end`，共享 schema v1，契约见 `docs/sidecar-events.md` 的 update 章节）；**「有更新」退出码仍为 0**（GUI 按 update-result 事件判定，脚本不受扰）。桌面端 `start_update(action)` 编排复用导出 child 槽（恒传 `--asset desktop`，download 模式落盘 `%TEMP%/obsidian-export/Downloads` 并预创建+symlink 防逃逸），`run_installer` 双层路径校验后 spawn NSIS 并 `app.exit(0)` 解锁自身文件（UAC 由安装器 manifest 处理，capabilities 零改动）；前端 OptionsView 第五页「关于与更新」（`UpdatePanel` 状态外置 + 纯折叠函数，照 LinkCheckPanel 模式）与启动自动检查（`autoCheckUpdates` 偏好默认开，24h 节流存独立键 `obsidian-export-update-state`）。**已知限制**：Windows-only 桌面安装包（macOS/Linux 桌面端无资产，引导发布页）；下载与安装不校验哈希（GitHub release 资产信任模型，与手动下载等同）。
+- [x] 特殊代码块渲染为图片嵌入（dot/mermaid/wavedrom/tikz）：已完成——core 新增 `src/diagrams.rs`（渲染器注册表、PATH+PATHEXT 工具解析、Windows `.cmd` 经 cmd.exe 包装执行、外部进程超时与 stderr 捕获、tikz latex+dvisvgm 双步管线、内容寻址命名 FNV-1a 与增量缓存）；`Exporter` 新配置（`diagram_renderers`/`diagram_format`/`diagram_bins`）与 run() 预扫描（按 vault 实际语言求工具集，缺失即原子化报错退出、零输出）；渲染是内建导出阶段（用户 postprocessor 之后执行，代码块替换为图片引用+SoftBreak 分隔，单块失败 warning 保留原块）；CLI 新增 `--render-diagrams`/`--diagram-format`/`--diagram-bin`；export 事件方言新增 `diagram-render` 进度事件（加法变更不 bump schema）；桌面端第六设置页「图表渲染」（导航计数 badge + 药丸复选 + svg/png 格式与回落说明 + 工具路径覆盖折叠）与运行视图渲染进度行；集成测试经 debug-only env `OBSIDIAN_EXPORT_DIAGRAM_BIN_<TOOL>` 注入跨平台 mock 渲染器（**教训**：cmd.exe 会预读管道 stdin、并行 append 共享计数文件有锁竞争——渲染源码一律走临时文件输入，每测试独立 mock 目录）。
 - [ ] 桌面端后续迭代：打包分发流水线（`tauri build`，与 cargo-dist 互不干扰）。
 - [x] 块引用内容提取增强：已完成——`![[note#^block-id]]` 真实定位标记块（reduce_to_block：行尾 id 标记所在段落/列表项/引用块，独立行 id 标记上方紧邻块，嵌入副本剥离 id 标记），未命中回退 `--missing-section` 三策略；同文件嵌入（`![[#Heading]]` / `![[#^id]]`）一并支持，防环靠「嵌入副本剥离 id」天然终止 + 嵌入公共入口的深度限制兜底。
 - [x] 嵌入展开与 section 切分的顺序重排：已完成——parse_raw_note（raw 事件收集 + 引用规范化为五事件形态）与 expand_references（引用展开）两阶段拆分，section 切分在目标文件自己的事件流上进行后再展开内层嵌入；embed_postprocessors「看到合并嵌入后内容」的契约保持。
@@ -58,6 +59,12 @@
 
 已知限制（审查登记，后续迭代评估）：
 
+- [ ] 渲染超时的进程树击杀平台不对称：Windows 走 `taskkill /T /F` 连孙进程根治；Unix 未设进程组（避免改变 Ctrl+C 传播语义），卡死的孙进程持有 pipe 时靠 5s reader 宽限兜底（reader 线程泄漏但 `run_command` 必返，不挂起导出）。
+- [ ] 嵌入展开的图表副本渲染为宿主笔记的独立资产（`<宿主stem>-<hash>` 与源笔记资产各一份，字节相同）：语义是「每份产物自包含」；代价是 `diagram-render` 的 `index` 可超过 `total`（预扫描只数源文件自身块，契约文档已声明 total 为估计值）。
+- [ ] cmd.exe 包装对工具路径含成对 `%` 的形态会做变量展开（引号不保护）：罕见路径建议 `--diagram-bin` 指向 `.exe` 绕过包装（usage-advanced.md 已注明）。
+- [ ] `.render-*` 临时文件在进程崩溃/被杀时残留于 `assets/`，无启动清扫（并行约束使「渲染前清目录」会误删其他 worker 的在写文件）；属垃圾累积，不影响正确性。
+- [ ] 预扫描对全 vault 做二次 read+parse（启用渲染时 IO 与解析翻倍，7200 文件基准约 +0.5s）：可优化为行扫描识别 fence，待 profile 数据支撑。
+- [ ] 图表 mock 集成测试整体 `#![cfg(debug_assertions)]`：`cargo test --release` 下该文件静默剔除（注入钩子 release 编译为 None，跑必假失败）。
 - [ ] 引用文本含换行时 `from_str` 的正则整体不匹配（`.*?` 不跨 `\n`），理论上可触发 `expect` panic（rayon worker 中）；ref_text 状态机按事件拼接、多行输入实际罕见，存量行为多年未见报告，改动需先证明可达性。
 - [ ] 同文件嵌入的嵌套解析是切片局部的：嵌入片段内的 `![[#Other]]` 只在切片内查找（Obsidian 从全文件解析），跨 section 引用在切片中查不到时按 missing-section 塌缩；块的优雅自引用终止正依赖此局部性，改为全文件解析需重新设计防环。
 
@@ -120,7 +127,8 @@ obsidian-export-desktop/
 ├── Cargo.lock              # 根 crate 依赖锁文件
 ├── Cargo.toml              # 主 crate 清单（lib+bin）
 ├── changelog.d/            # towncrier 变更片段目录
-│   └── .gitignore # 片段目录占位忽略文件
+│   ├── .gitignore   # 片段目录占位忽略文件
+│   └── 9.feature.md # 图表渲染功能变更片段
 ├── CHANGELOG.md            # 变更日志（towncrier 生成）
 ├── CLAUDE.md               # Claude 专属补充规则
 ├── cliff.toml              # git-cliff 备用变更日志配置
@@ -222,6 +230,7 @@ obsidian-export-desktop/
 ├── rustfmt.toml            # 代码格式化规则（需 nightly）
 ├── src/                    # Rust 源码（CLI 与库）
 │   ├── context.rs        # 笔记解析上下文与嵌套追踪
+│   ├── diagrams.rs       # 图表渲染：渲染器注册表与外部工具编排
 │   ├── frontmatter.rs    # frontmatter 类型与序列化
 │   ├── lib.rs            # 库核心：Exporter 导出引擎
 │   ├── linkcheck.rs      # 链接完整性检查（check 后端）
@@ -232,6 +241,7 @@ obsidian-export-desktop/
 │   └── walker.rs         # 库文件遍历与忽略规则
 ├── tests/                  # 集成测试目录
 │   ├── cli_test.rs            # CLI 契约测试（供桌面端依赖）
+│   ├── diagrams_cli_test.rs   # 图表渲染 CLI 集成测试
 │   ├── export_test.rs         # 库级导出功能集成测试
 │   ├── postprocessors_test.rs # 后处理器行为测试
 │   └── testdata/              # 测试 vault fixtures
@@ -249,6 +259,10 @@ obsidian-export-desktop/
 │           ├── block-refs-edge/                     # 块引用边界情况数据
 │           ├── block-refs-self-loop/                # 块自引用循环数据
 │           ├── chinese-anchor/                      # 中文标题锚点数据
+│           ├── diagrams/                            # 四语言图表块样例 vault
+│           ├── diagrams-alias/                      # 语言别名图表块 vault
+│           ├── diagrams-fail/                       # 渲染失败保留场景 vault
+│           ├── diagrams-png/                        # png 回落场景 vault
 │           ├── embed-order/                         # 嵌入切片先于展开数据
 │           ├── escaped-pipe-refs/                   # 表格内转义竖线 wikilink 数据
 │           ├── filter-by-tags/                      # 标签过滤数据
