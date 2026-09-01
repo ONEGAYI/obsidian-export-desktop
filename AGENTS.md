@@ -50,7 +50,8 @@
 
 已知限制（审查登记，后续迭代评估）：
 
-- [ ] 注释转换与 Obsidian 渲染的刻意差异（Obsidian 自身各视图间行为本就不一致，实现取自洽保守语义）：嵌套 `%%` 按非贪心配对（Obsidian 阅读视图会渲染错乱）；注释内嵌代码块被折叠进注释（Obsidian 阅读视图显示内容仅隐藏标记）；注释内容合成的容器字面是近似（列表 bullet 恒为 `-`、代码块 fence 恒为三反引号，仅影响注释内可读性）；跨块级边界的注释会把列表等结构在注释处断开再重启（CommonMark HTML 块无法内嵌于列表项中间，结构性必然）。
+- [ ] 注释转换与 Obsidian 渲染的刻意差异（Obsidian 自身各视图间行为本就不一致，实现取自洽保守语义）：嵌套 `%%` 按非贪心配对（Obsidian 阅读视图会渲染错乱）；注释内嵌代码块被折叠进注释（Obsidian 阅读视图显示内容仅隐藏标记）；注释内容合成的容器字面是近似（列表 bullet 恒为 `-`、代码块 fence 恒为三反引号，仅影响注释内可读性）；跨块级边界的注释会把列表等结构在注释处断开再重启（CommonMark HTML 块无法内嵌于列表项中间，结构性必然），被打断的有序列表在重启处回到起始编号（`List(Some(1))` 不携带当前序号，事件模型无法表达接续）。
+- [ ] 图表预扫描与 `--comments strip` 的交互：prepare_diagram_state 在 postprocessor 之前扫**原文**，注释内的图表块仍参与工具集求取——唯一图表块在注释内且本机缺对应工具时整个导出原子化报错（即使 strip 会把该块从产物删除）；工具齐备时仅 total 计数虚高（既有估计值语义）。短期已在 usage-advanced.md 登记，中期可让预扫描感知 comments 模式（跳过 `%%` 区间再计数）。
 - [ ] linkcheck 报告注释内的 wikilink（check 走 `parse_raw_note_with_refs` 原文层，与 `--comments` 选项无关）：属 check「看原文」的既有语义（Obsidian Publish 的 graph 同样收集注释内链接），登记不视为缺陷。
 - [ ] 渲染超时的进程树击杀平台不对称：Windows 走 `taskkill /T /F` 连孙进程根治；Unix 未设进程组（避免改变 Ctrl+C 传播语义），卡死的孙进程持有 pipe 时靠 5s reader 宽限兜底（reader 线程泄漏但 `run_command` 必返，不挂起导出）。
 - [ ] 嵌入展开的图表副本渲染为宿主笔记的独立资产（`<宿主stem>-<hash>` 与源笔记资产各一份，字节相同）：语义是「每份产物自包含」；代价是 `diagram-render` 的 `index` 可超过 `total`（预扫描只数源文件自身块，契约文档已声明 total 为估计值）。
@@ -122,6 +123,7 @@ obsidian-export-desktop/
 ├── changelog.d/            # towncrier 变更片段目录
 │   ├── .gitignore   # 片段目录占位忽略文件
 │   ├── 12.new.md    # 注释转换功能变更片段
+│   ├── 14.fix.md    # 注释转换审查修复变更片段
 │   └── 9.feature.md # 图表渲染功能变更片段
 ├── CHANGELOG.md            # 变更日志（towncrier 生成）
 ├── CLAUDE.md               # Claude 专属补充规则

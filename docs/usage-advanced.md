@@ -34,7 +34,9 @@ Obsidian comments (`%%like this%%`, including multi-line block comments) are onl
 
 Recognition follows Obsidian's plain-text pairing: the first `%%` pairs with the next `%%`, even across blank lines and list or quote boundaries, and an unclosed `%%` stays literal. `%%` inside code blocks, inline code, math, tables and link labels is never treated as a comment marker — the same places Obsidian itself declines to interpret the syntax. Content that would break the HTML comment syntax is neutralized (`--` becomes `- -`).
 
-A comment spanning block boundaries splits the surrounding structure at the comment (e.g. a list item ends, the HTML comment follows as its own block, the remaining list restarts below); comments wholly inside one paragraph are rewritten in place.
+A comment spanning block boundaries splits the surrounding structure at the comment (e.g. a list item ends, the HTML comment follows as its own block, the remaining list restarts below); comments wholly inside one paragraph are rewritten in place. An interrupted ordered list restarts at its start number — CommonMark's list syntax carries no "current index".
+
+Note for `--render-diagrams` users: the tool-availability pre-scan runs on the raw note text, before comments are removed. A diagram code block sitting inside a `%%` comment still requires its tool to be installed (even with `--comments strip`, which would drop the block from the output); when the tool is present the block is simply not rendered, and the reported diagram total counts it.
 
 ## Failing files
 
