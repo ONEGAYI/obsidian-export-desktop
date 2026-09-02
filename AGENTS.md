@@ -100,17 +100,7 @@ obsidian-export-desktop/
 ├── Cargo.lock              # 根 crate 依赖锁文件
 ├── Cargo.toml              # 主 crate 清单（lib+bin）
 ├── changelog.d/            # towncrier 变更片段目录
-│   ├── .gitignore   # 片段目录占位忽略文件
-│   ├── 17.fix.md    # stderr 解码与上限片段
-│   ├── 19.fix.md    # 订阅时序修复片段
-│   ├── 20.change.md # 页签键盘导航片段
-│   ├── 21.new.md    # 一键发布命令片段
-│   ├── 23.fix.md    # 取消态修复片段
-│   ├── 26.change.md # 测试门 const 断言片段
-│   ├── 27.fix.md    # 清扫与嵌入回退片段
-│   ├── 28.fix.md    # 预扫描感知注释片段
-│   ├── 30.fix.md    # 有序列表接续编号片段
-│   └── 31.fix.md    # cmd 脚本 % 路径警告片段
+│   └── .gitignore # 片段目录占位忽略文件
 ├── CHANGELOG.md            # 变更日志（towncrier 生成）
 ├── CLAUDE.md               # Claude 专属补充规则
 ├── cliff.toml              # git-cliff 备用变更日志配置

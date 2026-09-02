@@ -2,6 +2,30 @@
 
 <!-- towncrier release notes start -->
 
+## [26.9.1](https://github.com/zoni/obsidian-export/tree/26.9.1) - 2026-09-02
+
+Quality release: two correctness fixes for features introduced in 26.9.0 (ordered-list numbering resuming across block comments, comment-aware diagram tool prescan), plus desktop-side robustness fixes (stderr decoding, cancellation states, tab keyboard navigation) and a one-command desktop release helper.
+
+### New Features
+
+- 新增桌面安装包一键发布命令 just desktop-release vX.Y.Z：构建、按版本校验、文件名空格改点、上传到 GitHub release 一条链完成（--dry-run 可预览清单）；发布检查清单重写为 fork 现状（v26.9.0 起 tag 推送已自动触发 release workflow，勿再叠加手动 dispatch）。 ([#21](https://github.com/ONEGAYI/obsidian-export-desktop/pull/21))
+
+### Changes
+
+- 桌面端设置页的页签支持方向键与 Home/End 键盘导航（ARIA tabs 模式的 roving tabindex）：方向键环绕移动并直接切页，Tab 键只停在当前页签上。 ([#20](https://github.com/ONEGAYI/obsidian-export-desktop/pull/20))
+- cargo test --release 下图表与 update 集成测试不再静默消失：原先被 debug-only 注入钩子门控的测试文件在 release 下编译为空（0 个测试、静默通过，update 测试更会直连真实 GitHub API 假失败），现改为显式编译失败并提示改跑 cargo test。 ([#26](https://github.com/ONEGAYI/obsidian-export-desktop/pull/26))
+
+### Fixes
+
+- 桌面端边车错误输出的解码与内存修复：stderr 改为字节累积、进程结束时一次性解码，chunk 边界切断中文等多字节字符不再产生乱码替换符；并加 64KiB 上限（截断保留尾部并标注丢弃字节数），卡死进程无限写错误输出不再拖垮内存。 ([#17](https://github.com/ONEGAYI/obsidian-export-desktop/pull/17))
+- 桌面端两处时序修复：窗口最小化时链接检查进度不再停滞（动画帧回调被暂停的场合由定时器兜底冲刷）；导出进行中切换界面语言不再产生重复的完成计数与日志行（事件订阅不再随语言重建）。 ([#19](https://github.com/ONEGAYI/obsidian-export-desktop/pull/19))
+- 桌面端链接检查与更新下载运行中取消时，结果不再误显示为「未能完成」的失败态，而是明确的「已取消」态；已取消的下载可直接重新下载。 ([#23](https://github.com/ONEGAYI/obsidian-export-desktop/pull/23))
+- 图表渲染临时文件残留清扫与同文件嵌入解析修复：进程被杀或崩溃遗留的 .render-* 垃圾会在下次导出同一目录时自动清掉（按 10 分钟年龄阈值惰性清扫，并行安全）；跨文件嵌入片段内的同文件引用（如 ![[note#S]] 片段内的 ![[#Other]]）改按全文件解析，与 Obsidian 语义对齐，不再因目标不在片段内而误报缺失塌缩。 ([#27](https://github.com/ONEGAYI/obsidian-export-desktop/pull/27))
+- 图表工具预扫描感知 --comments 模式：位于 %% 注释内的图表代码块在 strip/convert 下不会渲染，因此不再计入总数、也不再要求安装对应工具——此前「唯一图表块在注释内且本机缺工具」会导致整个导出直接失败，即使该块根本不会出现在产物中；keep 模式行为不变，缺工具时真实会渲染的块仍按原契约原子化报错。 ([#28](https://github.com/ONEGAYI/obsidian-export-desktop/pull/28))
+- 注释转换打断有序列表后编号接续：convert 模式下块级注释合成的 HTML 块会把产物列表物理分段，此前分段后一段重新从起始编号显示（1、2 而非接续的 2、3）；现在注释重开点显式关闭列表并按已发出的列表项数量合成接续起始编号（嵌套列表只分段被打断的最内层，外层保持连续；注释区间内新开的嵌套列表保持自身起始编号，同一列表被多次打断时编号逐段累计）。strip 模式产物列表本就保持连续、编号按位置递增，行为不变；无序列表不受影响，仅产物在列表与注释块之间多了规范的空行分隔（渲染等价）。 ([#30](https://github.com/ONEGAYI/obsidian-export-desktop/pull/30))
+- cmd 脚本工具路径含 `%` 时导出自动警告：Windows 的 cmd.exe 包装会把成对 `%` 当作环境变量展开（引号不保护、`%%` 加倍转义不可靠），含 `%` 的 `.cmd`/`.bat` 工具路径可能被静默改写导致渲染异常；现在工具解析阶段对此类路径发出非致命警告（CLI 输出到 stderr、桌面端走既有 warning 事件通道），建议用 `--diagram-bin` 指向底层 `.exe` 绕过包装。判定按扩展名与路径字符进行、跨平台一致，导出本身不受影响。 ([#31](https://github.com/ONEGAYI/obsidian-export-desktop/pull/31))
+
+
 ## [26.9.0](https://github.com/zoni/obsidian-export/tree/26.9.0) - 2026-09-02
 
 This release adds two features: diagram rendering (dot/mermaid/wavedrom/tikz code blocks rendered to image assets via local tools and embedded in the output) and three-state handling of Obsidian comments (`%%` fenced: keep, convert to HTML comments, or strip). The README also gained a Chinese edition.
@@ -1172,3 +1196,4 @@ notable new feature.
 - [v26.8.6](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.5...v26.8.6)
 - [v26.8.7](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.6...v26.8.7)
 - [v26.9.0](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.7...v26.9.0)
+- [v26.9.1](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.9.0...v26.9.1)

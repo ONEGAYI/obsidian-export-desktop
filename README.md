@@ -181,7 +181,7 @@ The strategy is applied independently at every level of embedding: a missing sec
 
 Block references (`![[note#^block-id]]`) locate the block the id marks (a paragraph, a list item, or a whole quote block; an id alone on its own line marks the block above it). The `--missing-section` strategy covers block references whose id doesn't exist in the target note. The id marker is stripped from the embedded copy — Obsidian doesn't display it — while id definitions in source notes are kept as-is.
 
-Same-file section and block embeds (`![[#Heading]]` / `![[#^block-id]]`) are supported too, with two caveats: references inside a same-file embed resolve against the embedded slice only (a section that lives elsewhere in the note won't be found inside the slice and degrades per `--missing-section`), and any same-file embed appearing inside an expansion of the same file degrades to a plain link (the check is file-level, so this includes same-file references to other sections that would be safe to expand).
+Same-file section and block embeds (`![[#Heading]]` / `![[#^block-id]]`) are supported too, matching Obsidian's whole-file resolution: a reference inside a same-file embed first looks in the embedded slice, then falls back to the whole note, and only degrades per `--missing-section` when the section is nowhere in the file. One caveat remains: any same-file embed appearing inside an expansion of the same file degrades to a plain link (the check is file-level, so this includes same-file references to other sections that would be safe to expand).
 
 ## Obsidian comments
 
@@ -195,7 +195,7 @@ Recognition follows Obsidian's plain-text pairing: the first `%%` pairs with the
 
 A comment spanning block boundaries splits the surrounding structure at the comment (e.g. a list item ends, the HTML comment follows as its own block, the remaining list restarts below); comments wholly inside one paragraph are rewritten in place. An interrupted ordered list restarts at its start number — CommonMark's list syntax carries no "current index".
 
-Note for `--render-diagrams` users: the tool-availability pre-scan runs on the raw note text, before comments are removed. A diagram code block sitting inside a `%%` comment still requires its tool to be installed (even with `--comments strip`, which would drop the block from the output); when the tool is present the block is simply not rendered, and the reported diagram total counts it.
+Note for `--render-diagrams` users: the tool-availability pre-scan mirrors the `--comments` mode. A diagram code block sitting inside a `%%` comment counts (and requires its tool to be installed) only under `--comments keep`; with `strip` or `convert` the block never reaches the rendering stage, so it is not counted and its tool is not required.
 
 ## Failing files
 
@@ -220,9 +220,9 @@ Renderers and the external tools they require:
 
 Behavior details:
 
-* **Tool discovery** prefers an explicit path (`--diagram-bin dot=/path/to/dot`, repeatable) and otherwise scans `PATH`. On Windows the scan honors `PATHEXT` and runs npm's `.cmd` shims through `cmd.exe`, so global npm installs work out of the box. (The `cmd.exe` wrapper expands `%VARIABLE%`-shaped substrings even inside quotes: on the rare path containing a paired `%`, point `--diagram-bin` at the underlying `.exe` to bypass the wrapper.)
+* **Tool discovery** prefers an explicit path (`--diagram-bin dot=/path/to/dot`, repeatable) and otherwise scans `PATH`. On Windows the scan honors `PATHEXT` and runs npm's `.cmd` shims through `cmd.exe`, so global npm installs work out of the box. (The `cmd.exe` wrapper expands `%VARIABLE%`-shaped substrings even inside quotes: on the rare path containing a paired `%`, point `--diagram-bin` at the underlying `.exe` to bypass the wrapper; such tool paths are automatically warned about at export time.)
 * `--diagram-format` and `--diagram-bin` only take effect together with `--render-diagrams`; passing them alone draws a warning on stderr and is otherwise ignored.
-* **Atomicity**: tools are resolved in a prescan, for the languages actually present in the vault, *before* any output file is written. A missing tool aborts the export with exit code 1 and an install hint, leaving the destination untouched.
+* **Atomicity**: tools are resolved in a prescan, for the languages of the blocks that will actually render (see the `--comments` note above: under `strip`/`convert`, blocks inside `%%` comments do not require tools), *before* any output file is written. A missing tool aborts the export with exit code 1 and an install hint, leaving the destination untouched.
 * **Per-block failures are non-fatal**: a diagram whose code the tool rejects stays a code block and produces a warning; the export always completes.
 * **Output format**: `--diagram-format png` requests raster output; renderers without it (wavedrom, tikz) fall back to svg with a warning.
 * **Assets** are written next to each note under `assets/<note>-<hash>.<ext>` (content-addressed over renderer + language + source + format), so unchanged blocks resolve to the same file across runs and re-exports skip the external tool entirely.
