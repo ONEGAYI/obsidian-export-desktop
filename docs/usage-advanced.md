@@ -22,7 +22,7 @@ The strategy is applied independently at every level of embedding: a missing sec
 
 Block references (`![[note#^block-id]]`) locate the block the id marks (a paragraph, a list item, or a whole quote block; an id alone on its own line marks the block above it). The `--missing-section` strategy covers block references whose id doesn't exist in the target note. The id marker is stripped from the embedded copy — Obsidian doesn't display it — while id definitions in source notes are kept as-is.
 
-Same-file section and block embeds (`![[#Heading]]` / `![[#^block-id]]`) are supported too, with two caveats: references inside a same-file embed resolve against the embedded slice only (a section that lives elsewhere in the note won't be found inside the slice and degrades per `--missing-section`), and any same-file embed appearing inside an expansion of the same file degrades to a plain link (the check is file-level, so this includes same-file references to other sections that would be safe to expand).
+Same-file section and block embeds (`![[#Heading]]` / `![[#^block-id]]`) are supported too, matching Obsidian's whole-file resolution: a reference inside a same-file embed first looks in the embedded slice, then falls back to the whole note, and only degrades per `--missing-section` when the section is nowhere in the file. One caveat remains: any same-file embed appearing inside an expansion of the same file degrades to a plain link (the check is file-level, so this includes same-file references to other sections that would be safe to expand).
 
 ## Obsidian comments
 

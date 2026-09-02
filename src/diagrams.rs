@@ -42,6 +42,17 @@ const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
 /// waiting must be bounded — its output is lost, the export is not.
 const READER_GRACE: Duration = Duration::from_secs(5);
 
+/// Age at which a `.render-*` temporary file in an assets directory is
+/// considered debris and swept. The longest an in-flight render can keep
+/// its temporary file visible is `TOOL_TIMEOUT` plus two `READER_GRACE`
+/// waits (~70 s) per tool invocation; the only multi-tool chain (`TikZ`)
+/// writes the temporary output file during its second step alone, so the
+/// per-invocation bound still applies, and the same-directory rename
+/// fallback adds at most seconds. Ten minutes therefore leaves ample
+/// margin: anything this old can only be left over from a run that
+/// crashed or was killed mid-render.
+const STALE_RENDER_FILE_AGE: Duration = Duration::from_secs(600);
+
 /// Cap on how much of a note's stem is carried over into asset filenames, so
 /// that `<stem>-<16 hex>.<ext>` stays clear of Windows path-length limits.
 const ASSET_STEM_MAX_CHARS: usize = 80;
@@ -703,6 +714,46 @@ pub enum DiagramRenderError {
     },
 }
 
+/// Delete `.render-*` leftovers older than [`STALE_RENDER_FILE_AGE`] from
+/// `assets_dir`.
+///
+/// Normal renders rename their temporary file into place on success and
+/// remove it on tool failure, so an old temporary can only come from a
+/// process that died in between (e.g. a cancelled export). Sweeping lazily
+/// on the render path is parallel-safe — another worker's in-flight
+/// temporary is at most seconds old, far below the threshold — and lets
+/// the next diagram-rendering export into the directory converge it
+/// without any startup pass (a later export without `--render-diagrams`,
+/// or whose notes no longer contain diagram blocks, will not sweep).
+/// Best-effort
+/// throughout: unreadable or undeletable entries are simply skipped.
+fn sweep_stale_render_files(assets_dir: &Path) {
+    let Ok(entries) = fs::read_dir(assets_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with(".render-"))
+        {
+            continue;
+        }
+        let Ok(modified) = entry.metadata().and_then(|metadata| metadata.modified()) else {
+            continue;
+        };
+        // A modification time in the future (clock skew) is not evidence of
+        // staleness — leave such files alone rather than risk deleting an
+        // in-flight render.
+        if modified
+            .elapsed()
+            .is_ok_and(|age| age > STALE_RENDER_FILE_AGE)
+        {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
 /// Render one diagram `source` into `assets_dir` next to a note.
 ///
 /// The target filename is content-addressed (`<note>-<16 hex>.<ext>` over the
@@ -720,6 +771,11 @@ pub fn render_to_asset(
     assets_dir: &Path,
     note_stem: &str,
 ) -> Result<RenderedAsset, DiagramRenderError> {
+    // Also runs on the cache-hit path: sweeping is one cheap read_dir and a
+    // fully-cached re-export (the common repeated-export case) should still
+    // clean up debris left by a killed run.
+    sweep_stale_render_files(assets_dir);
+
     let format = renderer.effective_format(requested);
     let target = assets_dir.join(asset_filename(
         note_stem, renderer, language, source, format,
@@ -1223,6 +1279,8 @@ fn tail_utf8(output: &[u8], max: usize) -> String {
 #[cfg(test)]
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
 mod tests {
+    use std::time::SystemTime;
+
     use rstest::rstest;
 
     use super::*;
@@ -1291,6 +1349,51 @@ mod tests {
             assert_eq!(ToolName::from_name(tool.as_str()), Some(tool));
         }
         assert_eq!(ToolName::from_name("inkscape"), None);
+    }
+
+    #[test]
+    fn sweep_removes_only_stale_render_leftovers() {
+        let dir = tempfile::tempdir().unwrap();
+        let assets = dir.path().join("assets");
+        fs::create_dir_all(&assets).unwrap();
+
+        let stale = assets.join(".render-4242-0.svg");
+        fs::write(&stale, b"leftover").unwrap();
+        let fresh = assets.join(".render-4242-1.svg");
+        fs::write(&fresh, b"in-flight").unwrap();
+        // A modification time in the future (clock skew) must never be
+        // mistaken for staleness: deleting it could kill an in-flight
+        // render on a machine whose clock runs behind.
+        let skewed = assets.join(".render-4242-2.svg");
+        fs::write(&skewed, b"future mtime").unwrap();
+        let cached = assets.join("note-0123456789abcdef.svg");
+        fs::write(&cached, b"asset").unwrap();
+
+        let old = SystemTime::now() - STALE_RENDER_FILE_AGE - Duration::from_secs(1);
+        fs::File::options()
+            .write(true)
+            .open(&stale)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&skewed)
+            .unwrap()
+            .set_modified(SystemTime::now() + STALE_RENDER_FILE_AGE)
+            .unwrap();
+
+        sweep_stale_render_files(&assets);
+
+        assert!(!stale.exists(), "stale leftover should be swept");
+        assert!(fresh.exists(), "recent temporary must survive");
+        assert!(skewed.exists(), "future-mtime temporary must survive");
+        assert!(cached.exists(), "real assets must never be touched");
+    }
+
+    #[test]
+    fn sweep_tolerates_missing_directory() {
+        sweep_stale_render_files(Path::new("nonexistent-assets-dir"));
     }
 
     #[test]
