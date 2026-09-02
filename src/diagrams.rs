@@ -13,9 +13,7 @@
 //! `CreateProcess` cannot execute command scripts directly.
 
 use std::collections::{BTreeMap, BTreeSet};
-#[cfg(windows)]
-use std::ffi::OsStr;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
