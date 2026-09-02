@@ -788,6 +788,75 @@ fn frontmatter_percent_signs_do_not_break_tool_requirements() {
 }
 
 #[test]
+fn percent_in_cmd_tool_path_warns_but_export_completes() {
+    // cmd.exe expands paired '%' in the wrapper line (quotes do not
+    // protect), so a cmd-script tool path containing '%' is a silent
+    // footgun: warn at resolve time and suggest an .exe via --diagram-bin,
+    // without failing the export — rendering may still work when the names
+    // do not collide with defined variables. Name-based detection, so the
+    // warning fires (and is testable) on every platform.
+    let vault = TempDir::new().expect("failed to make vault tempdir");
+    fs::write(
+        vault.path().join("note.md"),
+        "```dot\ndigraph { a -> b }\n```\n",
+    )
+    .expect("write note");
+    let vault_str = vault.path().to_string_lossy().into_owned();
+
+    let bins = TempDir::new().expect("failed to make bins tempdir");
+    let percent_dir = bins.path().join("50% off");
+    fs::create_dir(&percent_dir).expect("make percent dir");
+    // NoOutput-shaped (exits 0, no product): rendering then fails as a
+    // per-block warning while the export still completes — the test
+    // targets the resolve-time warning, not the renderer's success.
+    let script = percent_dir.join("dot.cmd");
+    fs::write(&script, "@echo off\r\nexit /b 0\r\n").expect("write cmd script");
+
+    let (dest_percent, dest_percent_str) = dest_dir();
+    let out = run_cli_env(
+        &[
+            "--render-diagrams",
+            "dot",
+            "--diagram-bin",
+            &format!("dot={}", script.display()),
+            &vault_str,
+            &dest_percent_str,
+        ],
+        &[],
+    );
+    assert_eq!(out.code, Some(0), "stderr: {}", out.stderr);
+    assert!(
+        out.stderr.contains("contains '%'"),
+        "expected the percent-path warning, got: {}",
+        out.stderr
+    );
+    drop(dest_percent);
+
+    // Control: the same script in a %-free path triggers no such warning.
+    let plain_script = bins.path().join("dot.cmd");
+    fs::write(&plain_script, "@echo off\r\nexit /b 0\r\n").expect("write plain script");
+    let (dest_plain, dest_plain_str) = dest_dir();
+    let plain_out = run_cli_env(
+        &[
+            "--render-diagrams",
+            "dot",
+            "--diagram-bin",
+            &format!("dot={}", plain_script.display()),
+            &vault_str,
+            &dest_plain_str,
+        ],
+        &[],
+    );
+    assert_eq!(plain_out.code, Some(0), "stderr: {}", plain_out.stderr);
+    assert!(
+        !plain_out.stderr.contains("contains '%'"),
+        "no percent-path warning expected, got: {}",
+        plain_out.stderr
+    );
+    drop(dest_plain);
+}
+
+#[test]
 fn second_export_reuses_cached_assets_without_new_renders() {
     let mocks = install_mock_tools(&["wavedrom"]);
     let (dest, dest_str) = dest_dir();
