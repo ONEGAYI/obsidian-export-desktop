@@ -34,6 +34,16 @@ describe("applyCheckExit", () => {
     expect(next.exit).toBe(exit);
   });
 
+  it("prefers the cancelled verdict even when the end summary arrived", () => {
+    const running = {
+      ...EMPTY_LINK_CHECK,
+      phase: "running" as const,
+      cancelled: true,
+      end: { filesChecked: 1, totalLinks: 2, broken: 0, skipped: 0 },
+    };
+    expect(applyCheckExit(running, exit).phase).toBe("cancelled");
+  });
+
   it("folds a finished run into done when the end summary arrived", () => {
     const running = {
       ...EMPTY_LINK_CHECK,

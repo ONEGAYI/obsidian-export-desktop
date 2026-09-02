@@ -51,7 +51,8 @@ export interface UpdateState {
   invokeError: string | null;
   /** Set by the cancel entry point; exit folding turns a transitional phase
    * into the cancelled verdict instead of a failed one (mirrors the export
-   * side). Reset by every "start a new run" fold. */
+   * side). Reset by the start entry points in App and by every fresh
+   * verdict fold. */
   cancelled: boolean;
 }
 
@@ -121,6 +122,9 @@ function applyOne(state: UpdateState, event: UpdateEvent): UpdateState {
         exit: null,
         streamErrors: [],
         invokeError: null,
+        // A fresh verdict resets the cancel flag along with the other
+        // per-run fields, so a later exit can never be misread as cancelled.
+        cancelled: false,
       };
     }
     case "download-start":

@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/card";
 import { fmt, useI18n } from "@/i18n";
 import type { Dict } from "@/i18n/zh";
-import type { CheckEvent, CheckStatus, LinkKind } from "@/lib/sidecar";
+import type { CheckEvent, CheckExit, CheckStatus, LinkKind } from "@/lib/sidecar";
 
 /** One checked link as kept in the app state (a flattened link-report). */
 export interface LinkReportEntry {
@@ -136,7 +136,7 @@ export function applyCheckEvents(
  */
 export function applyCheckExit(
   state: LinkCheckState,
-  exit: { code: number | null; stderr: string },
+  exit: CheckExit,
 ): LinkCheckState {
   if (state.phase !== "running") {
     return state;
