@@ -31,3 +31,7 @@
 > without trailing text%%
 
 after stays top-level
+
+1. ordered %%starts here
+2. ends here%% tail
+3. third

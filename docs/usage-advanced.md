@@ -61,7 +61,7 @@ Renderers and the external tools they require:
 
 Behavior details:
 
-* **Tool discovery** prefers an explicit path (`--diagram-bin dot=/path/to/dot`, repeatable) and otherwise scans `PATH`. On Windows the scan honors `PATHEXT` and runs npm's `.cmd` shims through `cmd.exe`, so global npm installs work out of the box. (The `cmd.exe` wrapper expands `%VARIABLE%`-shaped substrings even inside quotes: on the rare path containing a paired `%`, point `--diagram-bin` at the underlying `.exe` to bypass the wrapper; such tool paths are warned about at export time.)
+* **Tool discovery** prefers an explicit path (`--diagram-bin dot=/path/to/dot`, repeatable) and otherwise scans `PATH`. On Windows the scan honors `PATHEXT` and runs npm's `.cmd` shims through `cmd.exe`, so global npm installs work out of the box. (The `cmd.exe` wrapper expands `%VARIABLE%`-shaped substrings even inside quotes: on the rare path containing a paired `%`, point `--diagram-bin` at the underlying `.exe` to bypass the wrapper; such tool paths are automatically warned about at export time.)
 * `--diagram-format` and `--diagram-bin` only take effect together with `--render-diagrams`; passing them alone draws a warning on stderr and is otherwise ignored.
 * **Atomicity**: tools are resolved in a prescan, for the languages of the blocks that will actually render (see the `--comments` note above: under `strip`/`convert`, blocks inside `%%` comments do not require tools), *before* any output file is written. A missing tool aborts the export with exit code 1 and an install hint, leaving the destination untouched.
 * **Per-block failures are non-fatal**: a diagram whose code the tool rejects stays a code block and produces a warning; the export always completes.
