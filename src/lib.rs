@@ -540,15 +540,20 @@ impl<'a> Exporter<'a> {
         self
     }
 
-    /// Set how `%%...%%` comments are treated during export (default:
-    /// [`CommentsMode::Keep`]).
+    /// Set the `%%...%%` comment mode consulted by the diagram prescan
+    /// (default: [`CommentsMode::Keep`]).
     ///
     /// The comment rewrite itself runs as a postprocessor the caller
     /// assembles (see [`postprocessors::obsidian_comments`]); the exporter
-    /// only consults this for the diagram prescan so that code blocks
-    /// inside comments are counted — and their tools required — exactly
-    /// when they will actually render. Callers adding that postprocessor
-    /// should set the matching mode here.
+    /// only consults this mode so that code blocks inside comments are
+    /// counted — and their tools required — exactly when they will
+    /// actually render. Mismatches between the two lean one way each:
+    /// adding the postprocessor without setting the mode leaves the
+    /// prescan over-strict (blocks inside comments still require tools);
+    /// setting a non-Keep mode without the postprocessor makes the
+    /// prescan under-count, and a genuinely rendered block then degrades
+    /// to a per-block warning instead of the atomic missing-tool failure.
+    /// Callers adding that postprocessor should set the matching mode here.
     pub const fn comments_mode(&mut self, mode: CommentsMode) -> &mut Self {
         self.comments_mode = mode;
         self
@@ -818,11 +823,13 @@ impl<'a> Exporter<'a> {
     /// walk honors the same `start_at` filter as the export itself; tag
     /// filtering is deliberately not simulated (notes skipped by
     /// `StopAndSkipNote` still count), erring on the stricter side. Comments
-    /// are mirrored exactly (see [`Exporter::comments_mode`]): blocks inside
-    /// `%%` comments count only under Keep, matching what the rendering
-    /// stage will actually see. Files that cannot be read are skipped here —
-    /// the main pass reports them as per-file failures, which keeps a
-    /// prescan error from failing the whole export.
+    /// are mirrored per file, following [`Exporter::comments_mode`]: blocks
+    /// inside `%%` comments count only under Keep, matching what the
+    /// rendering stage will see per file (the prescan runs before embed
+    /// expansion, so pathological `%%` pairing spliced across files stays
+    /// within the total-is-an-estimate caveat). Files that cannot be read
+    /// are skipped here — the main pass reports them as per-file failures,
+    /// which keeps a prescan error from failing the whole export.
     #[allow(clippy::arithmetic_side_effects)]
     fn prepare_diagram_state(&mut self) -> Result<()> {
         let contents = self
@@ -847,14 +854,27 @@ impl<'a> Exporter<'a> {
             // removes them and Convert folds them into an HTML comment,
             // both before the rendering stage. Mirror the pipeline's
             // rewrite on the same parser flavor before counting, so the
-            // tool set is derived from exactly the blocks that will
-            // render (and an export whose only diagram block lives in a
-            // comment no longer fails on a missing tool).
+            // tool set is derived from the blocks that will render (and
+            // an export whose only diagram block lives in a comment no
+            // longer fails on a missing tool).
             let hit = if self.comments_mode == CommentsMode::Keep {
                 diagrams::prescan_note(&text, &self.diagram_renderers)
             } else {
-                let mut events: MarkdownEvents<'_> =
-                    Parser::new_ext(&text, markdown_parser_options()).collect();
+                // Frontmatter is stripped like the main pipeline does
+                // before the comments postprocessor runs: a literal %% in
+                // a frontmatter value must not pair with a later %% in
+                // the body, which would swallow a genuinely rendered
+                // block out of the count and the required tool set.
+                let mut events: MarkdownEvents<'_> = vec![];
+                let mut in_frontmatter = false;
+                for event in Parser::new_ext(&text, markdown_parser_options()) {
+                    match event {
+                        Event::Start(Tag::MetadataBlock(_)) => in_frontmatter = true,
+                        Event::End(TagEnd::MetadataBlock(_)) => in_frontmatter = false,
+                        _ if !in_frontmatter => events.push(event),
+                        _ => {}
+                    }
+                }
                 // Strip discards comment content outright; for counting
                 // purposes Convert is equivalent (the folded block is no
                 // longer a CodeBlock event either way).

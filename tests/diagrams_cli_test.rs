@@ -580,6 +580,19 @@ fn diagram_blocks_inside_kept_comments_still_render() {
     let events = parse_json_lines(&out.stdout);
     let renders = events_of_type(&events, "diagram-render");
     assert_eq!(renders.len(), 1, "the kept block still renders");
+    // The count semantics are the point of the comments awareness: the
+    // single block inside the comment is the single counted block.
+    assert_eq!(
+        renders[0].get("total").and_then(Value::as_u64),
+        Some(1),
+        "total counts the kept comment's block: {}",
+        out.stdout
+    );
+    assert_eq!(
+        renders[0].get("index").and_then(Value::as_u64),
+        Some(1),
+        "index is 1-based over the counted blocks"
+    );
 }
 
 #[test]
@@ -618,7 +631,107 @@ fn diagram_blocks_inside_converted_comments_do_not_require_tools() {
         "converted comment should be an HTML comment: {}",
         note
     );
+    assert!(
+        note.contains("digraph"),
+        "convert keeps the comment content (as comment text) in the source: {}",
+        note
+    );
     drop(vault);
+}
+
+#[test]
+fn diagram_blocks_outside_comments_still_require_tools_under_strip() {
+    // Guards the other half of the semantics: strip only exempts blocks
+    // inside comments. A real block in the body must still fail
+    // atomically when its tool is missing — the prescan must not degrade
+    // into skipping the whole file.
+    let vault = TempDir::new().expect("failed to make vault tempdir");
+    fs::write(
+        vault.path().join("note.md"),
+        "%%\njust a comment\n%%\n\n```dot\ndigraph { a -> b }\n```\n",
+    )
+    .expect("write note");
+    let vault_str = vault.path().to_string_lossy().into_owned();
+    let (dest, dest_str) = dest_dir();
+
+    let out = run_cli_env(
+        &[
+            "--progress",
+            "json",
+            "--render-diagrams",
+            "dot",
+            "--comments",
+            "strip",
+            "--diagram-bin",
+            "dot=C:\\definitely\\not\\installed\\dot.exe",
+            &vault_str,
+            &dest_str,
+        ],
+        &[],
+    );
+    assert_eq!(out.code, Some(1), "stderr: {}", out.stderr);
+    assert!(
+        out.stderr.contains("dot"),
+        "error should name the missing tool, got: {}",
+        out.stderr
+    );
+    // Atomicity: nothing written before the failure.
+    let entries: Vec<_> = fs::read_dir(dest.path())
+        .expect("dest dir readable")
+        .collect();
+    assert!(
+        entries.is_empty(),
+        "destination must stay untouched, got {} entries",
+        entries.len()
+    );
+}
+
+#[test]
+fn frontmatter_percent_signs_do_not_break_tool_requirements() {
+    // A literal %% in a frontmatter value must not participate in comment
+    // pairing during the prescan (the main pipeline strips frontmatter
+    // before the comments rewrite). Without the strip, the body's real
+    // dot block gets swallowed out of the count and a missing tool
+    // degrades from an atomic failure to per-block warnings.
+    let vault = TempDir::new().expect("failed to make vault tempdir");
+    fs::write(
+        vault.path().join("note.md"),
+        "---\ntitle: 50%% off\n---\n\n```dot\ndigraph { a -> b }\n```\n",
+    )
+    .expect("write note");
+    let vault_str = vault.path().to_string_lossy().into_owned();
+    let (dest, dest_str) = dest_dir();
+
+    let out = run_cli_env(
+        &[
+            "--progress",
+            "json",
+            "--render-diagrams",
+            "dot",
+            "--comments",
+            "strip",
+            "--diagram-bin",
+            "dot=C:\\definitely\\not\\installed\\dot.exe",
+            &vault_str,
+            &dest_str,
+        ],
+        &[],
+    );
+    assert_eq!(out.code, Some(1), "stderr: {}", out.stderr);
+    assert!(
+        out.stderr.contains("unavailable") || out.stderr.contains("dot"),
+        "error should report the missing tool, got: {}",
+        out.stderr
+    );
+    // Atomicity: nothing written before the failure.
+    let entries: Vec<_> = fs::read_dir(dest.path())
+        .expect("dest dir readable")
+        .collect();
+    assert!(
+        entries.is_empty(),
+        "destination must stay untouched, got {} entries",
+        entries.len()
+    );
 }
 
 #[test]
