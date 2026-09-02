@@ -495,6 +495,132 @@ fn missing_tool_fails_atomically_without_writing_output() {
     );
 }
 
+/// A vault whose single dot block sits inside a `%%` comment: whether it
+/// renders (and whether graphviz is required) depends entirely on the
+/// `--comments` mode.
+fn vault_with_commented_dot_block() -> (TempDir, String) {
+    let vault = TempDir::new().expect("failed to make vault tempdir");
+    fs::write(
+        vault.path().join("note.md"),
+        "%%\n```dot\ndigraph { a -> b }\n```\n%%\n\nplain text\n",
+    )
+    .expect("write note");
+    let path = vault.path().to_string_lossy().into_owned();
+    (vault, path)
+}
+
+#[test]
+fn diagram_blocks_inside_stripped_comments_do_not_require_tools() {
+    // With --comments strip the block never reaches the rendering stage, so
+    // the prescan must not count it and must not resolve dot at all — an
+    // export on a machine without graphviz succeeds.
+    let (vault, vault_str) = vault_with_commented_dot_block();
+    let (dest, dest_str) = dest_dir();
+
+    let out = run_cli_env(
+        &[
+            "--progress",
+            "json",
+            "--render-diagrams",
+            "dot",
+            "--comments",
+            "strip",
+            "--diagram-bin",
+            "dot=C:\\definitely\\not\\installed\\dot.exe",
+            &vault_str,
+            &dest_str,
+        ],
+        &[],
+    );
+    assert_eq!(out.code, Some(0), "stderr: {}", out.stderr);
+
+    let events = parse_json_lines(&out.stdout);
+    assert!(
+        events_of_type(&events, "diagram-render").is_empty(),
+        "a stripped comment must not trigger a render"
+    );
+
+    let note = fs::read_to_string(dest.path().join("note.md")).expect("read exported note");
+    assert!(
+        !note.contains("digraph"),
+        "stripped comment content must not appear: {}",
+        note
+    );
+    assert!(
+        note.contains("plain text"),
+        "rest of the note survives: {}",
+        note
+    );
+    drop(vault);
+}
+
+#[test]
+fn diagram_blocks_inside_kept_comments_still_render() {
+    // --comments keep leaves the block in the stream: rendering and the
+    // tool requirement behave exactly as without the option.
+    let mocks = install_mock_tools(&["dot"]);
+    let (_vault, vault_str) = vault_with_commented_dot_block();
+    let (_dest, dest_str) = dest_dir();
+
+    let out = run_cli_env(
+        &[
+            "--progress",
+            "json",
+            "--render-diagrams",
+            "dot",
+            "--comments",
+            "keep",
+            &vault_str,
+            &dest_str,
+        ],
+        &mocks.envs,
+    );
+    assert_eq!(out.code, Some(0), "stderr: {}", out.stderr);
+
+    let events = parse_json_lines(&out.stdout);
+    let renders = events_of_type(&events, "diagram-render");
+    assert_eq!(renders.len(), 1, "the kept block still renders");
+}
+
+#[test]
+fn diagram_blocks_inside_converted_comments_do_not_require_tools() {
+    // convert folds the block into an HTML comment: nothing renderable
+    // survives, so like strip no tool resolution happens.
+    let (vault, vault_str) = vault_with_commented_dot_block();
+    let (dest, dest_str) = dest_dir();
+
+    let out = run_cli_env(
+        &[
+            "--progress",
+            "json",
+            "--render-diagrams",
+            "dot",
+            "--comments",
+            "convert",
+            "--diagram-bin",
+            "dot=C:\\definitely\\not\\installed\\dot.exe",
+            &vault_str,
+            &dest_str,
+        ],
+        &[],
+    );
+    assert_eq!(out.code, Some(0), "stderr: {}", out.stderr);
+
+    let events = parse_json_lines(&out.stdout);
+    assert!(
+        events_of_type(&events, "diagram-render").is_empty(),
+        "a converted comment must not trigger a render"
+    );
+
+    let note = fs::read_to_string(dest.path().join("note.md")).expect("read exported note");
+    assert!(
+        note.contains("<!--"),
+        "converted comment should be an HTML comment: {}",
+        note
+    );
+    drop(vault);
+}
+
 #[test]
 fn second_export_reuses_cached_assets_without_new_renders() {
     let mocks = install_mock_tools(&["wavedrom"]);

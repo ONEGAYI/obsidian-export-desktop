@@ -439,6 +439,10 @@ fn main() {
         exporter.add_postprocessor(&softbreaks_to_hardbreaks);
     }
 
+    // The rewrite runs as a postprocessor below, but the exporter needs the
+    // mode itself for the diagram prescan: blocks inside comments count
+    // (and require tools) only when they will actually render.
+    exporter.comments_mode(args.comments);
     let comments_postprocessor = obsidian_comments(args.comments);
     if args.comments != CommentsMode::Keep {
         exporter.add_postprocessor(&comments_postprocessor);

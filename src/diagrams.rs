@@ -1155,6 +1155,25 @@ pub fn prescan_note(text: &str, enabled: &[DiagramRenderer]) -> PrescanHit {
     hit
 }
 
+/// Count diagram blocks in already-parsed events. The prescan uses this on
+/// the event stream *after* mirroring the comments rewrite: a block the
+/// pipeline would fold into a `%%` comment never renders, so it must not
+/// count towards progress nor pull its tools into the required tool set.
+pub fn prescan_events(events: &[Event<'_>], enabled: &[DiagramRenderer]) -> PrescanHit {
+    let mut hit = PrescanHit::default();
+    for event in events {
+        if let Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(info))) = event {
+            if let Some(renderer) = DiagramRenderer::from_language(info) {
+                if enabled.contains(&renderer) {
+                    hit.renderable_blocks += 1;
+                    hit.renderers.insert(renderer);
+                }
+            }
+        }
+    }
+    hit
+}
+
 // ---------------------------------------------------------------------------
 // Content-addressed naming
 // ---------------------------------------------------------------------------

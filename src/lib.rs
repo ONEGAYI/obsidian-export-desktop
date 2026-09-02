@@ -402,6 +402,7 @@ pub struct Exporter<'a> {
     process_embeds_recursively: bool,
     preserve_mtime: bool,
     missing_section_strategy: MissingSectionStrategy,
+    comments_mode: CommentsMode,
     fail_fast: bool,
     diagram_renderers: Vec<DiagramRenderer>,
     diagram_format: DiagramFormat,
@@ -428,6 +429,7 @@ impl fmt::Debug for Exporter<'_> {
                 &self.process_embeds_recursively,
             )
             .field("missing_section_strategy", &self.missing_section_strategy)
+            .field("comments_mode", &self.comments_mode)
             .field("fail_fast", &self.fail_fast)
             .field("diagram_renderers", &self.diagram_renderers)
             .field("diagram_format", &self.diagram_format)
@@ -469,6 +471,7 @@ impl<'a> Exporter<'a> {
             process_embeds_recursively: true,
             preserve_mtime: false,
             missing_section_strategy: MissingSectionStrategy::default(),
+            comments_mode: CommentsMode::default(),
             fail_fast: false,
             diagram_renderers: vec![],
             diagram_format: DiagramFormat::Svg,
@@ -534,6 +537,20 @@ impl<'a> Exporter<'a> {
         strategy: MissingSectionStrategy,
     ) -> &mut Self {
         self.missing_section_strategy = strategy;
+        self
+    }
+
+    /// Set how `%%...%%` comments are treated during export (default:
+    /// [`CommentsMode::Keep`]).
+    ///
+    /// The comment rewrite itself runs as a postprocessor the caller
+    /// assembles (see [`postprocessors::obsidian_comments`]); the exporter
+    /// only consults this for the diagram prescan so that code blocks
+    /// inside comments are counted — and their tools required — exactly
+    /// when they will actually render. Callers adding that postprocessor
+    /// should set the matching mode here.
+    pub const fn comments_mode(&mut self, mode: CommentsMode) -> &mut Self {
+        self.comments_mode = mode;
         self
     }
 
@@ -800,10 +817,12 @@ impl<'a> Exporter<'a> {
     /// written, so an unresolvable tool aborts the export atomically. The
     /// walk honors the same `start_at` filter as the export itself; tag
     /// filtering is deliberately not simulated (notes skipped by
-    /// `StopAndSkipNote` still count), erring on the stricter side. Files
-    /// that cannot be read are skipped here — the main pass reports them as
-    /// per-file failures, which keeps a prescan error from failing the
-    /// whole export.
+    /// `StopAndSkipNote` still count), erring on the stricter side. Comments
+    /// are mirrored exactly (see [`Exporter::comments_mode`]): blocks inside
+    /// `%%` comments count only under Keep, matching what the rendering
+    /// stage will actually see. Files that cannot be read are skipped here —
+    /// the main pass reports them as per-file failures, which keeps a
+    /// prescan error from failing the whole export.
     #[allow(clippy::arithmetic_side_effects)]
     fn prepare_diagram_state(&mut self) -> Result<()> {
         let contents = self
@@ -824,7 +843,24 @@ impl<'a> Exporter<'a> {
             let Ok(text) = fs::read_to_string(file) else {
                 continue;
             };
-            let hit = diagrams::prescan_note(&text, &self.diagram_renderers);
+            // Blocks inside %% comments only render under Keep: Strip
+            // removes them and Convert folds them into an HTML comment,
+            // both before the rendering stage. Mirror the pipeline's
+            // rewrite on the same parser flavor before counting, so the
+            // tool set is derived from exactly the blocks that will
+            // render (and an export whose only diagram block lives in a
+            // comment no longer fails on a missing tool).
+            let hit = if self.comments_mode == CommentsMode::Keep {
+                diagrams::prescan_note(&text, &self.diagram_renderers)
+            } else {
+                let mut events: MarkdownEvents<'_> =
+                    Parser::new_ext(&text, markdown_parser_options()).collect();
+                // Strip discards comment content outright; for counting
+                // purposes Convert is equivalent (the folded block is no
+                // longer a CodeBlock event either way).
+                comments::rewrite_events(&mut events, CommentsMode::Strip);
+                diagrams::prescan_events(&events, &self.diagram_renderers)
+            };
             total += hit.renderable_blocks;
             renderers_needed.extend(hit.renderers);
         }
