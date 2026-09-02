@@ -1451,10 +1451,13 @@ impl<'a> Exporter<'a> {
     /// Embed a section or block of the note currently being expanded
     /// (`![[#Heading]]` / `![[#^block-id]]`).
     ///
-    /// The current note's raw events are sliced directly. Every same-file
-    /// embed level pushes the current file onto the file tree, so nesting
-    /// (including a block embedding itself) is bounded by
-    /// `NOTE_RECURSION_LIMIT` at this common embed entry point.
+    /// The current note's raw events are sliced directly; when the slice
+    /// (e.g. reached through a cross-file embed) does not contain the
+    /// target, the whole file is re-parsed and the lookup retried before
+    /// the missing-section strategy applies. Every same-file embed level
+    /// pushes the current file onto the file tree, so nesting (including a
+    /// block embedding itself) is bounded by `NOTE_RECURSION_LIMIT` at this
+    /// common embed entry point.
     fn embed_same_file<'b>(
         &self,
         events: &[Event<'b>],
@@ -1505,14 +1508,27 @@ impl<'a> Exporter<'a> {
         let located = match located {
             Some(reduced) => Some(reduced),
             None if context.note_depth() == 1 => None,
-            None => Self::parse_raw_note(context.current_file()).ok().and_then(
-                |(_frontmatter, full)| {
+            None => Self::parse_raw_note(context.current_file())
+                .inspect_err(|error| {
+                    // The file parsed fine on the way in, so a failure here
+                    // means it changed or vanished mid-export; say so
+                    // instead of letting the missing-section warning below
+                    // misattribute the cause.
+                    self.warn(
+                        Some(context.current_file()),
+                        format!(
+                            "Failed to re-read '{}' for the whole-file fallback: {error}\n",
+                            context.current_file().display()
+                        ),
+                    );
+                })
+                .ok()
+                .and_then(|(_frontmatter, full)| {
                     section.strip_prefix('^').map_or_else(
                         || reduce_to_section(&full, section),
                         |block_id| reduce_to_block(&full, block_id),
                     )
-                },
-            ),
+                }),
         };
         let mut events = match located {
             Some(reduced) => reduced,

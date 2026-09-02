@@ -1076,12 +1076,13 @@ fn test_same_file_ref_inside_cross_file_embed_falls_back_to_whole_file() {
     let vault = tmp_dir.path().join("vault");
     std::fs::create_dir_all(&vault).expect("failed to make vault dir");
 
-    // `#Other` lives in note-inner.md but outside the `#Real` slice that the
-    // cross-file embed pulls in. Obsidian resolves same-file references
-    // against the whole file, so the inner `![[#Other]]` must too.
+    // `#Other` and `#Third` live in note-inner.md but outside the `#Real`
+    // slice that the cross-file embed pulls in. Obsidian resolves
+    // same-file references against the whole file, so the inner
+    // `![[#Other]]` must too.
     std::fs::write(
         vault.join("note-inner.md"),
-        "# Real\n\ninner ![[#Other]]\n\n# Other\n\nother body\n",
+        "# Real\n\ninner ![[#Other]]\n\n# Other\n\nother body\n\n# Third\n\nthird body\n",
     )
     .expect("failed to write note-inner");
     std::fs::write(vault.join("note.md"), "top ![[note-inner#Real]]\n")
@@ -1097,6 +1098,155 @@ fn test_same_file_ref_inside_cross_file_embed_falls_back_to_whole_file() {
         "same-file ref inside an embedded slice should resolve against the whole file: {}",
         actual
     );
+    // The fallback must locate the `#Other` section precisely — not
+    // degrade into embedding the whole file (which would drag `#Third`
+    // and a second `# Real` heading into the output).
+    assert!(
+        !actual.contains("third body"),
+        "fallback embeds the #Other slice, not the whole file: {}",
+        actual
+    );
+    assert_eq!(
+        actual.matches("# Real").count(),
+        1,
+        "the #Real heading appears exactly once: {}",
+        actual
+    );
+}
+
+#[test]
+fn test_same_file_block_ref_inside_cross_file_embed_falls_back_to_whole_file() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let vault = tmp_dir.path().join("vault");
+    std::fs::create_dir_all(&vault).expect("failed to make vault dir");
+
+    // The `^blk` block sits under `# Other`, outside the `#Real` slice;
+    // the block-id lookup must fall back to the whole file, the embedded
+    // copy must have its id marker stripped, and the rest of `# Other`
+    // must not leak into the host note.
+    std::fs::write(
+        vault.join("note-inner.md"),
+        "# Real\n\nembed ![[#^blk]]\n\n# Other\n\npara\n\n^blk\n",
+    )
+    .expect("failed to write note-inner");
+    std::fs::write(vault.join("note.md"), "top ![[note-inner#Real]]\n")
+        .expect("failed to write note");
+
+    Exporter::new(vault, tmp_dir.path().to_path_buf())
+        .run()
+        .expect("exporter returned error");
+
+    let actual = read_to_string(tmp_dir.path().join("note.md")).unwrap();
+    assert!(
+        actual.contains("para"),
+        "block-id ref inside an embedded slice should resolve against the whole file: {}",
+        actual
+    );
+    assert!(
+        !actual.contains("^blk"),
+        "the embedded block copy must have its id marker stripped: {}",
+        actual
+    );
+    assert!(
+        !actual.contains("# Other"),
+        "only the marked block is pulled in, not the whole section: {}",
+        actual
+    );
+}
+
+#[test]
+fn test_missing_section_strategy_applies_after_whole_file_fallback() {
+    // The inner ref is nowhere in the file (slice or whole), so the
+    // missing-section strategy applies — including through the fallback
+    // path. EmbedFull re-embeds the slice, whose copy of the same ref is
+    // then degraded to a link by the file-tree guard: the strategy never
+    // loops.
+    for (strategy, expect_ok) in [
+        (MissingSectionStrategy::Skip, true),
+        (MissingSectionStrategy::EmbedFull, true),
+        (MissingSectionStrategy::Fail, false),
+    ] {
+        let tmp_dir = TempDir::new().expect("failed to make tempdir");
+        let vault = tmp_dir.path().join("vault");
+        std::fs::create_dir_all(&vault).expect("failed to make vault dir");
+        std::fs::write(
+            vault.join("note-inner.md"),
+            "# Real\n\ninner ![[#Missing]]\n\n# Other\n\nother body\n",
+        )
+        .expect("failed to write note-inner");
+        std::fs::write(vault.join("note.md"), "top ![[note-inner#Real]]\n")
+            .expect("failed to write note");
+
+        let result = Exporter::new(vault, tmp_dir.path().to_path_buf())
+            .missing_section_strategy(strategy)
+            .run();
+
+        match (expect_ok, result) {
+            (true, Ok(())) => {}
+            // Without fail-fast the per-file failure is aggregated, with
+            // the SectionNotFound preserved as the underlying error. Both
+            // notes fail: the host through the fallback path, and
+            // note-inner.md through its own top-level ref.
+            (false, Err(ExportError::ExportCompletedWithErrors { errors })) => {
+                assert_eq!(errors.len(), 2, "both the host note and note-inner.md fail");
+                for failed in &errors {
+                    // The failure is wrapped ("Failed to export '…'")
+                    // with SectionNotFound as the chain root; walk the
+                    // chain to assert the underlying cause.
+                    let mut cause: Option<&dyn std::error::Error> = Some(&failed.error);
+                    let mut found_section_not_found = false;
+                    while let Some(error) = cause {
+                        if error.to_string().contains("Section 'Missing' not found") {
+                            found_section_not_found = true;
+                            break;
+                        }
+                        cause = error.source();
+                    }
+                    assert!(
+                        found_section_not_found,
+                        "underlying error should be SectionNotFound, got: {}",
+                        failed.error
+                    );
+                }
+            }
+            (_, other) => panic!("unexpected result for {:?}: {:?}", strategy, other),
+        }
+
+        if !expect_ok {
+            continue;
+        }
+        let actual = read_to_string(tmp_dir.path().join("note.md")).unwrap();
+        match strategy {
+            MissingSectionStrategy::Skip => {
+                assert!(
+                    !actual.contains("inner ![[#Missing]]"),
+                    "Skip collapses the missing ref: {}",
+                    actual
+                );
+                assert!(
+                    !actual.contains("other body"),
+                    "Skip must not leak the rest of the file: {}",
+                    actual
+                );
+            }
+            MissingSectionStrategy::EmbedFull => {
+                // The slice copy of the ref is degraded to a plain link by
+                // the file-tree guard instead of re-embedding.
+                assert_eq!(
+                    actual.matches("# Real").count(),
+                    2,
+                    "EmbedFull re-embeds the slice once: {}",
+                    actual
+                );
+                assert!(
+                    actual.contains("→ "),
+                    "the copy's self-reference degrades to a link: {}",
+                    actual
+                );
+            }
+            MissingSectionStrategy::Fail | _ => unreachable!(),
+        }
+    }
 }
 
 #[test]

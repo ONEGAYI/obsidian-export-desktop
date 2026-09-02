@@ -584,6 +584,24 @@ fn second_export_reuses_cached_assets_without_new_renders() {
         "cached asset must not invoke the renderer again"
     );
 
+    // Debris from a killed earlier run must be swept even though the next
+    // export only hits the cache: sweeping runs before the cache check.
+    let debris = dest.path().join("assets").join(".render-777-0.svg");
+    fs::write(&debris, b"debris").expect("write debris");
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(601);
+    fs::File::options()
+        .write(true)
+        .open(&debris)
+        .expect("open debris")
+        .set_modified(old)
+        .expect("backdate debris");
+    let out_third = run_cli_env(&first, &mocks.envs);
+    assert_eq!(out_third.code, Some(0), "stderr: {}", out_third.stderr);
+    assert!(
+        !debris.exists(),
+        "a fully-cached export must still sweep stale leftovers"
+    );
+
     let note = fs::read_to_string(dest.path().join("note.md")).expect("read exported note");
     assert!(note.contains("![diagram (wavedrom)](assets/note-"));
 }
