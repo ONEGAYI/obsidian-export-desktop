@@ -619,6 +619,36 @@ fn event_value(event: &impl serde::Serialize) -> serde_json::Value {
     serde_json::to_value(event).expect("event serializes to JSON")
 }
 
+/// Cap on the sidecar's accumulated stderr. A wedged process writing
+/// unbounded stderr must not grow the buffer forever; the tail is kept
+/// because diagnostic value concentrates at the end.
+const MAX_STDERR_BYTES: usize = 64 * 1024;
+
+/// Cap an accumulating stderr byte buffer, keeping the tail. Dropped output
+/// is noted in a leading marker; the cut point backs up to a UTF-8 character
+/// boundary so the kept tail still decodes cleanly. The marker's byte count
+/// is what this call dropped (a re-triggered clamp counts the previous
+/// marker among the dropped), not a process-lifetime total.
+fn clamp_stderr_tail(bytes: &mut Vec<u8>, limit: usize) {
+    if bytes.len() <= limit {
+        return;
+    }
+    let mut cut = bytes.len() - limit;
+    // Starting the kept tail mid-sequence would decode to U+FFFD. A cut is
+    // at a character boundary when the byte at it is not a UTF-8
+    // continuation byte (10xxxxxx); backing the cut up (forward) at most
+    // three bytes stays within the limit's intent.
+    while cut < bytes.len() && bytes[cut] & 0xC0 == 0x80 {
+        cut += 1;
+    }
+    let dropped = cut;
+    let marker = format!("[...dropped {dropped} bytes of stderr...]\n");
+    let tail: Vec<u8> = bytes[cut..].to_vec();
+    bytes.clear();
+    bytes.extend_from_slice(marker.as_bytes());
+    bytes.extend_from_slice(&tail);
+}
+
 /// Shared stdout/stderr pump for a spawned sidecar: parses each JSON Lines
 /// event with the stream's dialect, forwards it to the dialect's event
 /// channel, and maps process termination onto the dialect's exit event
@@ -634,7 +664,11 @@ async fn pump_sidecar(
     // per-chunk lossy decoding would corrupt it into U+FFFD. The CLI always
     // emits valid UTF-8, so per-line lossy decoding is safe.
     let mut stdout_buffer: Vec<u8> = Vec::new();
-    let mut stderr_text = String::new();
+    // stderr follows the same byte discipline: it is decoded exactly once at
+    // termination, so per-chunk lossy decoding would leave an U+FFFD at
+    // every chunk boundary that splits a multi-byte character (e.g. a
+    // non-ASCII vault path in an error message).
+    let mut stderr_bytes: Vec<u8> = Vec::new();
     while let Some(message) = rx.recv().await {
         match message {
             CommandEvent::Stdout(bytes) => {
@@ -654,7 +688,8 @@ async fn pump_sidecar(
                 }
             }
             CommandEvent::Stderr(bytes) => {
-                stderr_text.push_str(&String::from_utf8_lossy(&bytes));
+                stderr_bytes.extend_from_slice(&bytes);
+                clamp_stderr_tail(&mut stderr_bytes, MAX_STDERR_BYTES);
             }
             CommandEvent::Error(err) => {
                 let _ = handle.emit(dialect.error_channel(), format!("sidecar IO error: {err}"));
@@ -665,6 +700,7 @@ async fn pump_sidecar(
                 // (or `check-end`) event means the run never reached
                 // processing (see docs/sidecar-events.md).
                 take_child(&handle);
+                let stderr_text = String::from_utf8_lossy(&stderr_bytes);
                 let _ = handle.emit(
                     dialect.exit_channel(),
                     serde_json::json!({
@@ -941,6 +977,72 @@ pub fn run_installer(app: AppHandle, path: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stderr_clamp_at_exactly_the_limit_is_a_no_op() {
+        let mut bytes = b"x".repeat(64);
+        clamp_stderr_tail(&mut bytes, 64);
+        assert_eq!(bytes, b"x".repeat(64));
+    }
+
+    #[test]
+    fn stderr_clamp_with_zero_limit_keeps_only_the_marker() {
+        let mut bytes = b"error text".to_vec();
+        clamp_stderr_tail(&mut bytes, 0);
+        assert_eq!(
+            bytes,
+            format!("[...dropped {} bytes of stderr...]\n", b"error text".len()).into_bytes()
+        );
+    }
+
+    #[test]
+    fn stderr_clamp_re_triggers_stably_with_the_marker_in_place() {
+        let mut bytes = b"abcdefghij".repeat(1_000);
+        clamp_stderr_tail(&mut bytes, 100);
+        // More output re-triggers the clamp: the tail keeps rolling, the
+        // total stays bounded (marker + at most `limit` bytes), and the
+        // newest bytes survive at the end.
+        bytes.extend_from_slice(b"0123456789");
+        clamp_stderr_tail(&mut bytes, 100);
+        let marker_end = bytes.iter().position(|&b| b == b'\n').unwrap() + 1;
+        assert!(bytes[..marker_end].starts_with(b"[...dropped "));
+        assert!(bytes.len() <= marker_end + 100);
+        assert_eq!(&bytes[bytes.len() - 10..], b"0123456789");
+    }
+
+    #[test]
+    fn stderr_clamp_keeps_short_buffers_untouched() {
+        let mut bytes = b"short error".to_vec();
+        clamp_stderr_tail(&mut bytes, 64);
+        assert_eq!(bytes, b"short error");
+    }
+
+    #[test]
+    fn stderr_clamp_keeps_the_tail_behind_a_drop_marker() {
+        let data: Vec<u8> = b"abcdefghij".repeat(1_000);
+        let mut bytes = data.clone();
+        clamp_stderr_tail(&mut bytes, 100);
+        let marker_end = bytes.iter().position(|&b| b == b'\n').unwrap() + 1;
+        assert!(
+            bytes[..marker_end].starts_with(b"[...dropped "),
+            "marker missing: {:?}",
+            String::from_utf8_lossy(&bytes[..marker_end]),
+        );
+        assert_eq!(&bytes[marker_end..], &data[9_900..]);
+    }
+
+    #[test]
+    fn stderr_clamp_backs_the_cut_up_to_a_char_boundary() {
+        // "a" plus six 3-byte characters: with limit 17 the cut lands at byte
+        // 2, mid-character; it must back up to 3 so the kept tail (and thus
+        // the emitted stderr) still decodes cleanly.
+        let mut bytes: Vec<u8> = b"a".to_vec();
+        bytes.extend_from_slice("中文字符尾巴".as_bytes());
+        clamp_stderr_tail(&mut bytes, 17);
+        let marker_end = bytes.iter().position(|&b| b == b'\n').unwrap() + 1;
+        let tail = String::from_utf8(bytes[marker_end..].to_vec()).unwrap();
+        assert_eq!(tail, "文字符尾巴");
+    }
 
     #[test]
     fn keep_root_appends_source_folder_name() {
