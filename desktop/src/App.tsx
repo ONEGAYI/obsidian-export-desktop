@@ -308,9 +308,9 @@ export default function App() {
   const [sidecarError, setSidecarError] = useState<string | null>(null);
   const [check, setCheck] = useState<LinkCheckState>(EMPTY_LINK_CHECK);
   const [update, setUpdate] = useState<UpdateState>(EMPTY_UPDATE);
-  // The sidecar-exit listener below is subscribed once per language change,
-  // so the trigger data it needs (latest options, last run's paths) travels
-  // through refs instead of stale closures.
+  // The sidecar-exit listener below is subscribed exactly once for the
+  // app's lifetime, so the trigger data it needs (latest options, last
+  // run's paths) travels through refs instead of stale closures.
   const optionsRef = useRef(options);
   optionsRef.current = options;
   const lastRunRef = useRef<{ source: string; target: string } | null>(null);
