@@ -45,19 +45,9 @@
 ## 待定事项
 
 - [ ] 嵌入解析缓存与 walker 并行化：vault 索引已消除引用解析的主要瓶颈（基准 7200 文件 11.2s → 0.65s），剩余耗时以文件 IO/解析/渲染为主；两项优化待有真实大 vault 的 profile 数据支撑后再决定是否实施。
-
-已知限制（审查登记，后续迭代评估；26.9 开发期已关闭七项：预扫描 comments 感知 #28、`.render-*` 惰性清扫与同文件嵌入全文回退 #27、测试 release 门 const 断言与引用正则兜底 #26、有序列表接续编号 #30、cmd 脚本 `%` 路径自动警告 #31）：
-
-- [ ] 注释转换与 Obsidian 渲染的刻意差异（Obsidian 自身各视图间行为本就不一致，实现取自洽保守语义）：嵌套 `%%` 按非贪心配对（Obsidian 阅读视图会渲染错乱）；注释内嵌代码块被折叠进注释（Obsidian 阅读视图显示内容仅隐藏标记）；注释内容合成的容器字面是近似（列表 bullet 恒为 `-`、代码块 fence 恒为三反引号，仅影响注释内可读性）；跨块级边界的注释会把列表等结构在注释处断开再重启（CommonMark HTML 块无法内嵌于列表项中间，结构性必然）。前三条保持现状；有序列表重启的编号接续已修（#30）：convert 模式在注释重开点显式关闭列表、按已发出 item 数合成接续起始编号（嵌套只分段最内层），strip 模式产物列表保持连续、重新解析按位置递增，本就正确。
-- [ ] linkcheck 报告注释内的 wikilink（check 走 `parse_raw_note_with_refs` 原文层，与 `--comments` 选项无关）：属 check「看原文」的既有语义（Obsidian Publish 的 graph 同样收集注释内链接），登记不视为缺陷。
-- [ ] 渲染超时的进程树击杀平台不对称：Windows 走 `taskkill /T /F` 连孙进程根治；Unix 未设进程组（设组的净收益为负——渲染树不再随终端 Ctrl+C 终止而成孤儿，对 GUI 取消路径也无改善），卡死的孙进程持有 pipe 时靠 5s reader 宽限兜底（reader 线程泄漏但 `run_command` 必返，不挂起导出；泄漏随孙进程死亡终结、随边车进程退出回收，无跨导出累积）。
-- [ ] 嵌入展开的图表副本渲染为宿主笔记的独立资产（`<宿主stem>-<hash>` 与源笔记资产各一份，字节相同）：语义是「每份产物自包含」；代价是 `diagram-render` 的 `index` 可超过 `total`（预扫描只数源文件自身块，契约文档已声明 total 为估计值）。若未来 profile 显示嵌入密集 vault 渲染耗时显著，可立项「运行内去重备忘录」（只省重复工具调用，不改变产物形态）。
 - [ ] 预扫描对全 vault 做二次 read+parse（启用渲染时 IO 与解析翻倍，7200 文件基准约 +0.5s；非 Keep 模式经 #28 后还叠加事件物化与 comments 改写）：**不要**走行扫描识别 fence 的方向（免疫规则是结构性的、行扫描必误判，漏计会让原子失败退化成逐块警告——#28 的调研结论）；若要优化，方向是复用 walk/导出阶段的解析结果或文本缓存共享，待 profile 数据支撑。
-- [ ] 同文件与跨文件 EmbedFull 的不对称：跨文件嵌入找不到 section 时 EmbedFull 保留**整个文件**，同文件嵌入（经 #27 全文回退仍找不到时）保留**当前切片**，`MissingSectionStrategy` 枚举 doc 只写了 "Embed the entire note"；差异仅在「经由跨文件切片的同文件嵌入」场景暴露，登记待后续统一语义或补 doc。
 
-桌面端低风险遗留（审查登记，不阻塞发布）：
-
-- [ ] ureq 2.12 内部对小响应体 + 服务器截断断流的组合会 panic（exit 101，破坏边车 0/1/2 退出码契约；上游 TODO 自认）：极低概率，升级 ureq 时关注上游修复。定位勘误（源码核实）：panic 点在 `request.call()` 构造 Response 期间的 `stream_to_reader`（小响应体全缓冲时 `read_exact`/`return_to_pool` 的 `expect`），不在 `into_string`——后者无 charset feature 时就是 `into_reader + take + from_utf8_lossy`，换 body 读取方式绕不开该 panic 面。
+已知限制与设计取舍（审查登记后决定维持现状的五项：注释转换差异、linkcheck 原文语义、进程树击杀平台不对称、图表副本自包含、EmbedFull 不对称，另含桌面端 ureq watch 项）已迁至 [docs/known-limitations.zh.md](docs/known-limitations.zh.md) 逐条细说（现象/根因/为何不修/绕过方法/源码定位）。26.9 开发期已关闭七项登记：预扫描 comments 感知 #28、`.render-*` 惰性清扫与同文件嵌入全文回退 #27、测试 release 门 const 断言与引用正则兜底 #26、有序列表接续编号 #30、cmd 脚本 `%` 路径自动警告 #31。
 
 ## 修复路线（已批准）
 
@@ -118,7 +108,9 @@ obsidian-export-desktop/
 │   ├── 23.fix.md    # 取消态修复片段
 │   ├── 26.change.md # 测试门 const 断言片段
 │   ├── 27.fix.md    # 清扫与嵌入回退片段
-│   └── 28.fix.md    # 预扫描感知注释片段
+│   ├── 28.fix.md    # 预扫描感知注释片段
+│   ├── 30.fix.md    # 有序列表接续编号片段
+│   └── 31.fix.md    # cmd 脚本 % 路径警告片段
 ├── CHANGELOG.md            # 变更日志（towncrier 生成）
 ├── CLAUDE.md               # Claude 专属补充规则
 ├── cliff.toml              # git-cliff 备用变更日志配置
@@ -201,35 +193,36 @@ obsidian-export-desktop/
 │   └── vite.config.ts      # Vite 配置，适配 Tauri 开发
 ├── dist-workspace.toml     # cargo-dist 发布工作区配置
 ├── docs/                   # 项目文档（mdBook+fork）
-│   ├── .obsidian/           # Obsidian 编辑器工作区配置
-│   ├── _combined.md         # README 生成的章节嵌入清单
-│   ├── _combined.zh.md      # 中文 README 章节嵌入清单
-│   ├── _edit-warning.md     # 勿直接编辑 README 的警告块
-│   ├── _edit-warning.zh.md  # 中文版勿直接编辑警告块
-│   ├── BUILD.md             # 中文构建指南（CLI 与桌面端）
-│   ├── CHANGELOG.md         # 指向根变更日志的指针文件
-│   ├── changes.md           # 更新日志引导页
-│   ├── changes.zh.md        # 中文更新日志引导页
-│   ├── contribute.md        # 贡献引导页
-│   ├── contribute.zh.md     # 中文贡献引导页
-│   ├── CONTRIBUTING.md      # 指向根贡献指南的指针文件
-│   ├── desktop.md           # Tauri 桌面端功能介绍
-│   ├── desktop.zh.md        # 中文桌面端功能介绍
-│   ├── generate.sh          # 双语 README 生成脚本
-│   ├── installation.md      # 安装与升级指南
-│   ├── installation.zh.md   # 中文安装与升级指南
-│   ├── intro.md             # 项目简介与核心特性列表
-│   ├── intro.zh.md          # 中文简介与核心特性列表
-│   ├── license.md           # 许可证说明
-│   ├── license.zh.md        # 中文许可证说明
-│   ├── Release-checklist.md # 发布流程检查清单
-│   ├── sidecar-events.md    # 边车 JSON 事件流契约文档
-│   ├── usage-advanced.md    # CLI 高级选项与技巧
-│   ├── usage-advanced.zh.md # 中文高级选项与技巧
-│   ├── usage-basic.md       # CLI 基本用法说明
-│   ├── usage-basic.zh.md    # 中文基本用法说明
-│   ├── usage-library.md     # Rust 库使用指引
-│   └── usage-library.zh.md  # 中文库使用指引
+│   ├── .obsidian/              # Obsidian 编辑器工作区配置
+│   ├── _combined.md            # README 生成的章节嵌入清单
+│   ├── _combined.zh.md         # 中文 README 章节嵌入清单
+│   ├── _edit-warning.md        # 勿直接编辑 README 的警告块
+│   ├── _edit-warning.zh.md     # 中文版勿直接编辑警告块
+│   ├── BUILD.md                # 中文构建指南（CLI 与桌面端）
+│   ├── CHANGELOG.md            # 指向根变更日志的指针文件
+│   ├── changes.md              # 更新日志引导页
+│   ├── changes.zh.md           # 中文更新日志引导页
+│   ├── contribute.md           # 贡献引导页
+│   ├── contribute.zh.md        # 中文贡献引导页
+│   ├── CONTRIBUTING.md         # 指向根贡献指南的指针文件
+│   ├── desktop.md              # Tauri 桌面端功能介绍
+│   ├── desktop.zh.md           # 中文桌面端功能介绍
+│   ├── generate.sh             # 双语 README 生成脚本
+│   ├── installation.md         # 安装与升级指南
+│   ├── installation.zh.md      # 中文安装与升级指南
+│   ├── intro.md                # 项目简介与核心特性列表
+│   ├── intro.zh.md             # 中文简介与核心特性列表
+│   ├── known-limitations.zh.md # 已知限制与设计取舍细说（中文单份）
+│   ├── license.md              # 许可证说明
+│   ├── license.zh.md           # 中文许可证说明
+│   ├── Release-checklist.md    # 发布流程检查清单
+│   ├── sidecar-events.md       # 边车 JSON 事件流契约文档
+│   ├── usage-advanced.md       # CLI 高级选项与技巧
+│   ├── usage-advanced.zh.md    # 中文高级选项与技巧
+│   ├── usage-basic.md          # CLI 基本用法说明
+│   ├── usage-basic.zh.md       # 中文基本用法说明
+│   ├── usage-library.md        # Rust 库使用指引
+│   └── usage-library.zh.md     # 中文库使用指引
 ├── Justfile                # 核心任务入口（桌面端+发布）
 ├── LICENSE                 # 上游许可证全文
 ├── README.md               # 英文自述（generate.sh 产物）
