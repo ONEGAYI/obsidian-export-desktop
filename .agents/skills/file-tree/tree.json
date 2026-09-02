@@ -402,6 +402,36 @@
           "tags": [
             "docs"
           ]
+        },
+        "26.change.md": {
+          "kind": "file",
+          "desc": "测试门 const 断言片段",
+          "detail": [
+            "cargo test --release 下图表与 update 集成测试不再静默消失：debug-only 注入钩子门控的测试文件在 release 下编译为空（0 个测试静默通过，update 测试更会直连真实 GitHub API 假失败），改为显式编译失败并提示改跑 cargo test。"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "27.fix.md": {
+          "kind": "file",
+          "desc": "清扫与嵌入回退片段",
+          "detail": [
+            "图表渲染临时文件残留清扫与同文件嵌入解析修复：被杀/崩溃进程遗留的 .render-* 垃圾在下次带渲染的导出时按 10 分钟年龄阈值惰性清扫（并行安全）；跨文件嵌入片段内的同文件引用改按全文件解析（与 Obsidian 对齐），不再因目标不在片段内而误报缺失塌缩。"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "28.fix.md": {
+          "kind": "file",
+          "desc": "预扫描感知注释片段",
+          "detail": [
+            "图表工具预扫描感知 --comments 模式：位于 %% 注释内的图表代码块在 strip/convert 下不渲染，因此不再计数、不再要求安装对应工具——此前唯一图表块在注释内且缺工具会导致整个导出直接失败；keep 行为不变，真实会渲染的块仍按原契约原子化报错。"
+          ],
+          "tags": [
+            "docs"
+          ]
         }
       }
     },
