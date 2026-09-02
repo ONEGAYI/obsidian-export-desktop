@@ -11,6 +11,15 @@
     clippy::uninlined_format_args
 )]
 
+// The `update` tests below inject a local mock API through the debug-only
+// `OBSIDIAN_EXPORT_UPDATE_API_BASE` hook. Under `cargo test --release` the
+// hook compiles to nothing, the binary would hit the real GitHub API and the
+// mock-asserting tests would fail spuriously — fail the build instead.
+const _: () = assert!(
+    cfg!(debug_assertions),
+    "update CLI tests need the debug-only API override hook; run cargo test without --release"
+);
+
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener};
 use std::path::PathBuf;
