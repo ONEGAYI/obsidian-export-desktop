@@ -200,6 +200,37 @@ function PillCheckbox({
 }
 
 /**
+ * Roving-tabindex helper for the settings tablist (ARIA tabs pattern):
+ * ArrowLeft/ArrowUp move to the previous tab, ArrowRight/ArrowDown to the
+ * next (both wrap), Home and End jump to the ends. The layout switches
+ * between horizontal and vertical at a breakpoint, so both arrow axes map
+ * to the same move. Returns null for any other key (focus stays put).
+ */
+export function nextTabIndex(
+  current: number,
+  key: string,
+  count: number,
+): number | null {
+  if (count <= 0) {
+    return null;
+  }
+  switch (key) {
+    case "ArrowLeft":
+    case "ArrowUp":
+      return (current - 1 + count) % count;
+    case "ArrowRight":
+    case "ArrowDown":
+      return (current + 1) % count;
+    case "Home":
+      return 0;
+    case "End":
+      return count - 1;
+    default:
+      return null;
+  }
+}
+
+/**
  * Full options panel mirroring the CLI flags of the sidecar, paginated into
  * a side-nav (page selection) and a content area. All choices are persisted
  * by the parent as they are made; only non-default values are forwarded to
@@ -252,6 +283,21 @@ export function OptionsView({
     { id: "about", label: t.options.sectionAbout, icon: <InfoIcon className="size-4 shrink-0" /> },
   ];
 
+  const handleNavKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    const current = navItems.findIndex((item) => item.id === page);
+    const next =
+      current >= 0 ? nextTabIndex(current, event.key, navItems.length) : null;
+    if (next === null) {
+      return;
+    }
+    // The arrows would otherwise scroll the page out from under the panel.
+    event.preventDefault();
+    // Automatic activation: selecting and focusing move together.
+    const target = navItems[next];
+    setPage(target.id);
+    document.getElementById(`settings-tab-${target.id}`)?.focus();
+  };
+
   return (
     <Card className="flex max-h-[calc(100vh-5rem)] flex-col">
       <CardHeader className="shrink-0">
@@ -289,6 +335,7 @@ export function OptionsView({
           <nav
             role="tablist"
             aria-label={t.options.title}
+            onKeyDown={handleNavKeyDown}
             className="flex flex-row gap-1 overflow-x-auto border-b bg-[var(--background-secondary)] p-2 sm:flex-col sm:overflow-y-auto sm:border-r sm:border-b-0"
           >
             {navItems.map((item) => (
@@ -299,6 +346,7 @@ export function OptionsView({
                 id={`settings-tab-${item.id}`}
                 aria-selected={page === item.id}
                 aria-controls="settings-tabpanel"
+                tabIndex={page === item.id ? 0 : -1}
                 onClick={() => setPage(item.id)}
                 className={`flex min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors sm:justify-start ${
                   page === item.id
