@@ -21,8 +21,9 @@ import type { UpdateEvent, UpdateExit, UpdateOutcome } from "@/lib/sidecar";
  *
  * `checking`/`downloading` are transitional; `result` carries the verdict of
  * the last check (available / up-to-date / no-release), `ready` means the
- * installer has been downloaded, and `failed` means the sidecar exited
- * without reaching its terminating event (or the invoke itself failed).
+ * installer has been downloaded, `failed` means the sidecar exited without
+ * reaching its terminating event (or the invoke itself failed), and
+ * `cancelled` means the run was killed via the shared cancel command.
  */
 export type UpdatePhase =
   | "idle"
@@ -30,7 +31,8 @@ export type UpdatePhase =
   | "result"
   | "downloading"
   | "ready"
-  | "failed";
+  | "failed"
+  | "cancelled";
 
 export interface UpdateState {
   phase: UpdatePhase;
@@ -47,6 +49,11 @@ export interface UpdateState {
   exit: UpdateExit | null;
   streamErrors: string[];
   invokeError: string | null;
+  /** Set by the cancel entry point; exit folding turns a transitional phase
+   * into the cancelled verdict instead of a failed one (mirrors the export
+   * side). Reset by the start entry points in App and by every fresh
+   * verdict fold. */
+  cancelled: boolean;
 }
 
 export const EMPTY_UPDATE: UpdateState = {
@@ -64,6 +71,7 @@ export const EMPTY_UPDATE: UpdateState = {
   exit: null,
   streamErrors: [],
   invokeError: null,
+  cancelled: false,
 };
 
 /** Fold sidecar update events into state. Update events are low-frequency
@@ -114,6 +122,9 @@ function applyOne(state: UpdateState, event: UpdateEvent): UpdateState {
         exit: null,
         streamErrors: [],
         invokeError: null,
+        // A fresh verdict resets the cancel flag along with the other
+        // per-run fields, so a later exit can never be misread as cancelled.
+        cancelled: false,
       };
     }
     case "download-start":
@@ -146,7 +157,11 @@ export function applyUpdateExit(
   exit: UpdateExit,
 ): UpdateState {
   if (state.phase === "checking" || state.phase === "downloading") {
-    return { ...state, phase: "failed", exit };
+    return {
+      ...state,
+      phase: state.cancelled ? "cancelled" : "failed",
+      exit,
+    };
   }
   return { ...state, exit };
 }
@@ -218,9 +233,11 @@ export function UpdatePanel({
 
   // One-line verdict for the non-available, non-transitional outcomes; the
   // available verdict renders the detail card below instead. An `unknown`
-  // outcome (a future dialect value) has its own line.
+  // outcome (a future dialect value) has its own line. Cancelled runs show
+  // their own line below instead (a cancelled check has no verdict; a
+  // cancelled download keeps the available card for a restart).
   const verdictLine: string | null = (() => {
-    if (busy || state.phase === "failed") {
+    if (busy || state.phase === "failed" || state.phase === "cancelled") {
       return null;
     }
     switch (state.outcome) {
@@ -353,6 +370,12 @@ export function UpdatePanel({
             </div>
           )}
 
+          {state.phase === "cancelled" && (
+            <p className="text-muted-foreground text-sm">
+              {t.options.updateCancelled}
+            </p>
+          )}
+
           {state.phase === "failed" && (
             <div className="flex flex-col gap-1.5">
               <p className="text-sm text-[var(--text-error)]">
@@ -390,7 +413,11 @@ export function UpdatePanel({
               )}
               {t.options.updateCheckNowBtn}
             </Button>
-            {available && state.assetName && (state.phase === "result" || state.phase === "failed") && (
+            {available && state.assetName && (
+              state.phase === "result" ||
+              state.phase === "failed" ||
+              state.phase === "cancelled"
+            ) && (
               <Button size="sm" variant="outline" disabled={busy} onClick={onDownload}>
                 <DownloadIcon className="size-3.5" />
                 {t.options.updateDownload}

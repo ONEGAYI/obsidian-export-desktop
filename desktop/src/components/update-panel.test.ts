@@ -117,6 +117,17 @@ describe("applyUpdateExit", () => {
     }
   });
 
+  it("folds a cancelled transitional phase into cancelled instead of failed", () => {
+    const cancelled = {
+      ...EMPTY_UPDATE,
+      phase: "downloading" as const,
+      cancelled: true,
+    };
+    const next = applyUpdateExit(cancelled, exit(1));
+    expect(next.phase).toBe("cancelled");
+    expect(next.exit?.code).toBe(1);
+  });
+
   it("records the exit without disturbing a settled verdict", () => {
     const ready = applyUpdateEvents(EMPTY_UPDATE, [
       { type: "download-end", path: "C:/x.exe" },

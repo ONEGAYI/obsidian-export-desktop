@@ -86,6 +86,7 @@ export const en: Dict = {
     updateInstallHint:
       "Launches the install wizard and exits the app; reopen it once the installer finishes.",
     updateFailed: "The check or download did not complete.",
+    updateCancelled: "The check or download was cancelled.",
     updateAutoCheckTitle: "Check for updates automatically",
     updateAutoCheckHint:
       "Check on launch (at most once a day)",
@@ -297,7 +298,9 @@ export const en: Dict = {
     titleClean: "Link check: all good",
     titleBroken: "Link check: {n} broken",
     titleFailed: "Link check could not finish",
+    cancelledTitle: "Link check cancelled",
     failedHint: "The event stream ended abnormally.",
+    cancelledHint: "The check was cancelled; results are incomplete.",
     exitCode: "Exit code {code}",
     cancel: "Cancel Check",
     summary:
