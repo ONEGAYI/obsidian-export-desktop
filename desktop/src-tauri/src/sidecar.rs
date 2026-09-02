@@ -626,7 +626,9 @@ const MAX_STDERR_BYTES: usize = 64 * 1024;
 
 /// Cap an accumulating stderr byte buffer, keeping the tail. Dropped output
 /// is noted in a leading marker; the cut point backs up to a UTF-8 character
-/// boundary so the kept tail still decodes cleanly.
+/// boundary so the kept tail still decodes cleanly. The marker's byte count
+/// is what this call dropped (a re-triggered clamp counts the previous
+/// marker among the dropped), not a process-lifetime total.
 fn clamp_stderr_tail(bytes: &mut Vec<u8>, limit: usize) {
     if bytes.len() <= limit {
         return;
@@ -975,6 +977,38 @@ pub fn run_installer(app: AppHandle, path: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stderr_clamp_at_exactly_the_limit_is_a_no_op() {
+        let mut bytes = b"x".repeat(64);
+        clamp_stderr_tail(&mut bytes, 64);
+        assert_eq!(bytes, b"x".repeat(64));
+    }
+
+    #[test]
+    fn stderr_clamp_with_zero_limit_keeps_only_the_marker() {
+        let mut bytes = b"error text".to_vec();
+        clamp_stderr_tail(&mut bytes, 0);
+        assert_eq!(
+            bytes,
+            format!("[...dropped {} bytes of stderr...]\n", b"error text".len()).into_bytes()
+        );
+    }
+
+    #[test]
+    fn stderr_clamp_re_triggers_stably_with_the_marker_in_place() {
+        let mut bytes = b"abcdefghij".repeat(1_000);
+        clamp_stderr_tail(&mut bytes, 100);
+        // More output re-triggers the clamp: the tail keeps rolling, the
+        // total stays bounded (marker + at most `limit` bytes), and the
+        // newest bytes survive at the end.
+        bytes.extend_from_slice(b"0123456789");
+        clamp_stderr_tail(&mut bytes, 100);
+        let marker_end = bytes.iter().position(|&b| b == b'\n').unwrap() + 1;
+        assert!(bytes[..marker_end].starts_with(b"[...dropped "));
+        assert!(bytes.len() <= marker_end + 100);
+        assert_eq!(&bytes[bytes.len() - 10..], b"0123456789");
+    }
 
     #[test]
     fn stderr_clamp_keeps_short_buffers_untouched() {
