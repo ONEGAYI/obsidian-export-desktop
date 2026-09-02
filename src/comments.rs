@@ -27,6 +27,8 @@
 //!
 //! [pulldown-cmark-to-cmark]: https://docs.rs/pulldown-cmark-to-cmark
 
+use std::convert::TryFrom;
+
 use pulldown_cmark::{CowStr, Event, HeadingLevel, Tag, TagEnd};
 
 use super::MarkdownEvents;
@@ -776,6 +778,19 @@ fn emit_comment<'a>(
         }
     }
 
+    // When the closing run stops right above a list (its items all crossed
+    // by the comment), the block-level HTML comment would land directly
+    // under the list: the serializer emits it past the list, physically
+    // splitting the rendered list, and the split segment re-parses at the
+    // list's original start number. Close that list too and reopen it past
+    // the comment so the segment can carry a continuing start number.
+    // Comments held inside an item keep serialize there (the list stays one
+    // run), and enclosing lists are unaffected either way.
+    if mode == CommentsMode::Convert && held > 0 && matches!(stack[held - 1], Tag::List(_)) {
+        held -= 1;
+        out.push(Event::End(stack[held].to_end()));
+    }
+
     if mode == CommentsMode::Convert {
         let html = if content.is_empty() {
             "<!---->\n".to_owned()
@@ -794,9 +809,7 @@ fn emit_comment<'a>(
         // Text follows the closing marker: reopen the skeleton beyond the
         // held prefix, and let the main loop emit (and rescan) the trailing
         // text.
-        for tag in &closing_stack[held.min(closing_stack.len())..] {
-            out.push(Event::Start(tag.clone()));
-        }
+        reopen_skeleton(out, &closing_stack, held.min(closing_stack.len()));
         reopen_inline_surplus(&surplus, out);
         *stack = closing_stack;
         return close_idx;
@@ -812,9 +825,7 @@ fn emit_comment<'a>(
     let next = elide_trailing_empty(source, close_idx + 1, &mut closing_stack, held);
     let reopen_from = held.min(closing_stack.len());
     let reopened = closing_stack.len() > reopen_from;
-    for tag in &closing_stack[reopen_from..] {
-        out.push(Event::Start(tag.clone()));
-    }
+    reopen_skeleton(out, &closing_stack, reopen_from);
     if reopened {
         reopen_inline_surplus(&surplus, out);
         // A soft/hard break directly after a freshly reopened container is
@@ -851,6 +862,89 @@ fn elide_trailing_empty(
         break;
     }
     next
+}
+
+/// Push the `Start` events for `tags[reopen_from..]` (outer→inner), the
+/// containers a block comment just closed, adjusting each ordered list so
+/// the reopened segment continues after the items emitted before the cut
+/// instead of restarting at the original start number.
+///
+/// The item the comment interrupted had its `Start(Item)` swallowed with the
+/// comment region, so `start + emitted_items` is the number that item had in
+/// the original list — the reopened segment's first item is its continuation.
+#[allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
+fn reopen_skeleton<'a>(out: &mut MarkdownEvents<'a>, tags: &[Tag<'a>], reopen_from: usize) {
+    // Starts of List containers popped by a matching End, in encounter
+    // order (innermost of the closing run first). A forward stack walk
+    // over `out` finds them without trusting balance: unmatched Ends (the
+    // closing run contains Ends for Starts swallowed by the comment) pop
+    // nothing, and lists closed much earlier land earlier in `popped`, so
+    // its tail is exactly the lists being reopened, inner first.
+    let mut popped: Vec<usize> = Vec::new();
+    let mut open: Vec<(usize, bool)> = Vec::new();
+    for (idx, event) in out.iter().enumerate() {
+        match event {
+            Event::Start(tag) => open.push((idx, matches!(tag, Tag::List(_)))),
+            Event::End(_) => {
+                if let Some((start_idx, is_list)) = open.pop() {
+                    if is_list {
+                        popped.push(start_idx);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let n_lists = tags[reopen_from..]
+        .iter()
+        .filter(|tag| matches!(tag, Tag::List(Some(_))))
+        .count();
+
+    let mut list_no = 0_usize;
+    for tag in &tags[reopen_from..] {
+        let tag = match tag {
+            Tag::List(Some(start)) => {
+                // Reopen order is outer→inner while `popped` tail runs
+                // inner→outer; a missing entry (defensive: unbalanced out)
+                // keeps the original start instead of guessing.
+                let resumed = popped
+                    .get(popped.len().saturating_sub(n_lists).saturating_add(list_no))
+                    .copied()
+                    .map(|idx| {
+                        let items = count_direct_items(out, idx);
+                        start.saturating_add(u64::try_from(items).unwrap_or(u64::MAX))
+                    });
+                list_no += 1;
+                Tag::List(Some(resumed.unwrap_or(*start)))
+            }
+            other => other.clone(),
+        };
+        out.push(Event::Start(tag));
+    }
+}
+
+/// Count the direct child items of the list whose `Start` sits at
+/// `list_start`, scanning the still-open tail of `out` (the comment cut the
+/// list, so no matching `End(List)` follows). An item interrupted mid-flow
+/// counts too: its `Start(Item)` was emitted before the cut.
+#[allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
+fn count_direct_items(out: &[Event<'_>], list_start: usize) -> usize {
+    let mut count = 0_usize;
+    let mut depth = 0_usize;
+    for event in &out[list_start + 1..] {
+        match event {
+            Event::Start(Tag::Item) => {
+                if depth == 0 {
+                    count += 1;
+                }
+                depth += 1;
+            }
+            Event::Start(_) => depth += 1,
+            Event::End(_) => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    count
 }
 
 #[cfg(test)]
@@ -1233,6 +1327,67 @@ mod tests {
         let output = convert("%%\n- a\n- b\n%%\ntail\n");
         assert!(!output.contains("\n  tail"), "stray item prefix leaked");
         assert!(output.contains("tail"), "check failed");
+    }
+
+    #[test]
+    fn strip_block_comment_keeps_list_continuous() {
+        // Strip removes the comment without inserting a block, so the list
+        // stays one run of items in the output; renumbering happens on
+        // re-parse by position (1, 2, 3), which is already correct. The
+        // serializer never increments bullet numbers (all items carry the
+        // list's start), hence the literal "1." prefixes.
+        assert_eq!(
+            strip("1. first %%starts\n2. ends%% tail\n3. third\n"),
+            "1. first \n1. tail\n1. third\n"
+        );
+    }
+
+    #[test]
+    fn convert_block_comment_resumes_ordered_list_numbering() {
+        // The synthesized HTML comment is a block-level element and splits
+        // the rendered list in the output (note the blank line ending the
+        // first segment); the reopened segment must carry a start number
+        // continuing the emitted items (tail belongs to item 2, third
+        // follows) instead of restarting at 1.
+        assert_eq!(
+            convert("1. first %%starts\n2. ends%% tail\n3. third\n"),
+            "1. first \n\n<!--\nstarts\n\n- ends\n-->\n\n2. tail\n2. third\n"
+        );
+    }
+
+    #[test]
+    fn strip_comment_swallowing_item_keeps_list_continuous() {
+        assert_eq!(
+            strip("1. first %%starts\n2. ends%%\n3. third\n"),
+            "1. first \n1. third\n"
+        );
+    }
+
+    #[test]
+    fn convert_comment_swallowing_item_resumes_numbering() {
+        assert_eq!(
+            convert("1. first %%starts\n2. ends%%\n3. third\n"),
+            "1. first \n\n<!--\nstarts\n\n- ends\n-->\n\n2. third\n"
+        );
+    }
+
+    #[test]
+    fn nested_ordered_list_inner_segment_resumes_numbering() {
+        // Cutting the inner list splits only it: the HTML comment lands
+        // inside the outer item (the outer list stays one run and keeps
+        // its positional numbering), while the inner reopened segment
+        // continues after inner-a at 2.
+        assert_eq!(
+            convert(
+                "1. outer\n   1. inner-a %%starts\n   2. ends%% inner-tail\n2. outer-2\n"
+            ),
+            "1. outer\n   1. inner-a \n   <!--\n   starts\n   \n   - ends\n   -->\n   \n   2. inner-tail\n1. outer-2\n"
+        );
+        // Strip keeps both lists continuous, as above.
+        assert_eq!(
+            strip("1. outer\n   1. inner-a %%starts\n   2. ends%% inner-tail\n2. outer-2\n"),
+            "1. outer\n   1. inner-a \n   1. inner-tail\n1. outer-2\n"
+        );
     }
 
     /// Re-parse serialized output and assert Start/End events pair up.
