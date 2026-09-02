@@ -353,11 +353,13 @@ fn stale_render_leftovers_are_swept_on_next_export() {
     let names = list_assets(dest.path());
     assert!(
         !names.iter().any(|name| name.starts_with(".render-")),
-        "stale leftover should be swept, assets: {names:?}"
+        "stale leftover should be swept, assets: {:?}",
+        names
     );
     assert!(
         names.iter().any(|name| name.ends_with(".svg")),
-        "the fresh render should still be there, assets: {names:?}"
+        "the fresh render should still be there, assets: {:?}",
+        names
     );
 }
 

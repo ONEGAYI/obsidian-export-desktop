@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::mpsc;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 use std::{fs, thread};
 
 use pathdiff::diff_paths;
@@ -1272,6 +1272,8 @@ fn tail_utf8(output: &[u8], max: usize) -> String {
 #[cfg(test)]
 #[allow(clippy::case_sensitive_file_extension_comparisons)]
 mod tests {
+    use std::time::SystemTime;
+
     use rstest::rstest;
 
     use super::*;

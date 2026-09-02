@@ -1505,14 +1505,14 @@ impl<'a> Exporter<'a> {
         let located = match located {
             Some(reduced) => Some(reduced),
             None if context.note_depth() == 1 => None,
-            None => Self::parse_raw_note(context.current_file())
-                .ok()
-                .and_then(|(_frontmatter, full)| {
+            None => Self::parse_raw_note(context.current_file()).ok().and_then(
+                |(_frontmatter, full)| {
                     section.strip_prefix('^').map_or_else(
                         || reduce_to_section(&full, section),
                         |block_id| reduce_to_block(&full, block_id),
                     )
-                }),
+                },
+            ),
         };
         let mut events = match located {
             Some(reduced) => reduced,
