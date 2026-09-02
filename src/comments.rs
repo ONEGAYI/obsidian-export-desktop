@@ -786,7 +786,9 @@ fn emit_comment<'a>(
     // the comment so the segment can carry a continuing start number.
     // Comments held inside an item keep serialize there (the list stays one
     // run), and enclosing lists are unaffected either way.
-    if mode == CommentsMode::Convert && held > 0 && matches!(stack[held - 1], Tag::List(_)) {
+    let pierced_list =
+        mode == CommentsMode::Convert && held > 0 && matches!(stack[held - 1], Tag::List(_));
+    if pierced_list {
         held -= 1;
         out.push(Event::End(stack[held].to_end()));
     }
@@ -808,8 +810,17 @@ fn emit_comment<'a>(
     if !rest.trim().is_empty() {
         // Text follows the closing marker: reopen the skeleton beyond the
         // held prefix, and let the main loop emit (and rescan) the trailing
-        // text.
-        reopen_skeleton(out, &closing_stack, held.min(closing_stack.len()));
+        // text. The resumed (renumbered) tag goes back into the loop stack
+        // so a later cut on the same list builds on it.
+        let resumed = reopen_skeleton(
+            out,
+            &closing_stack,
+            held.min(closing_stack.len()),
+            pierced_list,
+        );
+        if let Some((idx, tag)) = resumed {
+            closing_stack[idx] = tag;
+        }
         reopen_inline_surplus(&surplus, out);
         *stack = closing_stack;
         return close_idx;
@@ -825,7 +836,10 @@ fn emit_comment<'a>(
     let next = elide_trailing_empty(source, close_idx + 1, &mut closing_stack, held);
     let reopen_from = held.min(closing_stack.len());
     let reopened = closing_stack.len() > reopen_from;
-    reopen_skeleton(out, &closing_stack, reopen_from);
+    let resumed = reopen_skeleton(out, &closing_stack, reopen_from, pierced_list);
+    if let Some((idx, tag)) = resumed {
+        closing_stack[idx] = tag;
+    }
     if reopened {
         reopen_inline_surplus(&surplus, out);
         // A soft/hard break directly after a freshly reopened container is
@@ -865,62 +879,75 @@ fn elide_trailing_empty(
 }
 
 /// Push the `Start` events for `tags[reopen_from..]` (outer→inner), the
-/// containers a block comment just closed, adjusting each ordered list so
-/// the reopened segment continues after the items emitted before the cut
-/// instead of restarting at the original start number.
+/// containers a block comment just closed.
 ///
-/// The item the comment interrupted had its `Start(Item)` swallowed with the
-/// comment region, so `start + emitted_items` is the number that item had in
-/// the original list — the reopened segment's first item is its continuation.
+/// When `pierced_list` is set, the outermost reopened container is the list
+/// the comment pierced — the only reopened list that had items emitted
+/// before the cut (lists born inside the comment region had their `Start`
+/// swallowed with it and never emitted an item; lists crossed by the
+/// comment are popped by the replay and never reopened). That one list is
+/// reopened with a start number continuing the emitted items, so the
+/// split-off segment of the rendered list keeps counting instead of
+/// restarting at the original start.
+///
+/// Returns the renumbered entry (its index in `tags` and the new tag) so
+/// callers store it back into the loop stack: a later cut on the same list
+/// must build on the renumbered start, not on the source's original one.
 #[allow(clippy::arithmetic_side_effects, clippy::indexing_slicing)]
-fn reopen_skeleton<'a>(out: &mut MarkdownEvents<'a>, tags: &[Tag<'a>], reopen_from: usize) {
-    // Starts of List containers popped by a matching End, in encounter
-    // order (innermost of the closing run first). A forward stack walk
-    // over `out` finds them without trusting balance: unmatched Ends (the
-    // closing run contains Ends for Starts swallowed by the comment) pop
-    // nothing, and lists closed much earlier land earlier in `popped`, so
-    // its tail is exactly the lists being reopened, inner first.
-    let mut popped: Vec<usize> = Vec::new();
+fn reopen_skeleton<'a>(
+    out: &mut MarkdownEvents<'a>,
+    tags: &[Tag<'a>],
+    reopen_from: usize,
+    pierced_list: bool,
+) -> Option<(usize, Tag<'a>)> {
+    // The pierced list's Start is the List start most recently closed by
+    // an End: the pierce End is emitted after every crossed container's,
+    // so it is the last List this forward stack walk sees popped. An
+    // unmatched End (for a Start swallowed by the comment) pops nothing;
+    // lists closed much earlier only produce earlier, shadowed records.
+    let pierced = match (pierced_list, tags.get(reopen_from)) {
+        (true, Some(Tag::List(Some(start)))) => Some((*start, last_popped_list_start(out))),
+        _ => None,
+    };
+
+    let mut resumed = None;
+    for (idx, entry) in tags.iter().enumerate().skip(reopen_from) {
+        let started = match pierced {
+            Some((start, Some(list_idx))) if idx == reopen_from => {
+                let items = count_direct_items(out, list_idx);
+                let tag = Tag::List(Some(
+                    start.saturating_add(u64::try_from(items).unwrap_or(u64::MAX)),
+                ));
+                resumed = Some((idx, tag.clone()));
+                tag
+            }
+            _ => entry.clone(),
+        };
+        out.push(Event::Start(started));
+    }
+    resumed
+}
+
+/// Index of the `Start(List)` most recently paired with an `End(List)` in
+/// `out`, via a forward stack walk: unmatched Ends (closing Starts the
+/// comment swallowed) pop nothing and cannot shadow the record.
+fn last_popped_list_start(out: &[Event<'_>]) -> Option<usize> {
     let mut open: Vec<(usize, bool)> = Vec::new();
+    let mut last = None;
     for (idx, event) in out.iter().enumerate() {
         match event {
             Event::Start(tag) => open.push((idx, matches!(tag, Tag::List(_)))),
             Event::End(_) => {
                 if let Some((start_idx, is_list)) = open.pop() {
                     if is_list {
-                        popped.push(start_idx);
+                        last = Some(start_idx);
                     }
                 }
             }
             _ => {}
         }
     }
-    let n_lists = tags[reopen_from..]
-        .iter()
-        .filter(|tag| matches!(tag, Tag::List(Some(_))))
-        .count();
-
-    let mut list_no = 0_usize;
-    for tag in &tags[reopen_from..] {
-        let tag = match tag {
-            Tag::List(Some(start)) => {
-                // Reopen order is outer→inner while `popped` tail runs
-                // inner→outer; a missing entry (defensive: unbalanced out)
-                // keeps the original start instead of guessing.
-                let resumed = popped
-                    .get(popped.len().saturating_sub(n_lists).saturating_add(list_no))
-                    .copied()
-                    .map(|idx| {
-                        let items = count_direct_items(out, idx);
-                        start.saturating_add(u64::try_from(items).unwrap_or(u64::MAX))
-                    });
-                list_no += 1;
-                Tag::List(Some(resumed.unwrap_or(*start)))
-            }
-            other => other.clone(),
-        };
-        out.push(Event::Start(tag));
-    }
+    last
 }
 
 /// Count the direct child items of the list whose `Start` sits at
@@ -1387,6 +1414,39 @@ mod tests {
         assert_eq!(
             strip("1. outer\n   1. inner-a %%starts\n   2. ends%% inner-tail\n2. outer-2\n"),
             "1. outer\n   1. inner-a \n   1. inner-tail\n1. outer-2\n"
+        );
+    }
+
+    #[test]
+    fn born_inside_list_keeps_its_own_start() {
+        // The inner list opened *inside* the comment region (its Start was
+        // swallowed): it never emitted an item, so its reopened segment
+        // keeps the original start. Only the pierced outer list — the one
+        // whose End the closing run just emitted — is renumbered, and the
+        // lookup must not be shifted by the born-inside list or by an
+        // earlier, fully closed list still present in `out`.
+        assert_eq!(
+            convert("1. hist\n2. done\n\nseparator\n\n1. a %%x\n2. b\n   1. c%% y\n"),
+            "1. hist\n1. done\n\nseparator\n\n1. a \n\n<!--\nx\n\n- b\n- c\n-->\n\n2. \n   1. y\n"
+        );
+        // Strip never pierces, so no renumbering happens at all; the old
+        // window-mapping used to borrow a historic list's index here and
+        // renumber the nested item to 3.
+        assert_eq!(
+            strip("1. hist\n2. done\n\nseparator\n\n1. a %%x\n2. b\n   1. c%% y\n"),
+            "1. hist\n1. done\n\nseparator\n\n1. a \n1. \n   1. y\n"
+        );
+    }
+
+    #[test]
+    fn second_cut_on_same_list_accumulates_numbering() {
+        // Two comments cutting the same list: the second cut must build on
+        // the first reopened segment's start (stored back into the loop
+        // stack), not on the source list's original start — otherwise the
+        // third segment restarts and collides with the second.
+        assert_eq!(
+            convert("1. a %%one\n\n2. b%% c\n\n3. d %%two\n\n4. e%% f\n\n5. g\n"),
+            "1. a \n\n<!--\none\n\n\n\n- b\n-->\n\n2. c\n\n2. d \n\n<!--\ntwo\n\n\n\n- e\n-->\n\n4. f\n\n4. g\n"
         );
     }
 
