@@ -5,17 +5,23 @@
 //! installed. On Windows the mocks are `.cmd` scripts, which additionally
 //! exercises the `cmd.exe` wrapping path used for real npm shims.
 //!
-//! The injection hook is compiled out of release builds, so the whole file
-//! is debug-only: under `cargo test --release` these tests vanish instead
-//! of failing on missing tools.
+//! The injection hook is compiled out of release builds, so these tests
+//! require a dev-profile binary. Instead of silently vanishing under
+//! `cargo test --release`, the assertion below fails the build loudly.
 
-#![cfg(debug_assertions)]
 #![allow(
     clippy::indexing_slicing,
     clippy::default_numeric_fallback,
     clippy::uninlined_format_args,
     clippy::case_sensitive_file_extension_comparisons
 )]
+
+// Must not be a `#![cfg(debug_assertions)]` crate gate: that would compile the
+// file to an empty test binary (0 tests, silently green) under --release.
+const _: () = assert!(
+    cfg!(debug_assertions),
+    "diagram CLI tests need the debug-only mock injection hook; run cargo test without --release"
+);
 
 use std::fs;
 use std::path::{Path, PathBuf};

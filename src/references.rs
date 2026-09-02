@@ -77,9 +77,17 @@ impl RefParser {
 
 impl ObsidianNoteReference<'_> {
     pub fn from_str(text: &str) -> ObsidianNoteReference<'_> {
-        let captures = OBSIDIAN_NOTE_LINK_RE
-            .captures(text)
-            .expect("note link regex didn't match - bad input?");
+        // Unmatchable input (e.g. a newline after `#`, where the section group
+        // cannot span the line break) falls back to the whole-text label below,
+        // the same path as other degenerate inputs: this runs inside rayon
+        // workers and must never panic.
+        let Some(captures) = OBSIDIAN_NOTE_LINK_RE.captures(text) else {
+            return ObsidianNoteReference {
+                file: None,
+                section: None,
+                label: Some(text),
+            };
+        };
         // Empty captures (e.g. `note|` or `Note#`) are treated the same as the
         // component being absent.
         let file = captures
@@ -159,6 +167,14 @@ mod tests {
     #[case("#", None, Some("#"), None)]
     #[case("|", None, Some("|"), None)]
     #[case("|label", None, Some("label"), None)]
+    // Inputs containing a newline: the pipeline cannot produce them (the
+    // verbatim literal is a source byte slice and SoftBreak resets the state
+    // machine), but from_str must never panic regardless.
+    // Without `#`/`|` the newline is simply captured by the file group.
+    #[case("a\nb", Some("a\nb"), None, None)]
+    // A newline after `#` makes the whole regex fail to match (`.` does not
+    // span `\n`): fall back to the whole-text label.
+    #[case("a#b\nc", None, Some("a#b\nc"), None)]
     fn parse_note_refs_from_strings(
         #[case] input: &str,
         #[case] expected_file: Option<&str>,
