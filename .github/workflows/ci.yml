@@ -107,3 +107,40 @@ jobs:
         with:
           name: tarpaulin-report
           path: tarpaulin-report.html
+
+  desktop:
+    name: Desktop app (typecheck, unit tests, rust tests)
+    runs-on: windows-latest
+    steps:
+      - run: git config --system core.autocrlf false && git config --system core.eol lf
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+        with:
+          version: 11
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: desktop/pnpm-lock.yaml
+      - name: Install rust toolchain
+        shell: bash
+        run: rustup show
+      # Cache both target dirs: the repo root (sidecar build) and the
+      # desktop workspace, which the root's automatic caching cannot see.
+      # No "-> crate" suffix here: the right-hand side of the arrow names
+      # the target directory inside the workspace (default "target"), not
+      # the crate — pointing it at the crate name would silently cache a
+      # nonexistent path.
+      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2
+        with:
+          workspaces: |
+            .
+            desktop/src-tauri
+      - run: pnpm -C desktop install --frozen-lockfile
+      # Hard ordering constraint: the desktop build script verifies the
+      # externalBin binary at compile time and binaries/ is gitignored, so
+      # the sidecar must be built into place before anything else runs.
+      - run: pnpm -C desktop run sync-sidecar
+      - run: pnpm -C desktop run build
+      - run: pnpm -C desktop test
+      - run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
