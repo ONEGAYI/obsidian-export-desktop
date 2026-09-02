@@ -127,11 +127,15 @@ jobs:
         run: rustup show
       # Cache both target dirs: the repo root (sidecar build) and the
       # desktop workspace, which the root's automatic caching cannot see.
+      # No "-> crate" suffix here: the right-hand side of the arrow names
+      # the target directory inside the workspace (default "target"), not
+      # the crate — pointing it at the crate name would silently cache a
+      # nonexistent path.
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2
         with:
           workspaces: |
             .
-            desktop/src-tauri -> obsidian-export-desktop
+            desktop/src-tauri
       - run: pnpm -C desktop install --frozen-lockfile
       # Hard ordering constraint: the desktop build script verifies the
       # externalBin binary at compile time and binaries/ is gitignored, so
