@@ -690,13 +690,15 @@ fn diagram_blocks_outside_comments_still_require_tools_under_strip() {
 fn frontmatter_percent_signs_do_not_break_tool_requirements() {
     // A literal %% in a frontmatter value must not participate in comment
     // pairing during the prescan (the main pipeline strips frontmatter
-    // before the comments rewrite). Without the strip, the body's real
-    // dot block gets swallowed out of the count and a missing tool
-    // degrades from an atomic failure to per-block warnings.
+    // before the comments rewrite). The trailing %% comment is what makes
+    // this a real trigger: without the strip, the frontmatter %% pairs
+    // with the comment's opening %%, the block comment swallows the dot
+    // block in between, and the missing tool degrades from an atomic
+    // failure to per-block warnings.
     let vault = TempDir::new().expect("failed to make vault tempdir");
     fs::write(
         vault.path().join("note.md"),
-        "---\ntitle: 50%% off\n---\n\n```dot\ndigraph { a -> b }\n```\n",
+        "---\ntitle: 50%% off\n---\n\n```dot\ndigraph { a -> b }\n```\n\n%%\ncomment\n%%\n",
     )
     .expect("write note");
     let vault_str = vault.path().to_string_lossy().into_owned();
