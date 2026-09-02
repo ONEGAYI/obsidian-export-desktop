@@ -319,6 +319,49 @@ fn renders_all_four_diagram_languages_to_svg_assets() {
 }
 
 #[test]
+fn stale_render_leftovers_are_swept_on_next_export() {
+    let mocks = install_mock_tools(&["dot"]);
+    let (dest, dest_str) = dest_dir();
+
+    // Debris from a previous run that was killed mid-render, backdated past
+    // the sweep threshold (10 minutes; in-flight renders max out around 70s).
+    let assets = dest.path().join("assets");
+    fs::create_dir_all(&assets).expect("create assets dir");
+    let stale = assets.join(".render-4242-0.svg");
+    fs::write(&stale, b"debris").expect("write debris");
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(601);
+    fs::File::options()
+        .write(true)
+        .open(&stale)
+        .expect("open debris")
+        .set_modified(old)
+        .expect("backdate debris");
+
+    let out = run_cli_env(
+        &[
+            "--progress",
+            "json",
+            "--render-diagrams",
+            "dot",
+            "tests/testdata/input/diagrams",
+            &dest_str,
+        ],
+        &mocks.envs,
+    );
+    assert_eq!(out.code, Some(0), "stderr: {}", out.stderr);
+
+    let names = list_assets(dest.path());
+    assert!(
+        !names.iter().any(|name| name.starts_with(".render-")),
+        "stale leftover should be swept, assets: {names:?}"
+    );
+    assert!(
+        names.iter().any(|name| name.ends_with(".svg")),
+        "the fresh render should still be there, assets: {names:?}"
+    );
+}
+
+#[test]
 fn png_format_produces_png_where_supported_and_falls_back_to_svg() {
     let mocks = install_mock_tools(&["dot", "mmdc", "wavedrom", "latex", "dvisvgm"]);
     let (dest, dest_str) = dest_dir();

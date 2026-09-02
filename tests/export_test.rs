@@ -1049,10 +1049,11 @@ fn test_same_file_section_and_block_embeds() {
 fn test_same_file_self_referencing_block_terminates() {
     let tmp_dir = TempDir::new().expect("failed to make tempdir");
 
-    // A block embedding itself expands exactly once: the embedded copy has
-    // its id marker stripped, so the inner reference can't resolve anymore
-    // and degrades per the missing-section strategy (Skip: collapses to
-    // empty). The cycle terminates without hitting the recursion limit.
+    // A block embedding itself expands exactly once: by the time the
+    // embedded copy is expanded, the file already appears twice on the file
+    // tree, so the same-file guard degrades the inner reference to a link
+    // instead of expanding again. The cycle terminates without hitting the
+    // recursion limit.
     Exporter::new(
         PathBuf::from("tests/testdata/input/block-refs-self-loop/"),
         tmp_dir.path().to_path_buf(),
@@ -1065,6 +1066,35 @@ fn test_same_file_self_referencing_block_terminates() {
     assert_eq!(
         occurrences, 2,
         "label appears once in the source text plus once from the single expansion: {}",
+        actual
+    );
+}
+
+#[test]
+fn test_same_file_ref_inside_cross_file_embed_falls_back_to_whole_file() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let vault = tmp_dir.path().join("vault");
+    std::fs::create_dir_all(&vault).expect("failed to make vault dir");
+
+    // `#Other` lives in note-inner.md but outside the `#Real` slice that the
+    // cross-file embed pulls in. Obsidian resolves same-file references
+    // against the whole file, so the inner `![[#Other]]` must too.
+    std::fs::write(
+        vault.join("note-inner.md"),
+        "# Real\n\ninner ![[#Other]]\n\n# Other\n\nother body\n",
+    )
+    .expect("failed to write note-inner");
+    std::fs::write(vault.join("note.md"), "top ![[note-inner#Real]]\n")
+        .expect("failed to write note");
+
+    Exporter::new(vault, tmp_dir.path().to_path_buf())
+        .run()
+        .expect("exporter returned error");
+
+    let actual = read_to_string(tmp_dir.path().join("note.md")).unwrap();
+    assert!(
+        actual.contains("other body"),
+        "same-file ref inside an embedded slice should resolve against the whole file: {}",
         actual
     );
 }

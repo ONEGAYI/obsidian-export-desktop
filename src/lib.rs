@@ -1495,6 +1495,25 @@ impl<'a> Exporter<'a> {
             || reduce_to_section(events, section),
             |block_id| reduce_to_block(events, block_id),
         );
+        // `events` is whatever slice this embed was reached through: at the
+        // top level it is the whole file, but a same-file ref inside a
+        // cross-file embed (`![[note#S]]` → slice → `![[#Other]]`) only sees
+        // the slice, while Obsidian resolves same-file refs against the
+        // whole file. Retry against a fresh full-file parse before declaring
+        // the section missing; the guards above have already run, so any
+        // re-expansion below stays bounded either way.
+        let located = match located {
+            Some(reduced) => Some(reduced),
+            None if context.note_depth() == 1 => None,
+            None => Self::parse_raw_note(context.current_file())
+                .ok()
+                .and_then(|(_frontmatter, full)| {
+                    section.strip_prefix('^').map_or_else(
+                        || reduce_to_section(&full, section),
+                        |block_id| reduce_to_block(&full, block_id),
+                    )
+                }),
+        };
         let mut events = match located {
             Some(reduced) => reduced,
             None => match self.missing_section_strategy {
