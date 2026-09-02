@@ -382,15 +382,23 @@ fn is_executable(path: &Path) -> bool {
         .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
 }
 
+/// Whether the path names a `.cmd`/`.bat` script, purely by extension.
+/// Platform-independent on purpose: besides driving the Windows wrapper
+/// decision, it feeds the percent-path warning, which must fire (and be
+/// testable) on every platform.
+fn has_cmd_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(OsStr::to_str)
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"))
+}
+
 // The path is only consulted on Windows; the Unix body is a constant, which
 // also makes the function trivially const-able there.
 #[cfg_attr(not(windows), allow(unused_variables, clippy::missing_const_for_fn))]
 fn is_cmd_script(path: &Path) -> bool {
     #[cfg(windows)]
     {
-        path.extension()
-            .and_then(OsStr::to_str)
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("cmd") || ext.eq_ignore_ascii_case("bat"))
+        has_cmd_extension(path)
     }
     #[cfg(not(windows))]
     {
@@ -630,6 +638,21 @@ impl DiagramToolset {
         self.tools
             .get(&tool)
             .ok_or(DiagramRenderError::ToolMissing { tool })
+    }
+
+    /// Tools resolved to a cmd/bat script whose path contains `%`: the
+    /// Windows cmd.exe wrapper expands paired `%` as environment variables
+    /// (quotes do not protect, doubling is unreliable), so such paths can
+    /// silently mangle the command line. Callers warn and suggest an
+    /// `.exe` via `--diagram-bin`.
+    pub fn percent_cmd_scripts(&self) -> Vec<(ToolName, &Path)> {
+        self.tools
+            .iter()
+            .filter(|(_, tool)| {
+                has_cmd_extension(&tool.path) && tool.path.to_string_lossy().contains('%')
+            })
+            .map(|(name, tool)| (*name, tool.path.as_path()))
+            .collect()
     }
 }
 
@@ -1660,6 +1683,44 @@ fn main() {}
         assert!(is_cmd_script(Path::new("C:\\npm\\tool.bat")));
         assert!(!is_cmd_script(Path::new("C:\\scoop\\dot.exe")));
         assert!(!is_cmd_script(Path::new("C:\\npm\\mmdc")));
+    }
+
+    #[test]
+    fn percent_cmd_scripts_flags_only_percent_cmd_paths() {
+        // Name-based on purpose (no cfg(windows)): the warning must be
+        // testable and consistent on every platform.
+        let toolset = DiagramToolset {
+            tools: BTreeMap::from([
+                (
+                    ToolName::Dot,
+                    ResolvedTool {
+                        path: PathBuf::from(r"C:\tools\50% off\dot.cmd"),
+                        is_cmd_script: true,
+                    },
+                ),
+                (
+                    ToolName::Mmdc,
+                    ResolvedTool {
+                        path: PathBuf::from(r"C:\npm\mmdc.cmd"),
+                        is_cmd_script: true,
+                    },
+                ),
+                (
+                    ToolName::Latex,
+                    ResolvedTool {
+                        path: PathBuf::from(r"C:\t%-x\latex.exe"),
+                        is_cmd_script: false,
+                    },
+                ),
+            ]),
+        };
+        let flagged = toolset.percent_cmd_scripts();
+        assert_eq!(flagged.len(), 1, "only the %-in-cmd-script entry");
+        let (flagged_tool, flagged_path) = flagged
+            .first()
+            .expect("the percent cmd script must be flagged");
+        assert_eq!(*flagged_tool, ToolName::Dot);
+        assert_eq!(*flagged_path, Path::new(r"C:\tools\50% off\dot.cmd"));
     }
 
     #[test]

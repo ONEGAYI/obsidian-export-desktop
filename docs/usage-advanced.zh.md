@@ -60,7 +60,7 @@ obsidian-export --render-diagrams dot,mermaid,wavedrom,tikz SOURCE TARGET
 
 行为细节：
 
-* **工具发现**优先显式路径（`--diagram-bin dot=/path/to/dot`，可重复），否则扫描 `PATH`。Windows 下扫描遵循 `PATHEXT`，并经 `cmd.exe` 运行 npm 的 `.cmd` shim，全局 npm 安装开箱即用。（`cmd.exe` 包装对引号内的 `%VARIABLE%` 形态子串也会做变量展开：路径中罕见地出现成对 `%` 时，可用 `--diagram-bin` 指向底层 `.exe` 绕过包装。）
+* **工具发现**优先显式路径（`--diagram-bin dot=/path/to/dot`，可重复），否则扫描 `PATH`。Windows 下扫描遵循 `PATHEXT`，并经 `cmd.exe` 运行 npm 的 `.cmd` shim，全局 npm 安装开箱即用。（`cmd.exe` 包装对引号内的 `%VARIABLE%` 形态子串也会做变量展开：路径中罕见地出现成对 `%` 时，可用 `--diagram-bin` 指向底层 `.exe` 绕过包装；此类工具路径在导出时会收到自动警告。）
 * `--diagram-format` 与 `--diagram-bin` 仅在与 `--render-diagrams` 同用时生效；单独传递只会在 stderr 打一条警告并被忽略。
 * **原子性**：工具解析发生在预扫描阶段（按真正会渲染的块的语言，见上文 `--comments` 说明——`strip`/`convert` 下位于 `%%` 注释内的块不要求工具），先于任何输出文件的写出。工具缺失时导出以退出码 1 中止并附安装建议，目标目录原封不动。
 * **单块失败非致命**：工具拒绝其语法的图表保持代码块原样并产生警告；导出总是完成。

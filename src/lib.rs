@@ -906,6 +906,24 @@ impl<'a> Exporter<'a> {
             }
         })?;
 
+        // A cmd-script tool path containing '%' goes through the cmd.exe
+        // wrapper on Windows, which expands paired '%' as environment
+        // variables (quotes do not protect). Warn rather than fail:
+        // rendering may still work, and the escape hatch is an explicit
+        // '.exe' via --diagram-bin.
+        for (tool, path) in toolset.percent_cmd_scripts() {
+            self.warn(
+                None,
+                format!(
+                    "tool '{}' resolved to cmd script '{}': the path contains '%', which the \
+                     cmd.exe wrapper expands as environment variables (quotes do not protect); \
+                     if rendering misbehaves, point --diagram-bin at an '.exe' instead",
+                    tool,
+                    path.display()
+                ),
+            );
+        }
+
         self.diagram_state = Some(Arc::new(DiagramState::new(
             toolset,
             self.diagram_format,
