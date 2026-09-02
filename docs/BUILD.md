@@ -109,7 +109,8 @@ pnpm -C desktop tauri icon <图标路径.png>
 2. `just set-version <X.Y.Z>` 一次对齐六处版本（CalVer `YY.MM.PATCH`）；
 3. `uvx towncrier==24.8.0 build --version <版本> --yes` 生成 CHANGELOG；
 4. `bash docs/generate.sh` 重新生成 README；
-5. 提交并打 tag（参见 Justfile 中 `make-new-release` 的完整流程）。
+5. 提交并打 tag（`just make-new-release` 在 Git Bash 下不可用，等价分步
+   见 Release-checklist；此处引用它仅作流程参考）。
 
 ### 上传桌面安装包
 
