@@ -44,7 +44,6 @@
 
 ## 待定事项
 
-- [ ] 桌面端后续迭代：打包分发流水线（`tauri build`，与 cargo-dist 互不干扰）。
 - [ ] 嵌入解析缓存与 walker 并行化：vault 索引已消除引用解析的主要瓶颈（基准 7200 文件 11.2s → 0.65s），剩余耗时以文件 IO/解析/渲染为主；两项优化待有真实大 vault 的 profile 数据支撑后再决定是否实施。
 
 已知限制（审查登记，后续迭代评估）：
@@ -61,15 +60,9 @@
 - [ ] 引用文本含换行时 `from_str` 的正则整体不匹配（`.*?` 不跨 `\n`），理论上可触发 `expect` panic（rayon worker 中）；ref_text 状态机按事件拼接、多行输入实际罕见，存量行为多年未见报告，改动需先证明可达性。
 - [ ] 同文件嵌入的嵌套解析是切片局部的：嵌入片段内的 `![[#Other]]` 只在切片内查找（Obsidian 从全文件解析），跨 section 引用在切片中查不到时按 missing-section 塌缩；块的优雅自引用终止正依赖此局部性，改为全文件解析需重新设计防环。
 
-桌面端低风险遗留（两轮审查登记，不阻塞发布）：
+桌面端低风险遗留（审查登记，不阻塞发布）：
 
-- [ ] sidecar 的 stderr 仍按 chunk 分别 lossy 解码后拼接（`pump_sidecar`，与已修复的 stdout 行切分同模式）：错误消息含非 ASCII（如中文 vault 路径）且恰跨 chunk 边界会产生 U+FFFD，概率低、仅显示层瑕疵；且 stderr 累积无上限，两者宜一并处理。
-- [ ] 窗口最小化/不可见时 WebView 暂停 rAF，check 事件持续入 buffer 不 flush：运行进度不刷新、buffer 短时驻留内存；数据不丢（check-exit 强制 flush 兜底），可选 setTimeout 兜底。
-- [ ] check 运行中取消落入 failed 态而非 cancelled 态（无 check-end 即判失败）：文案为「未能完成 + 退出码」，语义不误导，但与导出侧的 cancelled 标志不对称。update 侧同模式：下载中取消（cancel_export 通杀共享 child 槽）经 update-exit 判为 failed。
-- [ ] ureq 2.12 内部对小响应体 + 服务器截断断流的组合会 panic（exit 101，破坏边车 0/1/2 退出码契约；上游 TODO 自认）：极低概率，升级 ureq 时关注上游修复。
-- [ ] OptionsView 页签未实现 roving tabindex 与方向键导航（ARIA tabs 模式的推荐增强）：当前所有 tab 均在 Tab 序列中、原生 button 可正常操作。
-- [ ] 导出中切换语言存在微任务级双订阅窗口（`onSidecarEvent` 按 `[t]` 重订阅，旧注销的微任务晚于新注册的 IPC，同一事件被新旧 handler 各折叠一次——done 计数 +2、日志行重复；i18n 时代遗留，根治方案是 warningLabel 走 ref、订阅进空依赖 effect）。
-- [ ] i18n 的 `fmt` 占位符（`{name}`）与字典字符串之间无编译期校验：`Widen` 宽化只锁键结构不锁占位符，拼错时运行时输出原文模板。
+- [ ] ureq 2.12 内部对小响应体 + 服务器截断断流的组合会 panic（exit 101，破坏边车 0/1/2 退出码契约；上游 TODO 自认）：极低概率，升级 ureq 时关注上游修复。定位勘误（源码核实）：panic 点在 `request.call()` 构造 Response 期间的 `stream_to_reader`（小响应体全缓冲时 `read_exact`/`return_to_pool` 的 `expect`），不在 `into_string`——后者无 charset feature 时就是 `into_reader + take + from_utf8_lossy`，换 body 读取方式绕不开该 panic 面。
 
 ## 修复路线（已批准）
 
@@ -77,7 +70,9 @@
 
 ## 桌面端开发（Tauri）
 
-- 常用命令：`just desktop-sync-sidecar`（构建 CLI 并复制到 `desktop/src-tauri/binaries/`，**改动 CLI 后必须重跑**）、`just desktop-dev`、`just desktop-build`、`just desktop-test`、`just clean <target|desktop|sidecar|all>`（清理中间产物与依赖，范围可选）。
+- 常用命令：`just desktop-sync-sidecar`（构建 CLI 并复制到 `desktop/src-tauri/binaries/`，**改动 CLI 后必须重跑**）、`just desktop-dev`、`just desktop-build`、`just desktop-test`、`just desktop-release <tag>`（构建 + 版本校验 + 空格改点 + 上传安装包到 release，`--dry-run` 预览须经 pnpm 直调：`pnpm -C desktop run release -- <tag> --dry-run`）、`just clean <target|desktop|sidecar|all>`（清理中间产物与依赖，范围可选）。
+- 前端测试：vitest（`pnpm -C desktop test`，复用 vite.config.ts 的 `@` alias 零额外配置），测试文件与源码同目录（`src/**/*.test.ts`，显式 import vitest API）；含 zh/en 字典占位符集合一致性测试（Widen 宽化抹掉字面量类型，编译期校验不可行，由测试锁定）。
+- CI 覆盖：`ci.yml` 的 desktop job（windows-latest）跑 `install → sync-sidecar`（硬顺序：桌面 build script 编译期校验 externalBin，binaries/ 又被 gitignore）`→ tsc+vite build → vitest → cargo test`（桌面 workspace）；rust-cache `workspaces` 同时缓存根 `target/` 与 `desktop/src-tauri/target`（注意 `->` 右侧是 target 目录名非 crate 名，写错会静默失效）。
 - 完整构建说明（含 Windows 坑与图标替换）见 [docs/BUILD.md](docs/BUILD.md)（中文，面向人类读者）。
 - `desktop/src-tauri` 是独立 cargo workspace（自持 `[workspace]`），不影响根 crate 与 cargo-dist；`.cargo/config.toml` 启用 MSRV 感知解析（工具链锁 1.87）。
 - 前端：Tailwind v4 + 手搭 shadcn 层（shadcn CLI 与当前 Node 生态冲突，组件手写在 `src/components/ui/`；CLI 修复后可迁移）。主题三态（light/dark/system，`src/lib/theme.ts`）；用户偏好存 localStorage：路径记忆、「保留根文件夹」（`obsidian-export-*` 逐项键）与转换选项（`obsidian-export-options` 单键 JSON，见 `src/lib/options.ts`）。
@@ -120,7 +115,12 @@ obsidian-export-desktop/
 ├── Cargo.lock              # 根 crate 依赖锁文件
 ├── Cargo.toml              # 主 crate 清单（lib+bin）
 ├── changelog.d/            # towncrier 变更片段目录
-│   └── .gitignore # 片段目录占位忽略文件
+│   ├── .gitignore   # 片段目录占位忽略文件
+│   ├── 17.fix.md    # stderr 解码与上限片段
+│   ├── 19.fix.md    # 订阅时序修复片段
+│   ├── 20.change.md # 页签键盘导航片段
+│   ├── 21.new.md    # 一键发布命令片段
+│   └── 23.fix.md    # 取消态修复片段
 ├── CHANGELOG.md            # 变更日志（towncrier 生成）
 ├── CLAUDE.md               # Claude 专属补充规则
 ├── cliff.toml              # git-cliff 备用变更日志配置
@@ -140,14 +140,18 @@ obsidian-export-desktop/
 │   │   └── vite.svg  # Vite logo（favicon）
 │   ├── README.md           # Tauri 模板遗留说明
 │   ├── scripts/            # 前端辅助脚本目录
-│   │   └── sync-sidecar.mjs # 构建 CLI 并同步为 Tauri 边车
+│   │   ├── release-desktop.mjs # 桌面安装包收集改名上传脚本
+│   │   └── sync-sidecar.mjs    # 构建 CLI 并同步为 Tauri 边车
 │   ├── src/                # 桌面端前端源码（React/TS）
-│   │   ├── App.tsx       # 应用根组件，串联三阶段导出流程
-│   │   ├── components/   # 视图组件目录
+│   │   ├── app-fold.test.ts # 导出事件折叠纯函数测试
+│   │   ├── App.tsx          # 应用根组件，串联三阶段导出流程
+│   │   ├── components/      # 视图组件目录
 │   │   │   ├── ExportDialog.tsx     # 导出前确认对话框
 │   │   │   ├── ExportResultView.tsx # 导出结果汇总卡片
 │   │   │   ├── ExportRunView.tsx    # 导出进行中的进度与日志视图
+│   │   │   ├── link-check.test.ts   # 链接检查状态机纯函数测试
 │   │   │   ├── LinkCheckPanel.tsx   # 链接检查面板与状态折叠逻辑
+│   │   │   ├── options-view.test.ts # 页签键盘导航纯函数测试
 │   │   │   ├── OptionsView.tsx      # 分页式转换选项设置面板
 │   │   │   ├── PathPicker.tsx       # 目录路径输入加浏览选择器
 │   │   │   ├── TagInput.tsx         # 多标签芯片输入编辑器
@@ -162,19 +166,21 @@ obsidian-export-desktop/
 │   │   │   │   ├── progress.tsx      # 基于 radix 的进度条
 │   │   │   │   ├── radio-group.tsx   # 基于 radix 的单选组
 │   │   │   │   └── switch.tsx        # 基于 radix 的开关
+│   │   │   ├── update-panel.test.ts # 更新状态机与启动节流测试
 │   │   │   └── UpdatePanel.tsx      # 关于与更新页（状态外置）
-│   │   ├── i18n/         # 界面国际化目录
-│   │   │   ├── en.ts     # 英文字典，键型受 Dict 约束
-│   │   │   ├── index.tsx # i18n 上下文与语言偏好分发
-│   │   │   └── zh.ts     # 中文字典并定义 Dict 类型基准
-│   │   ├── index.css     # Obsidian 风格主题变量与全局样式
-│   │   ├── lib/          # 前端工具与封装层目录
+│   │   ├── i18n/            # 界面国际化目录
+│   │   │   ├── en.ts        # 英文字典，键型受 Dict 约束
+│   │   │   ├── i18n.test.ts # fmt 与字典占位符一致性测试
+│   │   │   ├── index.tsx    # i18n 上下文与语言偏好分发
+│   │   │   └── zh.ts        # 中文字典并定义 Dict 类型基准
+│   │   ├── index.css        # Obsidian 风格主题变量与全局样式
+│   │   ├── lib/             # 前端工具与封装层目录
 │   │   │   ├── options.ts # 导出选项类型、校验与摘要
 │   │   │   ├── sidecar.ts # Tauri 命令调用与事件封装层
 │   │   │   ├── theme.ts   # 主题偏好 Hook，支持跟随系统
 │   │   │   └── utils.ts   # cn 类名合并工具函数
-│   │   ├── main.tsx      # React 入口（含 i18n）
-│   │   └── vite-env.d.ts # Vite 客户端类型引用
+│   │   ├── main.tsx         # React 入口（含 i18n）
+│   │   └── vite-env.d.ts    # Vite 客户端类型引用
 │   ├── src-tauri/          # Tauri Rust 后端
 │   │   ├── .cargo/         # cargo 配置目录
 │   │   │   └── config.toml # MSRV 感知的依赖解析配置

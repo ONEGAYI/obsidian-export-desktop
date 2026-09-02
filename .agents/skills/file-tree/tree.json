@@ -352,6 +352,56 @@
           "tags": [
             "config"
           ]
+        },
+        "17.fix.md": {
+          "kind": "file",
+          "desc": "stderr 解码与上限片段",
+          "detail": [
+            "桌面端 stderr 字节累积解码与 64KiB 上限修复的 towncrier 片段（PR #17）。"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "19.fix.md": {
+          "kind": "file",
+          "desc": "订阅时序修复片段",
+          "detail": [
+            "rAF 暂停兜底与语言切换双订阅窗口修复的 towncrier 片段（PR #19）。"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "20.change.md": {
+          "kind": "file",
+          "desc": "页签键盘导航片段",
+          "detail": [
+            "OptionsView roving tabindex 与方向键导航的 towncrier 片段（PR #20）。"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "21.new.md": {
+          "kind": "file",
+          "desc": "一键发布命令片段",
+          "detail": [
+            "just desktop-release 桌面安装包一键发布的 towncrier 片段（PR #21）。"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "23.fix.md": {
+          "kind": "file",
+          "desc": "取消态修复片段",
+          "detail": [
+            "check/update 运行中取消落 cancelled 态的 towncrier 片段（PR #23）。"
+          ],
+          "tags": [
+            "docs"
+          ]
         }
       }
     },
@@ -593,6 +643,17 @@
             "tauri"
           ],
           "children": {
+            "release-desktop.mjs": {
+              "kind": "file",
+              "desc": "桌面安装包收集改名上传脚本",
+              "detail": [
+                "发布流水线 P0：收集 tauri bundle 的 msi/nsis 产物（_<版本>_ 锚定过滤、同 stem 归一空格版与点版残留，重跑幂等），文件名空格改点后 gh release upload --clobber 上传到 fork（-R 显式指定）。",
+                "防呆：tag 格式校验、产物文件名必须含目标版本（26.8.2 版本错位教训）、同版本歧义报错；--dry-run 只列改名与上传清单不上传。just desktop-release 为其编排入口（前置 desktop-build）。"
+              ],
+              "tags": [
+                "ci"
+              ]
+            },
             "sync-sidecar.mjs": {
               "kind": "file",
               "desc": "构建 CLI 并同步为 Tauri 边车",
@@ -620,6 +681,20 @@
             "frontend"
           ],
           "children": {
+            "app-fold.test.ts": {
+              "kind": "file",
+              "desc": "导出事件折叠纯函数测试",
+              "detail": [
+                "foldEvent 全事件类型折叠测试（start/file-done/file-skipped/file-failed/warning/diagram-render/end），含 warningLabel 分支：path 为 null 时用标签、有 path 时用 baseName。"
+              ],
+              "rel": [
+                "desktop/src/App.tsx"
+              ],
+              "tags": [
+                "frontend",
+                "test"
+              ]
+            },
             "App.tsx": {
               "kind": "file",
               "desc": "应用根组件，串联三阶段导出流程",
@@ -683,6 +758,20 @@
                     "frontend"
                   ]
                 },
+                "link-check.test.ts": {
+                  "kind": "file",
+                  "desc": "链接检查状态机纯函数测试",
+                  "detail": [
+                    "applyCheckEvents（报告追加、broken/skipped 增量计数、check-end 汇总、空批 no-op）、isBroken 判定、applyCheckExit 五分支（cancelled/done/failed/优先级/非 running 不动）。"
+                  ],
+                  "rel": [
+                    "desktop/src/components/LinkCheckPanel.tsx"
+                  ],
+                  "tags": [
+                    "frontend",
+                    "test"
+                  ]
+                },
                 "LinkCheckPanel.tsx": {
                   "kind": "file",
                   "desc": "链接检查面板与状态折叠逻辑",
@@ -695,6 +784,20 @@
                   ],
                   "tags": [
                     "frontend"
+                  ]
+                },
+                "options-view.test.ts": {
+                  "kind": "file",
+                  "desc": "页签键盘导航纯函数测试",
+                  "detail": [
+                    "nextTabIndex 六情形：前后移动环绕、纵横两组方向键同映射、Home/End、无关键不动、空列表返回 null（roving tabindex 的键盘语义锁定）。"
+                  ],
+                  "rel": [
+                    "desktop/src/components/OptionsView.tsx"
+                  ],
+                  "tags": [
+                    "frontend",
+                    "test"
                   ]
                 },
                 "OptionsView.tsx": {
@@ -882,6 +985,20 @@
                     }
                   }
                 },
+                "update-panel.test.ts": {
+                  "kind": "file",
+                  "desc": "更新状态机与启动节流测试",
+                  "detail": [
+                    "applyUpdateEvents（verdict 折叠、下载中 re-check 续行/回落、进度帧、download-end）、applyUpdateExit（transitional→failed/cancelled、settled 只记录 exit）、dueUpdateCheck/markUpdateChecked 启动节流（localStorage 以 Map stub 模拟）。"
+                  ],
+                  "rel": [
+                    "desktop/src/components/UpdatePanel.tsx"
+                  ],
+                  "tags": [
+                    "frontend",
+                    "test"
+                  ]
+                },
                 "UpdatePanel.tsx": {
                   "kind": "file",
                   "desc": "关于与更新页（状态外置）",
@@ -917,6 +1034,23 @@
                   "tags": [
                     "frontend",
                     "i18n"
+                  ]
+                },
+                "i18n.test.ts": {
+                  "kind": "file",
+                  "desc": "fmt 与字典占位符一致性测试",
+                  "detail": [
+                    "fmt 行为测试（替换/缺占位符原样保留/多参数）+ zh/en 两份字典的占位符集合一致性测试：递归遍历字典树，逐词条断言 {占位符} 集合相等。",
+                    "Dict 的 Widen 宽化抹掉字面量类型，编译期无法校验字符串内容，改由测试锁定（桌面端遗留「i18n 占位符无编译期校验」的修复落点）。"
+                  ],
+                  "rel": [
+                    "desktop/src/i18n/en.ts",
+                    "desktop/src/i18n/index.tsx",
+                    "desktop/src/i18n/zh.ts"
+                  ],
+                  "tags": [
+                    "i18n",
+                    "test"
                   ]
                 },
                 "index.tsx": {
