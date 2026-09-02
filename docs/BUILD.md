@@ -103,16 +103,19 @@ pnpm -C desktop tauri icon <图标路径.png>
 
 ## 发布流程（维护者）
 
+完整清单见 [Release-checklist.md](Release-checklist.md)，要点：
+
 1. `changelog.d/` 下按 towncrier 片段类型追加变更说明；
-2. 更新 `Cargo.toml` 版本（日历版本 `yy.m.i`）并 `cargo check` 刷新 lock；
+2. `just set-version <X.Y.Z>` 一次对齐六处版本（CalVer `YY.MM.PATCH`）；
 3. `uvx towncrier==24.8.0 build --version <版本> --yes` 生成 CHANGELOG；
 4. `bash docs/generate.sh` 重新生成 README；
 5. 提交并打 tag（参见 Justfile 中 `make-new-release` 的完整流程）。
 
 ### 上传桌面安装包
 
-tag 推送、release 已建（或至少 tag 已推送）后，一条命令完成桌面安装包的
-构建、改名与上传：
+release 已创建后（v26.9.0 起 tag 推送会自动触发 release workflow 建出
+release，等它跑完；勿在 tag 已触发时再手动 dispatch，会产生重复 run），
+一条命令完成桌面安装包的构建、改名与上传：
 
 ```powershell
 just desktop-release vX.Y.Z
@@ -127,5 +130,5 @@ just desktop-release vX.Y.Z
 pnpm -C desktop run release -- vX.Y.Z --dry-run
 ```
 
-其余发布细节（workflow 手动 dispatch、CLI 产物本地构建等）见
+其余发布细节（tag 触发与手动 dispatch、CLI 产物本地构建等）见
 [Release-checklist.md](Release-checklist.md)。

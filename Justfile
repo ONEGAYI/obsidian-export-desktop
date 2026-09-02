@@ -28,7 +28,9 @@ desktop-build: desktop-sync-sidecar
 
 # Build the desktop bundle and upload its installers to an existing GitHub
 # release: renames spaces to dots and validates the filename carries the
-# tag's version before uploading to the fork (pass --dry-run to only list).
+# tag's version before uploading to the fork. To only list what would be
+# uploaded (without building), run the script directly — just itself cannot
+# forward the flag: pnpm -C desktop run release -- <tag> --dry-run
 desktop-release tag: desktop-build
     pnpm -C desktop run release -- {{tag}}
 

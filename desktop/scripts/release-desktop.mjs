@@ -45,27 +45,41 @@ for (const [dir, ext] of bundles) {
     process.exit(1);
   }
   // Old bundles accumulate across releases; only installers carrying the
-  // tag's version are candidates. A missing candidate usually means the
-  // bundle predates the version bump (v26.8.2 shipped mismatched names
-  // once), which rebuilding after `just set-version` fixes.
+  // tag's version (anchored: "..._<version>_..." in the Tauri name shape)
+  // are candidates. A missing candidate usually means the bundle predates
+  // the version bump (v26.8.2 shipped mismatched names once), which
+  // rebuilding after `just set-version` fixes.
   const candidates = names.filter(
-    (name) => name.endsWith(ext) && name.includes(version),
+    (name) => name.endsWith(ext) && name.includes(`_${version}_`),
   );
-  if (candidates.length === 0) {
+  // A previous run of this script leaves dotted renames in place while a
+  // rebuild recreates the spaced name; both map to the same asset stem, so
+  // collapse them — otherwise every rerun through `just desktop-release`
+  // (which rebuilds) would trip the ambiguity check on its own leftovers.
+  // The spaced build output wins; the rename step overwrites the dotted
+  // leftover.
+  const byAsset = new Map();
+  for (const name of candidates) {
+    if (!byAsset.has(name.replaceAll(" ", ".")) || name.includes(" ")) {
+      byAsset.set(name.replaceAll(" ", "."), name);
+    }
+  }
+  const picked = [...byAsset.values()];
+  if (picked.length === 0) {
     console.error(
       `no ${ext} installer for ${version} in ${dirPath} — ` +
         "run `just desktop-build` after `just set-version`",
     );
     process.exit(1);
   }
-  if (candidates.length > 1) {
+  if (picked.length > 1) {
     console.error(
-      `ambiguous ${ext} installers for ${version}: ${candidates.join(", ")} — ` +
+      `ambiguous ${ext} installers for ${version}: ${picked.join(", ")} — ` +
         "clean desktop/src-tauri/target/release/bundle and rebuild",
     );
     process.exit(1);
   }
-  collected.push(join(dirPath, candidates[0]));
+  collected.push(join(dirPath, picked[0]));
 }
 
 // Spaces in asset names are awkward on the command line and in download
