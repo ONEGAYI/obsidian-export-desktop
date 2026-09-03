@@ -1980,6 +1980,19 @@
             "rust"
           ]
         },
+        "excalidraw.rs": {
+          "kind": "file",
+          "desc": "Excalidraw 检测解压与转换",
+          "detail": [
+            "Excalidraw 绘图支持核心：LZ-String 解压自实现（256 字符分块、base64 表、参考 JS 移植）；scene 提取（compressed-json/json fence 与裸 JSON 三形态）；文件检测（.excalidraw/.excalidraw.md 后缀 + frontmatter excalidraw-plugin 键）；预扫描串行转换编排（外部工具调用、产物落位输出树同名 .svg/.png、ExcalidrawIndex 两态登记）。"
+          ],
+          "rel": [
+            "tests/excalidraw_cli_test.rs"
+          ],
+          "tags": [
+            "rust"
+          ]
+        },
         "frontmatter.rs": {
           "kind": "file",
           "desc": "frontmatter 类型与序列化",
@@ -2129,6 +2142,20 @@
             "工具缺失原子化、增量幂等、显式路径覆盖 PATH、按需预扫描与参数校验八场景。"
           ],
           "tags": [
+            "test"
+          ]
+        },
+        "excalidraw_cli_test.rs": {
+          "kind": "file",
+          "desc": "Excalidraw CLI 集成测试",
+          "detail": [
+            "mock excalidraw-export（OBSIDIAN_EXPORT_DIAGRAM_BIN_EXCALIDRAW_EXPORT 注入）驱动 CLI 子进程：三形态转换与引用改写、工具失败降级为链接+斜体提示、NoOutput、未启用时现状锁定、png 格式、start-at 范围外降级、工具缺失原子失败。"
+          ],
+          "rel": [
+            "src/excalidraw.rs"
+          ],
+          "tags": [
+            "rust",
             "test"
           ]
         },
@@ -2322,7 +2349,7 @@
             },
             "input": {
               "kind": "dir",
-              "desc": "测试输入 vault（24 场景子目录）",
+              "desc": "测试输入 vault（27 场景子目录）",
               "detail": [
                 "按测试场景分组的输入笔记目录，场景目录粗粒度收录。"
               ],
@@ -2457,6 +2484,30 @@
                     "tests/cli_test.rs",
                     "tests/export_test.rs"
                   ],
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "excalidraw": {
+                  "kind": "dir",
+                  "desc": "Excalidraw 三形态成功场景",
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "excalidraw-fail": {
+                  "kind": "dir",
+                  "desc": "Excalidraw 工具失败场景",
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "excalidraw-scope": {
+                  "kind": "dir",
+                  "desc": "Excalidraw 范围外场景",
                   "tags": [
                     "fixture"
                   ],

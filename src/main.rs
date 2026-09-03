@@ -153,7 +153,7 @@ struct Opts {
 
     #[options(
         no_short,
-        help = "Render diagram code blocks into image assets via local tools (comma-separated subset of: dot,mermaid,wavedrom,tikz)",
+        help = "Render diagram code blocks into image assets via local tools, converting Excalidraw drawing files into images (comma-separated subset of: dot,mermaid,wavedrom,tikz,excalidraw)",
         long = "render-diagrams"
     )]
     render_diagrams: Option<String>,
@@ -169,7 +169,7 @@ struct Opts {
 
     #[options(
         no_short,
-        help = "Explicit executable path for a diagram tool, overriding PATH lookup (TOOL=PATH, repeatable; TOOL one of: dot,mmdc,wavedrom,latex,dvisvgm)",
+        help = "Explicit executable path for a diagram tool, overriding PATH lookup (TOOL=PATH, repeatable; TOOL one of: dot,mmdc,wavedrom,latex,dvisvgm,excalidraw-export)",
         long = "diagram-bin"
     )]
     diagram_bins: Vec<String>,
@@ -252,7 +252,7 @@ fn parse_render_diagrams(input: &str) -> Result<Vec<DiagramRenderer>> {
     for name in input.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         let renderer = DiagramRenderer::from_name(name).ok_or_else(|| {
             eyre!(
-                "unknown diagram renderer '{name}' (must be one of: dot, mermaid, wavedrom, tikz)"
+                "unknown diagram renderer '{name}' (must be one of: dot, mermaid, wavedrom, tikz, excalidraw)"
             )
         })?;
         if !renderers.contains(&renderer) {
@@ -261,7 +261,7 @@ fn parse_render_diagrams(input: &str) -> Result<Vec<DiagramRenderer>> {
     }
     if renderers.is_empty() {
         return Err(eyre!(
-            "--render-diagrams requires at least one of: dot, mermaid, wavedrom, tikz"
+            "--render-diagrams requires at least one of: dot, mermaid, wavedrom, tikz, excalidraw"
         ));
     }
     Ok(renderers)
@@ -276,7 +276,7 @@ fn parse_diagram_bins(entries: &[String]) -> Result<BTreeMap<ToolName, PathBuf>>
         };
         let tool = ToolName::from_name(tool.trim()).ok_or_else(|| {
             eyre!(
-                "unknown diagram tool '{}' (must be one of: dot, mmdc, wavedrom, latex, dvisvgm)",
+                "unknown diagram tool '{}' (must be one of: dot, mmdc, wavedrom, latex, dvisvgm, excalidraw-export)",
                 tool.trim()
             )
         })?;

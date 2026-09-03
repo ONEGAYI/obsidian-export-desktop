@@ -7,9 +7,20 @@ export type MissingSectionStrategy = "skip" | "embed-full" | "fail";
 /** Which tree the post-export link check walks; GUI-only, never a CLI flag. */
 export type LinkCheckTarget = "source" | "destination";
 /** External diagram renderers that may be enabled for an export. */
-export type DiagramRendererId = "dot" | "mermaid" | "wavedrom" | "tikz";
+export type DiagramRendererId =
+  | "dot"
+  | "mermaid"
+  | "wavedrom"
+  | "tikz"
+  | "excalidraw";
 /** External tools the diagram renderers shell out to (path overrides). */
-export type DiagramToolId = "dot" | "mmdc" | "wavedrom" | "latex" | "dvisvgm";
+export type DiagramToolId =
+  | "dot"
+  | "mmdc"
+  | "wavedrom"
+  | "latex"
+  | "dvisvgm"
+  | "excalidraw-export";
 export type DiagramFormat = "svg" | "png";
 /** What to do with Obsidian `%%` comments. */
 export type CommentsMode = "keep" | "convert" | "strip";
@@ -91,6 +102,7 @@ export const DIAGRAM_RENDERER_VALUES: readonly DiagramRendererId[] = [
   "mermaid",
   "wavedrom",
   "tikz",
+  "excalidraw",
 ];
 
 export const DIAGRAM_TOOL_VALUES: readonly DiagramToolId[] = [
@@ -99,6 +111,7 @@ export const DIAGRAM_TOOL_VALUES: readonly DiagramToolId[] = [
   "wavedrom",
   "latex",
   "dvisvgm",
+  "excalidraw-export",
 ];
 
 export const DIAGRAM_FORMAT_VALUES: readonly DiagramFormat[] = ["svg", "png"];

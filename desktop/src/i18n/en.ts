@@ -153,7 +153,7 @@ export const en: Dict = {
     resetDefaults: "Reset to defaults",
     back: "Back",
     diagramsDescription:
-      "Renders special code blocks (dot, Mermaid, …) into images through local tools during export and embeds them as regular Markdown images. Tools are looked up on PATH automatically; a missing tool aborts the export before any file is written.",
+      "Renders special code blocks (dot, Mermaid, …) into images through local tools during export and embeds them as regular Markdown images; Excalidraw drawing files are converted whole, with references to them rewritten. Tools are looked up on PATH automatically; a missing tool aborts the export before any file is written.",
     diagramRenderersLabel: "Enabled renderers",
     diagramRendererChoices: {
       dot: {
@@ -171,6 +171,11 @@ export const en: Dict = {
       tikz: {
         label: "TikZ",
         description: "TikZ drawings (tikz blocks); requires latex and dvisvgm (a TeX distribution); CJK text inside may render poorly",
+      },
+      excalidraw: {
+        label: "Excalidraw",
+        description:
+          "Converts Excalidraw drawing files (.excalidraw / .excalidraw.md) into images and rewrites embeds and links; requires excalidraw-export; complex drawings may lose fidelity",
       },
     },
     diagramFormatLabel: "Output format",
@@ -196,6 +201,7 @@ export const en: Dict = {
       wavedrom: "wavedrom",
       latex: "latex (TeX)",
       dvisvgm: "dvisvgm (TeX)",
+      "excalidraw-export": "excalidraw-export (Excalidraw conversion)",
     },
     frontmatterChoices: {
       auto: {

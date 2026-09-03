@@ -144,7 +144,7 @@ export const zh = {
     resetDefaults: "恢复默认",
     back: "返回",
     diagramsDescription:
-      "导出时把特殊代码块（dot、Mermaid 等）调用本机工具渲染为图片，并以标准图片引用嵌入产物。工具从 PATH 自动查找；缺失时导出开始前即报错退出，不会写出任何文件。",
+      "导出时把特殊代码块（dot、Mermaid 等）调用本机工具渲染为图片，并以标准图片引用嵌入产物；Excalidraw 绘图文件也会整体转换为图片并改写指向它的引用。工具从 PATH 自动查找；缺失时导出开始前即报错退出，不会写出任何文件。",
     diagramRenderersLabel: "启用的渲染器",
     // 渲染器选项：药丸复选的标签与悬浮说明。
     diagramRendererChoices: {
@@ -163,6 +163,11 @@ export const zh = {
       tikz: {
         label: "TikZ",
         description: "TikZ 绘图（tikz 代码块），需要 latex 与 dvisvgm（TeX 发行版）；图内中文可能渲染异常",
+      },
+      excalidraw: {
+        label: "Excalidraw",
+        description:
+          "Excalidraw 绘图文件（.excalidraw / .excalidraw.md）整体转为图片并改写嵌入与链接，需要 excalidraw-export；复杂图形可能失真",
       },
     },
     diagramFormatLabel: "输出格式",
@@ -188,6 +193,7 @@ export const zh = {
       wavedrom: "wavedrom",
       latex: "latex（TeX）",
       dvisvgm: "dvisvgm（TeX）",
+      "excalidraw-export": "excalidraw-export（Excalidraw 转换）",
     },
     // 选项值的双语文案：OptionsView 单选列表与导出确认摘要共用。
     frontmatterChoices: {

@@ -217,6 +217,15 @@ Renderers and the external tools they require:
 |mermaid|`mermaid`, `mmd`|[mermaid-cli](https://github.com/mermaid-js/mermaid-cli) (`mmdc`)|svg, png|
 |wavedrom|`wavedrom`|[wavedrom](https://www.npmjs.com/package/wavedrom)|svg|
 |tikz|`tikz`|a TeX distribution with `latex` and `dvisvgm` (e.g. TeX Live)|svg|
+|excalidraw|(whole drawing files, see below)|[excalidraw-export](https://www.npmjs.com/package/@moona3k/excalidraw-export)|svg, png|
+
+### Excalidraw drawings
+
+Unlike the fence renderers above, `excalidraw` converts whole drawing files rather than code blocks. It recognizes three shapes: legacy `.excalidraw` files (bare scene JSON), `.excalidraw.md` files (the plugin's default), and plain `.md` files whose frontmatter carries the `excalidraw-plugin` key (the plugin's Logseq-compatible shape).
+
+With the renderer enabled, the export prescan converts every drawing under the export scope into an image at the source file's output-tree position, using the plugin's Auto-Export naming: `x.excalidraw.md` → `x.excalidraw.svg`, bare `.excalidraw` → `x.svg`; `--diagram-format png` switches to PNG. Embeds (`![[x.excalidraw.md]]`, `![[x.excalidraw]]`) become image references, plain links point at the converted asset, and the original drawing file itself is not exported. LaTeX formulas and pasted images travel inside the scene as data URLs and carry over without extra tooling.
+
+Failures degrade rather than abort: a drawing the tool cannot render is not exported either, its embeds become plain links to the original vault path (kept for traceability) with an italic notice, and a warning is emitted; the export still completes. Drawings outside the `--start-at` scope behave the same way. Note that the converter is an independent reimplementation of the Excalidraw renderer (roughjs-based), so complex drawings may lose fidelity; a drop-in replacement can be supplied via `--diagram-bin excalidraw-export=/path/to/tool` as long as it accepts `IN [--svg] -o OUT`.
 
 Behavior details:
 
