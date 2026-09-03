@@ -275,14 +275,16 @@ pub struct ExportOptions {
     pub link_check_enabled: bool,
     /// GUI-only preference: which tree that automatic check walks.
     pub link_check_target: LinkCheckTarget,
-    /// Diagram renderers to enable (a subset of dot/mermaid/wavedrom/tikz);
-    /// empty keeps the CLI default of no diagram rendering.
+    /// Diagram renderers to enable (a subset of
+    /// dot/mermaid/wavedrom/tikz/excalidraw); empty keeps the CLI default of
+    /// no diagram rendering.
     pub diagram_renderers: Vec<String>,
     /// Output format for rendered diagrams (svg default; renderers without
     /// raster output fall back to svg with a warning).
     pub diagram_format: DiagramFormatChoice,
     /// Explicit executable paths overriding the PATH lookup, keyed by tool
-    /// name (dot/mmdc/wavedrom/latex/dvisvgm). Blank values are treated as
+    /// name (dot/mmdc/wavedrom/latex/dvisvgm/excalidraw-export). Blank values
+    /// are treated as
     /// unset — a GUI-side convenience the CLI does not share: it rejects an
     /// empty `--diagram-bin` path as a usage error instead of ignoring it.
     pub diagram_bins: std::collections::BTreeMap<String, String>,

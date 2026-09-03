@@ -167,7 +167,7 @@ export const zh = {
       excalidraw: {
         label: "Excalidraw",
         description:
-          "Excalidraw 绘图文件（.excalidraw / .excalidraw.md）整体转为图片并改写嵌入与链接，需要 excalidraw-export；复杂图形可能失真",
+          "Excalidraw 绘图文件（.excalidraw(.md) 或带 excalidraw frontmatter 的 .md）整体转为图片并改写嵌入与链接，需要 excalidraw-export；复杂图形可能失真",
       },
     },
     diagramFormatLabel: "输出格式",

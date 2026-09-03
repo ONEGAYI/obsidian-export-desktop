@@ -250,7 +250,7 @@ obsidian-export-desktop/
 │       │   ├── same-filename-different-directories/ # 同名消解黄金输出树
 │       │   ├── single-file/                         # 单文件黄金输出树
 │       │   └── start-at/                            # start-at 黄金输出树
-│       └── input/…   # 测试输入 vault（27 场景子目录）
+│       └── input/…   # 测试输入 vault（31 场景子目录）
 └── towncrier.toml          # towncrier 变更日志配置
 <!-- file-tree:tree:end -->
 ```

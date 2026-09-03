@@ -255,10 +255,14 @@ pub fn extract_scene(text: &str) -> Result<String, SceneError> {
         decompress_from_base64(compressed).context(DecompressSnafu)?
     } else if let Some(captures) = DRAWING_JSON_RE.captures(text) {
         captures.get(1).map_or("", |m| m.as_str()).to_owned()
-    } else if text.trim_start().starts_with('{') {
-        text.to_owned()
     } else {
-        return Err(SceneError::NoDrawing);
+        // Legacy `.excalidraw` files may carry a UTF-8 BOM; strip it before
+        // both the shape check and the JSON handoff (serde_json rejects it).
+        let bare = text.trim_start_matches('\u{FEFF}').trim_start();
+        if !bare.starts_with('{') {
+            return Err(SceneError::NoDrawing);
+        }
+        bare.to_owned()
     };
 
     let value: Value = serde_json::from_str(&scene).context(InvalidJsonSnafu)?;
@@ -339,6 +343,22 @@ impl ExcalidrawIndex {
     pub(crate) fn asset_path(&self, src: &Path) -> Option<PathBuf> {
         (self.get(src) == Some(ExcalidrawEntry::Converted))
             .then(|| src.with_extension(self.format.as_str()))
+    }
+
+    /// Whether `path` is a registered drawing source, or one of its
+    /// rendered-asset twins (the same path with a `.svg`/`.png` extension —
+    /// both formats are checked regardless of the run's format, matching the
+    /// plugin's Auto-Export outputs). The export pass skips both: the source
+    /// is replaced by its asset (or nothing, on failure), and a stale twin in
+    /// the vault must not be copied over the freshly rendered asset at the
+    /// identical output-tree position.
+    pub(crate) fn covers(&self, path: &Path) -> bool {
+        if self.entries.contains_key(path) {
+            return true;
+        }
+        self.entries
+            .keys()
+            .any(|src| src.with_extension("svg") == path || src.with_extension("png") == path)
     }
 }
 
@@ -430,10 +450,31 @@ fn convert_one(
         .join(format!("drawing-out.{}", format.as_str()));
     diagrams::render_excalidraw_scene(state, &scene, format, &tmp_out).context(RenderSnafu)?;
 
+    // Output-tree position of the asset. Directory mode mirrors the source's
+    // vault-relative path. Single-file mode (start_at IS the drawing, so the
+    // strip leaves an empty path — `dest.join("")` would otherwise graft the
+    // extension onto the directory itself) derives the position from the
+    // source file name the same way `run()` places the exported file: inside
+    // a directory destination, beside a file destination.
     let relative = file
         .strip_prefix(start_at)
         .expect("prescan only collects files under start_at");
-    let asset = destination.join(relative).with_extension(format.as_str());
+    let asset = if relative.as_os_str().is_empty() {
+        let name = file
+            .file_name()
+            .expect("a start_at file always has a file name");
+        let base = if destination.is_dir() {
+            destination.to_path_buf()
+        } else {
+            destination
+                .parent()
+                .expect("a file destination always has a parent")
+                .to_path_buf()
+        };
+        base.join(name).with_extension(format.as_str())
+    } else {
+        destination.join(relative).with_extension(format.as_str())
+    };
     if let Some(parent) = asset.parent() {
         fs::create_dir_all(parent).context(WriteSnafu)?;
     }
@@ -542,6 +583,24 @@ mod tests {
         extract_scene("```json\n{\"a\":1}\n```").unwrap_err();
         // Corrupted compressed payload.
         extract_scene("## Drawing\n```compressed-json\n!!!!\n```").unwrap_err();
+        // A json fence under ## Drawing whose content is not JSON at all.
+        assert!(extract_scene("## Drawing\n```json\nnot json at all\n```")
+            .unwrap_err()
+            .to_string()
+            .contains("not valid JSON"));
+        // Valid JSON but not a scene (no elements array): a bare-JSON file
+        // carrying arbitrary data must not count as a drawing.
+        assert!(extract_scene("{\"a\":1}")
+            .unwrap_err()
+            .to_string()
+            .contains("not an Excalidraw scene"));
+    }
+
+    #[test]
+    fn bare_json_tolerates_leading_bom() {
+        let scene =
+            extract_scene("\u{FEFF}{\"type\":\"excalidraw\",\"elements\":[]}").expect("extract");
+        assert!(scene.contains("excalidraw"));
     }
 
     #[test]

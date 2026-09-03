@@ -957,7 +957,16 @@ fn render_excalidraw_scene_impl(
     }
     args.push(OsString::from("-o"));
     args.push(tmp_out.as_os_str().to_owned());
-    run_renderer_tool(tool, &args)
+    run_renderer_tool(tool, &args)?;
+    // The tool exits 0 even when it wrote nothing: report the missing output
+    // here rather than letting the asset copy fail with a bare io error.
+    if !tmp_out.is_file() {
+        return Err(DiagramRenderError::OutputMissing {
+            tool: tool.path.clone(),
+            expected: format.as_str(),
+        });
+    }
+    Ok(())
 }
 
 /// Public entry point used by the prescan conversion in

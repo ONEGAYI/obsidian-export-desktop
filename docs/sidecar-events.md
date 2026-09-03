@@ -25,14 +25,17 @@
 | `schema` | `version: number` | 当前为 `1`。字段增删或语义变化时递增 |
 | `start` | `total: number` | 待处理文件总数 |
 | `file-done` | `path: string` | 一个文件导出成功 |
-| `file-skipped` | `path: string` | 文件被后处理器跳过（如 `--skip-tags`） |
+| `file-skipped` | `path: string` | 文件被后处理器跳过（如 `--skip-tags`），或为 Excalidraw 绘图文件（由预扫描转换的图片产物取代，见 `diagram-render`） |
 | `file-failed` | `path: string`, `message: string` | 文件导出失败；`message` 为完整错误链（外层：内层：根因）。默认策略下其余文件继续 |
 | `warning` | `path: string \| null`, `message: string` | 非致命警告（死链、缺失章节等）；`path` 为警告来源笔记，无法确定时为 `null` |
-| `diagram-render` | `language: string`, `index: number`, `total: number` | 即将渲染一个图表代码块（`--render-diagrams` 启用时）。`index` 为 1 基，`total` 为预扫描统计的可渲染块总数（**估计值**：预扫描只数各笔记自身的块，嵌入展开产生的副本会计入 `index` 但不计入 `total`，故 `index` 可能大于 `total`，GUI 应容忍）；`language` 为围栏首词原样（别名如 `graphviz` 不折叠为 `dot`）。渲染失败以 `warning` 单独上报，流不中断；缓存命中的块同样发本事件 |
+| `diagram-render` | `language: string`, `index: number`, `total: number` | 即将渲染一个图表代码块或转换一个 Excalidraw 绘图文件（`--render-diagrams` 启用时）。`index` 为 1 基，`total` 为预扫描统计的可渲染块数与待转换绘图文件数之和（**估计值**：预扫描只数各笔记自身的块，嵌入展开产生的副本会计入 `index` 但不计入 `total`，故 `index` 可能大于 `total`，GUI 应容忍）；`language` 为围栏首词原样（别名如 `graphviz` 不折叠为 `dot`），Excalidraw 整文件转换固定为 `excalidraw`。渲染失败以 `warning` 单独上报，流不中断；缓存命中的块同样发本事件 |
 | `end` | `failed: string[]` | 流终止。列出失败文件的来源路径 |
 
 除首尾外的事件顺序不保证（导出并行执行）；`start` 之后、`end` 之前，
-`file-*` 与 `warning` 可能交错。
+`file-*` 与 `warning` 可能交错。一个例外：**Excalidraw 绘图文件的转换
+发生在 `start` 之前的预扫描阶段**，其 `diagram-render` 与失败 `warning`
+会先于 `start` 到达（引用改写依赖转换结果先落定）；仅启用围栏渲染器时
+不出现此情形。
 
 ## 终止协议
 
@@ -64,7 +67,9 @@ GUI 的状态机因此可以单一判定：**收到 `end` 即本次运行终结*
 - `--render-diagrams` 启用时，工具缺失属于**前置校验失败**：schema 行已
   出、无 `start`/`end`，原因（工具名与安装建议）在 stderr，退出码 `1`，
   且未写出任何输出文件（原子化）。单个图表渲染失败不中断导出，走
-  `warning`，原代码块保留。
+  `warning`，原代码块保留；Excalidraw 绘图转换失败同样走 `warning`，
+  该绘图文件与其同名 `.svg`/`.png` 伴生产物均不导出，指向它的嵌入
+  降级为普通链接。
 - 非 UTF-8 参数经无损替换（U+FFFD）后按路径处理，通常报「路径不存在」
   （退出码 1）。Windows GUI 的 UTF-16 参数不受影响。
 - 默认（不带 `--progress json`）stdout 完全静默，警告与错误走 stderr，

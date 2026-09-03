@@ -2349,7 +2349,7 @@
             },
             "input": {
               "kind": "dir",
-              "desc": "测试输入 vault（27 场景子目录）",
+              "desc": "测试输入 vault（31 场景子目录）",
               "detail": [
                 "按测试场景分组的输入笔记目录，场景目录粗粒度收录。"
               ],
@@ -2500,6 +2500,14 @@
                 "excalidraw-fail": {
                   "kind": "dir",
                   "desc": "Excalidraw 工具失败场景",
+                  "tags": [
+                    "fixture"
+                  ],
+                  "children": {}
+                },
+                "excalidraw-nested": {
+                  "kind": "dir",
+                  "desc": "Excalidraw 嵌套目录场景",
                   "tags": [
                     "fixture"
                   ],

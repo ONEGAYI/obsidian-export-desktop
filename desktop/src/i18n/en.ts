@@ -175,7 +175,7 @@ export const en: Dict = {
       excalidraw: {
         label: "Excalidraw",
         description:
-          "Converts Excalidraw drawing files (.excalidraw / .excalidraw.md) into images and rewrites embeds and links; requires excalidraw-export; complex drawings may lose fidelity",
+          "Converts Excalidraw drawing files (.excalidraw(.md) or .md with the excalidraw frontmatter) into images and rewrites embeds and links; requires excalidraw-export; complex drawings may lose fidelity",
       },
     },
     diagramFormatLabel: "Output format",

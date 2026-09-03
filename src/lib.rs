@@ -1034,10 +1034,13 @@ impl<'a> Exporter<'a> {
         // Excalidraw drawings registered by the prescan never export as
         // themselves: the converted asset (on success) or nothing (on
         // failure) takes their place, and references degrade accordingly.
+        // Their asset-twin file (e.g. a stale plugin Auto-Export SVG with the
+        // identical name) is skipped too, so the copy pass cannot overwrite
+        // the freshly rendered asset.
         if self
             .excalidraw_index
             .as_ref()
-            .is_some_and(|index| index.get(src).is_some())
+            .is_some_and(|index| index.covers(src))
         {
             return Ok(false);
         }
@@ -1696,6 +1699,17 @@ impl<'a> Exporter<'a> {
                 )
             }
             excalidraw::ExcalidrawEntry::Failed => {
+                let mut note_ref = note_ref;
+                // Mirror the Converted branch: a purely numeric size label
+                // would render as a bare number, and a section anchor has no
+                // target to attach to. Degrading references stay as close to
+                // the success shape as possible.
+                if let Some(label) = &note_ref.label {
+                    if !label.is_empty() && label.chars().all(|c| c.is_ascii_digit()) {
+                        note_ref.label = None;
+                    }
+                }
+                note_ref.section = None;
                 // Keep the reference traceable: a plain link to the original
                 // vault path (deliberately not exported), followed by an
                 // italic notice in the document body.
