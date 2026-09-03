@@ -2,6 +2,15 @@
 
 <!-- towncrier release notes start -->
 
+## [26.9.2](https://github.com/zoni/obsidian-export/tree/26.9.2) - 2026-09-03
+
+Feature release: a new optional `excalidraw` diagram renderer that converts whole Excalidraw drawing files into SVG/PNG assets during export and rewrites embeds and links to point at them, for both the CLI and the desktop app.
+
+### New Features
+
+- 新增 --render-diagrams excalidraw 可选渲染器：导出时把 vault 中的 Excalidraw 绘图文件（.excalidraw / .excalidraw.md / frontmatter 带 excalidraw-plugin 键的 .md 三种形态）整体转换为 SVG/PNG，并同步改写其他笔记中指向它们的嵌入与链接——嵌入变为图片引用（别名保留、纯数字尺寸标签剔除、section 引用取整图），普通链接指向转换产物，原绘图文件与其同名 .svg/.png 伴生产物不再导出（插件 Auto-Export 的旧产物不会覆盖新渲染结果）。产物按插件 Auto-Export 命名落位源文件旁（x.excalidraw.md → x.excalidraw.svg）。转换在导出预扫描阶段串行完成并复用图表工具解析（缺失时与其他渲染器一致原子失败）；单张绘图转换失败或处于 --start-at 范围外时非致命降级——嵌入退化为指向原 vault 路径的普通链接（保留追溯）并附斜体提示与警告事件。转换工具为 @moona3k/excalidraw-export（npm，纯计算无 DOM），可经 --diagram-bin excalidraw-export=PATH 换用兼容「IN [--svg] -o OUT」约定的实现；LaTeX 公式与贴入图片以 data URL 内嵌 scene 随转换带出，无需额外工具；compressed-json 的 LZ-String 解压为自实现（npm 参考向量对拍验证）。桌面端「图表渲染」设置页同步新增 Excalidraw 复选框与工具路径项。 ([#34](https://github.com/ONEGAYI/obsidian-export-desktop/pull/34))
+
+
 ## [26.9.1](https://github.com/zoni/obsidian-export/tree/26.9.1) - 2026-09-02
 
 Quality release: two correctness fixes for features introduced in 26.9.0 (ordered-list numbering resuming across block comments, comment-aware diagram tool prescan), plus desktop-side robustness fixes (stderr decoding, cancellation states, tab keyboard navigation) and a one-command desktop release helper.
@@ -1188,6 +1197,7 @@ notable new feature.
 * Public release. [Nick Groenen]
 
 <!-- 变更链接 -->
+[26.9.2]: https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.9.1...v26.9.2
 
 - [v26.8.2](https://github.com/ONEGAYI/obsidian-export-desktop/commits/v26.8.2)
 - [v26.8.3](https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.8.2...v26.8.3)
