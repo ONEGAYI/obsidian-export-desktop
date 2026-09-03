@@ -223,6 +223,7 @@ obsidian-export-desktop/
 │   ├── comments.rs       # Obsidian 注释识别与改写状态机
 │   ├── context.rs        # 笔记解析上下文与嵌套追踪
 │   ├── diagrams.rs       # 图表渲染：渲染器注册表与外部工具编排
+│   ├── excalidraw.rs     # Excalidraw 检测解压与转换
 │   ├── frontmatter.rs    # frontmatter 类型与序列化
 │   ├── lib.rs            # 库核心：Exporter 导出引擎
 │   ├── linkcheck.rs      # 链接完整性检查（check 后端）
@@ -234,6 +235,7 @@ obsidian-export-desktop/
 ├── tests/                  # 集成测试目录
 │   ├── cli_test.rs            # CLI 契约测试（供桌面端依赖）
 │   ├── diagrams_cli_test.rs   # 图表渲染 CLI 集成测试
+│   ├── excalidraw_cli_test.rs # Excalidraw CLI 集成测试
 │   ├── export_test.rs         # 库级导出功能集成测试
 │   ├── postprocessors_test.rs # 后处理器行为测试
 │   └── testdata/              # 测试 vault fixtures
@@ -248,7 +250,7 @@ obsidian-export-desktop/
 │       │   ├── same-filename-different-directories/ # 同名消解黄金输出树
 │       │   ├── single-file/                         # 单文件黄金输出树
 │       │   └── start-at/                            # start-at 黄金输出树
-│       └── input/…   # 测试输入 vault（24 场景子目录）
+│       └── input/…   # 测试输入 vault（31 场景子目录）
 └── towncrier.toml          # towncrier 变更日志配置
 <!-- file-tree:tree:end -->
 ```

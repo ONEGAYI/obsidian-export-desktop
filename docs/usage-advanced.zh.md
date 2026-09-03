@@ -57,6 +57,15 @@ obsidian-export --render-diagrams dot,mermaid,wavedrom,tikz SOURCE TARGET
 | mermaid | `mermaid`、`mmd` | [mermaid-cli](https://github.com/mermaid-js/mermaid-cli)（`mmdc`） | svg、png |
 | wavedrom | `wavedrom` | [wavedrom](https://www.npmjs.com/package/wavedrom) | svg |
 | tikz | `tikz` | 含 `latex` 与 `dvisvgm` 的 TeX 发行版（如 TeX Live） | svg |
+| excalidraw | （整个绘图文件，见下文） | [excalidraw-export](https://www.npmjs.com/package/@moona3k/excalidraw-export) | svg、png |
+
+### Excalidraw 绘图
+
+与上面的围栏渲染器不同，`excalidraw` 转换的是整个绘图文件而非代码块。它识别三种形态：legacy 的 `.excalidraw` 文件（裸 scene JSON）、`.excalidraw.md` 文件（插件默认形态），以及 frontmatter 带 `excalidraw-plugin` 键的普通 `.md` 文件（插件的 Logseq 兼容形态）。
+
+启用该渲染器后，导出预扫描会把导出范围内的每个绘图转换为图片，落位在源文件的输出树位置，命名沿用插件的 Auto-Export 规则：`x.excalidraw.md` → `x.excalidraw.svg`，裸 `.excalidraw` → `x.svg`；`--diagram-format png` 则输出 PNG。指向绘图的嵌入（`![[x.excalidraw.md]]`、`![[x.excalidraw]]`）变为图片引用，普通链接指向转换产物，原绘图文件本身不再导出。vault 中绘图旁的同名 `.svg`/`.png` 伴生文件（如插件 Auto-Export 的旧产物）也会一并跳过，不会覆盖或孤儿化本次渲染的产物。LaTeX 公式与贴入的图片以 data URL 形式内嵌在 scene 中，随转换一并带出，无需额外工具。
+
+失败是降级而非中止：工具无法渲染的绘图同样不导出，其嵌入退化为指向原 vault 路径的普通链接（保留可追溯性）并附一行斜体提示，同时发出警告；导出仍会完成。`--start-at` 范围之外的绘图同样如此处理。注意转换器是 Excalidraw 渲染的独立重新实现（基于 roughjs），复杂绘图可能失真；可用 `--diagram-bin excalidraw-export=/path/to/tool` 换用兼容 `IN [--svg] -o OUT` 调用约定的替代实现。
 
 行为细节：
 

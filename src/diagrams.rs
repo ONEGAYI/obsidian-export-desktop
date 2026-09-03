@@ -99,6 +99,11 @@ pub enum DiagramRenderer {
     WaveDrom,
     /// `TikZ` drawings (`tikz` blocks), rendered with `latex` + `dvisvgm`.
     TikZ,
+    /// Excalidraw drawings (`.excalidraw` / `.excalidraw.md` files, not
+    /// fenced blocks), rendered with `excalidraw-export`. Unlike the fence
+    /// renderers this one converts whole files during the export prescan
+    /// and rewrites references to them; see [`crate::excalidraw`].
+    Excalidraw,
 }
 
 impl DiagramRenderer {
@@ -125,6 +130,7 @@ impl DiagramRenderer {
             "mermaid" => Some(Self::Mermaid),
             "wavedrom" => Some(Self::WaveDrom),
             "tikz" => Some(Self::TikZ),
+            "excalidraw" => Some(Self::Excalidraw),
             _ => None,
         }
     }
@@ -137,6 +143,7 @@ impl DiagramRenderer {
             Self::Mermaid => "mermaid",
             Self::WaveDrom => "wavedrom",
             Self::TikZ => "tikz",
+            Self::Excalidraw => "excalidraw",
         }
     }
 
@@ -148,6 +155,7 @@ impl DiagramRenderer {
             Self::Mermaid => &[ToolName::Mmdc],
             Self::WaveDrom => &[ToolName::WaveDrom],
             Self::TikZ => &[ToolName::Latex, ToolName::Dvisvgm],
+            Self::Excalidraw => &[ToolName::ExcalidrawExport],
         }
     }
 
@@ -156,7 +164,8 @@ impl DiagramRenderer {
     pub const fn supports(self, format: DiagramFormat) -> bool {
         matches!(
             (self, format),
-            (Self::Dot | Self::Mermaid, _) | (Self::WaveDrom | Self::TikZ, DiagramFormat::Svg)
+            (Self::Dot | Self::Mermaid | Self::Excalidraw, _)
+                | (Self::WaveDrom | Self::TikZ, DiagramFormat::Svg)
         )
     }
 
@@ -181,6 +190,7 @@ pub enum ToolName {
     WaveDrom,
     Latex,
     Dvisvgm,
+    ExcalidrawExport,
 }
 
 impl ToolName {
@@ -193,6 +203,7 @@ impl ToolName {
             "wavedrom" => Some(Self::WaveDrom),
             "latex" => Some(Self::Latex),
             "dvisvgm" => Some(Self::Dvisvgm),
+            "excalidraw-export" => Some(Self::ExcalidrawExport),
             _ => None,
         }
     }
@@ -206,6 +217,7 @@ impl ToolName {
             Self::WaveDrom => "wavedrom",
             Self::Latex => "latex",
             Self::Dvisvgm => "dvisvgm",
+            Self::ExcalidrawExport => "excalidraw-export",
         }
     }
 
@@ -219,6 +231,7 @@ impl ToolName {
             Self::WaveDrom => "WAVEDROM",
             Self::Latex => "LATEX",
             Self::Dvisvgm => "DVISVGM",
+            Self::ExcalidrawExport => "EXCALIDRAW_EXPORT",
         }
     }
 
@@ -232,6 +245,7 @@ impl ToolName {
             Self::Latex | Self::Dvisvgm => {
                 "install a TeX distribution with TikZ and dvisvgm (e.g. TeX Live)"
             }
+            Self::ExcalidrawExport => "npm install -g @moona3k/excalidraw-export",
         }
     }
 
@@ -243,6 +257,7 @@ impl ToolName {
             Self::Mmdc => DiagramRenderer::Mermaid,
             Self::WaveDrom => DiagramRenderer::WaveDrom,
             Self::Latex | Self::Dvisvgm => DiagramRenderer::TikZ,
+            Self::ExcalidrawExport => DiagramRenderer::Excalidraw,
         }
     }
 }
@@ -684,6 +699,21 @@ impl DiagramState {
             next_tmp_id: AtomicU32::new(0),
         }
     }
+
+    /// The output format configured for this run.
+    #[must_use]
+    pub const fn format(&self) -> DiagramFormat {
+        self.format
+    }
+
+    /// Claim the next 1-based progress slot (`index/total`), shared with the
+    /// fence-rendering stage so Excalidraw prescan conversions and block
+    /// renders report one combined sequence.
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn claim_render_slot(&self) -> (usize, usize) {
+        let index = self.done.fetch_add(1, Ordering::Relaxed) + 1;
+        (index, self.total)
+    }
 }
 
 /// The outcome of rendering one diagram block.
@@ -891,7 +921,67 @@ fn render_with_tool(
             render_wavedrom(state, &input, tmp_out)
         }
         DiagramRenderer::TikZ => render_tikz(state, source, workdir, tmp_out),
+        // Excalidraw has no fenced-block form (`from_language` never maps to
+        // it), so the fence pipeline cannot reach this arm; whole-file
+        // conversion goes through `render_excalidraw_scene` instead.
+        DiagramRenderer::Excalidraw => unreachable!("excalidraw renders via prescan"),
     }
+}
+
+/// Language tag reported in `ExportEvent::DiagramRender` for Excalidraw
+/// whole-file conversions (the analog of a fence's first info word).
+pub const EXCALIDRAW_LANGUAGE: &str = "excalidraw";
+
+/// Render an extracted Excalidraw scene JSON into `tmp_out` through
+/// `excalidraw-export`.
+///
+/// Invoked by the export prescan for whole drawing files; unlike the fence
+/// renderers the input is already a standalone scene, so it goes to the tool
+/// as a `drawing.excalidraw` file. SVG output needs `--svg`; PNG is the
+/// tool's default, so no format flag is passed in that case.
+fn render_excalidraw_scene_impl(
+    state: &DiagramState,
+    scene_json: &str,
+    format: DiagramFormat,
+    workdir: &Path,
+    tmp_out: &Path,
+) -> Result<(), DiagramRenderError> {
+    let tool = state.toolset.get(ToolName::ExcalidrawExport)?;
+    let input = workdir.join("drawing.excalidraw");
+    fs::write(&input, scene_json).context(IoSnafu {
+        context: String::from("failed to write excalidraw input"),
+    })?;
+    let mut args = vec![input.as_os_str().to_owned()];
+    if format == DiagramFormat::Svg {
+        args.push(OsString::from("--svg"));
+    }
+    args.push(OsString::from("-o"));
+    args.push(tmp_out.as_os_str().to_owned());
+    run_renderer_tool(tool, &args)?;
+    // The tool exits 0 even when it wrote nothing: report the missing output
+    // here rather than letting the asset copy fail with a bare io error.
+    if !tmp_out.is_file() {
+        return Err(DiagramRenderError::OutputMissing {
+            tool: tool.path.clone(),
+            expected: format.as_str(),
+        });
+    }
+    Ok(())
+}
+
+/// Public entry point used by the prescan conversion in
+/// [`crate::excalidraw`]: renders the scene into a caller-provided
+/// temporary file (the caller moves it into the output tree).
+pub fn render_excalidraw_scene(
+    state: &DiagramState,
+    scene_json: &str,
+    format: DiagramFormat,
+    tmp_out: &Path,
+) -> Result<(), DiagramRenderError> {
+    let workdir = tempfile::tempdir().context(IoSnafu {
+        context: String::from("failed to create rendering work directory"),
+    })?;
+    render_excalidraw_scene_impl(state, scene_json, format, workdir.path(), tmp_out)
 }
 
 fn render_dot(

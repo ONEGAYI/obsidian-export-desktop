@@ -9,6 +9,7 @@ pub use serde_yaml;
 mod comments;
 mod context;
 mod diagrams;
+mod excalidraw;
 mod frontmatter;
 mod linkcheck;
 pub mod postprocessors;
@@ -411,6 +412,10 @@ pub struct Exporter<'a> {
     /// is enabled; shared (immutable, with atomics for progress) across
     /// worker threads.
     diagram_state: Option<Arc<DiagramState>>,
+    /// Populated by the prescan when the Excalidraw renderer is enabled:
+    /// per-drawing conversion outcomes, consulted when skipping the source
+    /// file and rewriting references to it.
+    excalidraw_index: Option<Arc<excalidraw::ExcalidrawIndex>>,
     event_callback: Option<ExportEventCallback>,
     postprocessors: Vec<&'a Postprocessor<'a>>,
     embed_postprocessors: Vec<&'a Postprocessor<'a>>,
@@ -477,6 +482,7 @@ impl<'a> Exporter<'a> {
             diagram_format: DiagramFormat::Svg,
             diagram_bins: BTreeMap::new(),
             diagram_state: None,
+            excalidraw_index: None,
             event_callback: None,
             vault_contents: None,
             vault_index: None,
@@ -662,6 +668,13 @@ impl<'a> Exporter<'a> {
         // output file is written so a missing tool fails the export
         // atomically, leaving the destination untouched.
         if !self.diagram_renderers.is_empty() {
+            // The prescan writes real output (Excalidraw conversions), so the
+            // destination checks that normally run later must be pulled ahead
+            // of it: otherwise the conversion's directory creation would
+            // silently satisfy `destination.exists()`/`validate_destination_parent`
+            // and the same command would succeed or fail depending on whether
+            // the vault happens to contain a convertible drawing.
+            self.validate_destination_early()?;
             self.prepare_diagram_state()?;
         }
 
@@ -815,6 +828,24 @@ impl<'a> Exporter<'a> {
         }
     }
 
+    /// Destination precheck pulled ahead of the diagram prescan, which —
+    /// unlike everything before it — writes output files (Excalidraw
+    /// conversions) and would otherwise create directories that make the
+    /// regular checks in [`Exporter::run`] pass by side effect. Mirrors the
+    /// exact conditions of those later checks; they stay in place unchanged.
+    fn validate_destination_early(&self) -> Result<()> {
+        if self.root.is_file() || self.start_at.is_file() {
+            if !self.destination.is_dir() {
+                validate_destination_parent(&self.destination)?;
+            }
+        } else if !self.destination.exists() {
+            return Err(ExportError::PathDoesNotExist {
+                path: self.destination.clone(),
+            });
+        }
+        Ok(())
+    }
+
     /// Count renderable diagram blocks across the export file set and
     /// resolve every external tool they need, populating `diagram_state`.
     ///
@@ -831,11 +862,31 @@ impl<'a> Exporter<'a> {
     /// are skipped here — the main pass reports them as per-file failures,
     /// which keeps a prescan error from failing the whole export.
     #[allow(clippy::arithmetic_side_effects)]
+    #[allow(clippy::too_many_lines)]
     fn prepare_diagram_state(&mut self) -> Result<()> {
         let contents = self
             .vault_contents
             .as_ref()
             .expect("vault_contents is always populated by run() before the diagram prescan");
+
+        let excalidraw_enabled = self
+            .diagram_renderers
+            .contains(&DiagramRenderer::Excalidraw);
+
+        // Excalidraw drawings under the export scope. Files named
+        // `.excalidraw`/`.excalidraw.md` are recognized by path alone;
+        // plain `.md` drawings (the plugin's Logseq-compatible shape) carry
+        // the `excalidraw-plugin` frontmatter key, sniffed from the same
+        // file read the fence prescan already performs.
+        let mut excalidraw_files: Vec<PathBuf> = contents
+            .iter()
+            .filter(|file| {
+                excalidraw_enabled
+                    && file.starts_with(&self.start_at)
+                    && excalidraw::is_excalidraw_path(file)
+            })
+            .cloned()
+            .collect();
 
         let mut total = 0;
         let mut renderers_needed: BTreeSet<DiagramRenderer> = BTreeSet::new();
@@ -850,6 +901,12 @@ impl<'a> Exporter<'a> {
             let Ok(text) = fs::read_to_string(file) else {
                 continue;
             };
+            if excalidraw_enabled
+                && !excalidraw::is_excalidraw_path(file)
+                && excalidraw::markdown_has_excalidraw_frontmatter(&text)
+            {
+                excalidraw_files.push(file.clone());
+            }
             // Blocks inside %% comments only render under Keep: Strip
             // removes them and Convert folds them into an HTML comment,
             // both before the rendering stage. Mirror the pipeline's
@@ -883,6 +940,13 @@ impl<'a> Exporter<'a> {
             };
             total += hit.renderable_blocks;
             renderers_needed.extend(hit.renderers);
+        }
+
+        // Drawings to convert require the export tool like any fenced block
+        // does; with none present the renderer stays satisfied without it.
+        if !excalidraw_files.is_empty() {
+            renderers_needed.insert(DiagramRenderer::Excalidraw);
+            total += excalidraw_files.len();
         }
 
         let toolset = DiagramToolset::resolve(
@@ -924,12 +988,32 @@ impl<'a> Exporter<'a> {
             );
         }
 
-        self.diagram_state = Some(Arc::new(DiagramState::new(
+        let state = Arc::new(DiagramState::new(
             toolset,
             self.diagram_format,
             self.diagram_renderers.clone(),
             total,
-        )));
+        ));
+
+        // Convert the drawings up front, serially: the parallel export pass
+        // then consults a settled index, so references to a drawing whose
+        // conversion failed degrade to plain links instead of pointing at
+        // an image that never lands. The assets go to the source file's
+        // output-tree position with the extension swapped for the run's
+        // diagram format (matching the plugin's Auto-Export naming).
+        if !excalidraw_files.is_empty() {
+            let index = excalidraw::convert_all(
+                &excalidraw_files,
+                &state,
+                &self.destination,
+                &self.start_at,
+                &|event: &ExportEvent| self.emit(event),
+                &|path: &Path, message: String| self.warn(Some(path), message),
+            );
+            self.excalidraw_index = Some(Arc::new(index));
+        }
+
+        self.diagram_state = Some(state);
         Ok(())
     }
 
@@ -972,6 +1056,20 @@ impl<'a> Exporter<'a> {
     }
     #[allow(clippy::shadow_unrelated)]
     fn export_note(&self, src: &Path, dest: &Path) -> Result<bool> {
+        // Excalidraw drawings registered by the prescan never export as
+        // themselves: the converted asset (on success) or nothing (on
+        // failure) takes their place, and references degrade accordingly.
+        // Their asset-twin file (e.g. a stale plugin Auto-Export SVG with the
+        // identical name) is skipped too, so the copy pass cannot overwrite
+        // the freshly rendered asset.
+        if self
+            .excalidraw_index
+            .as_ref()
+            .is_some_and(|index| index.covers(src))
+        {
+            return Ok(false);
+        }
+
         let output_file = match is_markdown_file(src) {
             true => self.parse_and_export_obsidian_note(src, dest),
             false => copy_file(src, dest),
@@ -1425,6 +1523,13 @@ impl<'a> Exporter<'a> {
             .concat());
         }
 
+        // Excalidraw drawings embed as their converted image (or degrade to
+        // a plain link); this must run before the extension match, which
+        // would otherwise transclude `.excalidraw.md` files as notes.
+        if let Some(events) = self.embed_excalidraw_events(note_ref, path, &child_context) {
+            return Ok(events);
+        }
+
         let events = match path.extension().unwrap_or(&no_ext).to_str() {
             Some("md") => {
                 // The section cut runs on the note's own raw events, before its
@@ -1520,6 +1625,131 @@ impl<'a> Exporter<'a> {
             _ => self.make_link_to_file(note_ref, &child_context),
         };
         Ok(events)
+    }
+
+    /// Rewrite an embed whose target is an Excalidraw drawing: the converted
+    /// image on success, a plain link to the original vault file plus an
+    /// italic notice on failure. Returns `None` when the target is not a
+    /// drawing the run should touch (renderer disabled, or an ordinary
+    /// file), leaving the caller's default embed handling in charge.
+    fn embed_excalidraw_events<'b>(
+        &self,
+        note_ref: ObsidianNoteReference<'_>,
+        path: &Path,
+        child_context: &Context,
+    ) -> Option<MarkdownEvents<'b>> {
+        // Without the renderer enabled the export keeps its exact
+        // pre-Excalidraw behavior.
+        if !self
+            .diagram_renderers
+            .contains(&DiagramRenderer::Excalidraw)
+        {
+            return None;
+        }
+
+        let entry = match self.excalidraw_index.as_ref().and_then(|i| i.get(path)) {
+            Some(entry) => entry,
+            None => {
+                // Not in the index: a drawing outside the export scope
+                // (start-at), which the prescan skipped. Sniff the target so
+                // such drawings still degrade instead of transcluding raw
+                // compressed JSON into the host note.
+                let is_drawing = excalidraw::is_excalidraw_path(path)
+                    || (is_markdown_file(path)
+                        && fs::read_to_string(path).is_ok_and(|text| {
+                            excalidraw::markdown_has_excalidraw_frontmatter(&text)
+                        }));
+                if !is_drawing {
+                    return None;
+                }
+                self.warn(
+                    Some(child_context.current_file()),
+                    format!(
+                        "Excalidraw drawing '{}' is outside the export scope; the embed degrades to a plain link\n",
+                        path.display()
+                    ),
+                );
+                excalidraw::ExcalidrawEntry::Failed
+            }
+        };
+
+        match entry {
+            excalidraw::ExcalidrawEntry::Converted => {
+                let index = self.excalidraw_index.as_ref().expect("entry implies index");
+                let asset = index
+                    .asset_path(path)
+                    .expect("a Converted entry always has an asset path");
+                let mut note_ref = note_ref;
+                // Obsidian's size syntax (`![[drawing.excalidraw.md|300]]`)
+                // surfaces as a purely numeric label; like the image branch
+                // below, drop it rather than render a bare number as alt
+                // text.
+                if let Some(label) = &note_ref.label {
+                    if !label.is_empty() && label.chars().all(|c| c.is_ascii_digit()) {
+                        note_ref.label = None;
+                    }
+                }
+                if note_ref.section.is_some() {
+                    self.warn(
+                        Some(child_context.current_file()),
+                        format!(
+                            "Section reference on Excalidraw drawing '{}' has no image equivalent; embedding the whole drawing\n",
+                            path.display()
+                        ),
+                    );
+                    note_ref.section = None;
+                }
+                let events = Self::link_events_for_target(&asset, note_ref, child_context);
+                Some(
+                    events
+                        .into_iter()
+                        .map(|event| match event {
+                            // A link to the asset, turned into an image
+                            // reference, mirroring the image-extension branch.
+                            Event::Start(Tag::Link {
+                                link_type,
+                                dest_url,
+                                title,
+                                id,
+                            }) => Event::Start(Tag::Image {
+                                link_type,
+                                dest_url: CowStr::from(dest_url.into_string()),
+                                title: CowStr::from(title.into_string()),
+                                id: CowStr::from(id.into_string()),
+                            }),
+                            Event::End(TagEnd::Link) => Event::End(TagEnd::Image),
+                            _ => event,
+                        })
+                        .collect(),
+                )
+            }
+            excalidraw::ExcalidrawEntry::Failed => {
+                let mut note_ref = note_ref;
+                // Mirror the Converted branch: a purely numeric size label
+                // would render as a bare number, and a section anchor has no
+                // target to attach to. Degrading references stay as close to
+                // the success shape as possible.
+                if let Some(label) = &note_ref.label {
+                    if !label.is_empty() && label.chars().all(|c| c.is_ascii_digit()) {
+                        note_ref.label = None;
+                    }
+                }
+                note_ref.section = None;
+                // Keep the reference traceable: a plain link to the original
+                // vault path (deliberately not exported), followed by an
+                // italic notice in the document body.
+                let link = Self::link_events_for_target(path, note_ref, child_context);
+                let notice = vec![
+                    Event::SoftBreak,
+                    Event::Start(Tag::Emphasis),
+                    Event::Text(CowStr::from(
+                        "Excalidraw drawing not rendered; the link points at the original vault file",
+                    )),
+                    Event::End(TagEnd::Emphasis),
+                ];
+                Some([link, notice].concat())
+            }
+        }
     }
 
     /// Embed a section or block of the note currently being expanded
@@ -1666,7 +1896,27 @@ impl<'a> Exporter<'a> {
                 Event::End(TagEnd::Emphasis),
             ];
         }
-        let target_file = target_file.unwrap();
+        let mut target_file = target_file.unwrap().clone();
+        // A converted Excalidraw drawing is replaced by its rendered asset:
+        // the source file itself is not part of the export.
+        if let Some(asset) = self
+            .excalidraw_index
+            .as_ref()
+            .and_then(|index| index.asset_path(&target_file))
+        {
+            target_file = asset;
+        }
+        Self::link_events_for_target(&target_file, reference, context)
+    }
+
+    /// Link events pointing at an already-resolved target file. Shared by
+    /// [`Exporter::make_link_to_file`] and the Excalidraw embed rewriting,
+    /// which both resolve their target before formatting the reference.
+    fn link_events_for_target<'c>(
+        target_file: &Path,
+        reference: ObsidianNoteReference<'_>,
+        context: &Context,
+    ) -> MarkdownEvents<'c> {
         // We use root_file() rather than current_file() here to make sure links are always
         // relative to the outer-most note, which is the note which this content is inserted into
         // in case of embedded notes.
