@@ -384,11 +384,69 @@ fn tool_failure_degrades_embeds_to_plain_links() {
         "{:?}",
         warnings
     );
+    // Both the drawing and its stale same-named twin are skipped.
     assert_eq!(
         events_of_type(&events, "file-skipped").len(),
-        1,
+        2,
         "{:?}",
         events
+    );
+}
+
+#[test]
+fn missing_directory_destination_fails_before_any_write() {
+    let mocks = install_mock(MockVariant::Normal);
+    let (_dest, dest_str) = dest_dir();
+    // The destination directory does not exist. Without the early check the
+    // prescan's Excalidraw conversions would create it as a side effect and
+    // the run would then succeed — behavior would flip depending on whether
+    // the vault happens to hold a convertible drawing.
+    let missing = format!("{dest_str}/absent");
+    let out = run_cli_env(
+        &[
+            "--progress",
+            "json",
+            "--render-diagrams",
+            "excalidraw",
+            &format!("{INPUT}/excalidraw"),
+            &missing,
+        ],
+        &mocks.envs,
+    );
+    assert_ne!(out.code, Some(0), "stderr: {}", out.stderr);
+    assert!(
+        !Path::new(&missing).exists(),
+        "the prescan must not create the destination"
+    );
+    assert!(
+        !out.stdout.contains("\"start\""),
+        "failure must precede the start event: {}",
+        out.stdout
+    );
+}
+
+#[test]
+fn single_file_missing_destination_parent_fails_before_any_write() {
+    let mocks = install_mock(MockVariant::Normal);
+    let (_dest, dest_str) = dest_dir();
+    // Single-file export with a file destination whose parent directory does
+    // not exist: the prescan must not create the parent chain either.
+    let missing = format!("{dest_str}/no/such/dir/out.md");
+    let out = run_cli_env(
+        &[
+            "--progress",
+            "json",
+            "--render-diagrams",
+            "excalidraw",
+            &format!("{INPUT}/excalidraw/glitch.excalidraw.md"),
+            &missing,
+        ],
+        &mocks.envs,
+    );
+    assert_ne!(out.code, Some(0), "stderr: {}", out.stderr);
+    assert!(
+        !Path::new(&format!("{dest_str}/no")).exists(),
+        "the prescan must not create the destination parent chain"
     );
 }
 

@@ -668,6 +668,13 @@ impl<'a> Exporter<'a> {
         // output file is written so a missing tool fails the export
         // atomically, leaving the destination untouched.
         if !self.diagram_renderers.is_empty() {
+            // The prescan writes real output (Excalidraw conversions), so the
+            // destination checks that normally run later must be pulled ahead
+            // of it: otherwise the conversion's directory creation would
+            // silently satisfy `destination.exists()`/`validate_destination_parent`
+            // and the same command would succeed or fail depending on whether
+            // the vault happens to contain a convertible drawing.
+            self.validate_destination_early()?;
             self.prepare_diagram_state()?;
         }
 
@@ -819,6 +826,24 @@ impl<'a> Exporter<'a> {
         } else {
             Err(ExportError::ExportCompletedWithErrors { errors: failures })
         }
+    }
+
+    /// Destination precheck pulled ahead of the diagram prescan, which —
+    /// unlike everything before it — writes output files (Excalidraw
+    /// conversions) and would otherwise create directories that make the
+    /// regular checks in [`Exporter::run`] pass by side effect. Mirrors the
+    /// exact conditions of those later checks; they stay in place unchanged.
+    fn validate_destination_early(&self) -> Result<()> {
+        if self.root.is_file() || self.start_at.is_file() {
+            if !self.destination.is_dir() {
+                validate_destination_parent(&self.destination)?;
+            }
+        } else if !self.destination.exists() {
+            return Err(ExportError::PathDoesNotExist {
+                path: self.destination.clone(),
+            });
+        }
+        Ok(())
     }
 
     /// Count renderable diagram blocks across the export file set and

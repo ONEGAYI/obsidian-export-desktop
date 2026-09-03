@@ -287,7 +287,8 @@ pub fn is_excalidraw_path(path: &Path) -> bool {
 pub fn markdown_has_excalidraw_frontmatter(text: &str) -> bool {
     let mut lines = text.lines();
     match lines.next() {
-        Some(first) if first.trim_end() == "---" => (),
+        // A UTF-8 BOM may precede the opening fence.
+        Some(first) if first.trim_start_matches('\u{FEFF}').trim_end() == "---" => (),
         _ => return false,
     }
     for line in lines {
@@ -635,6 +636,10 @@ mod tests {
         // No frontmatter at all.
         assert!(!markdown_has_excalidraw_frontmatter(
             "excalidraw-plugin: parsed\n"
+        ));
+        // A UTF-8 BOM before the opening fence still counts.
+        assert!(markdown_has_excalidraw_frontmatter(
+            "\u{FEFF}---\nexcalidraw-plugin: parsed\n---\n"
         ));
     }
 }
