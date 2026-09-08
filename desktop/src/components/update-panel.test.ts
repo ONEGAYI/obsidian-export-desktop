@@ -277,6 +277,10 @@ describe("update proxy preference", () => {
 });
 
 describe("normalizeUpdateProxy (input normalization)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("parses ports leniently, rejecting invalid ones", () => {
     // number inputs may feed exponent notation
     expect(normalizeUpdateProxy("", "1e3")).toEqual({ host: null, port: 1000 });
@@ -318,6 +322,5 @@ describe("normalizeUpdateProxy (input normalization)", () => {
       saveUpdateProxy(config);
       expect(loadUpdateProxy()).toEqual(config);
     }
-    vi.unstubAllGlobals();
   });
 });
