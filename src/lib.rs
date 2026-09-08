@@ -43,13 +43,16 @@ use snafu::{ResultExt, Snafu};
 use unicode_normalization::UnicodeNormalization;
 pub use update::{
     check_update,
+    check_update_with_fallback,
     current_target_triple,
+    normalize_proxy_url,
     validate_asset_name,
     write_atomic_bytes,
     AssetTarget,
     DownloadProgress,
     DownloadProgressReporter,
     ReleaseAsset,
+    UpdateChannel,
     UpdateClient,
     UpdateError,
     UpdateStatus,

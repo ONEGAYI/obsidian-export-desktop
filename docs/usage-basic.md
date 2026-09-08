@@ -82,6 +82,9 @@ obsidian-export update
 Add `--download` to also fetch the artifact — the CLI binary by default, or the Windows desktop installer with `--asset desktop` — into a temporary downloads directory (override with `--output`).
 The check exits 0 either way; scripts can parse the machine-readable stream of `--progress json` to act on the result.
 
+Pass `--proxy host:port` (or `http://host:port`) to route updates through an HTTP proxy: the check goes **direct first** and retries through the proxy only when the direct connection fails (anonymous GitHub API quota is per-IP, and shared proxy exits burn through theirs quickly — direct answers never spend it); downloads always use the proxy.
+Proxy environment variables are deliberately not read; only an explicit `--proxy` applies.
+
 ## Character encodings
 
 At present, UTF-8 character encoding is assumed for all note text as well as filenames.

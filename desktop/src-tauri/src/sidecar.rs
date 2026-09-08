@@ -367,10 +367,7 @@ fn build_args(options: &ExportOptions, source: &str, target: &str) -> Vec<String
         // Blank strings count as unset, same rule as the scalar string
         // options above.
         if !path.trim().is_empty() {
-            args.extend([
-                "--diagram-bin".to_owned(),
-                format!("{tool}={path}"),
-            ]);
+            args.extend(["--diagram-bin".to_owned(), format!("{tool}={path}")]);
         }
     }
     args.push(source.to_owned());
@@ -819,8 +816,14 @@ pub fn update_downloads_dir() -> PathBuf {
 
 /// Arguments for the sidecar's `update` subcommand. The desktop always
 /// selects the `desktop` asset target (NSIS setup exe); the CLI picks its
-/// own platform archive when run manually.
-fn build_update_args(action: UpdateAction, output_dir: Option<&str>) -> Vec<String> {
+/// own platform archive when run manually. `proxy` (when set) forwards the
+/// user's HTTP proxy as `--proxy`; the CLI then checks direct-first with a
+/// single proxy retry and downloads through the proxy.
+fn build_update_args(
+    action: UpdateAction,
+    output_dir: Option<&str>,
+    proxy: Option<&str>,
+) -> Vec<String> {
     let mut args = vec![
         "update".to_owned(),
         "--progress".to_owned(),
@@ -834,7 +837,26 @@ fn build_update_args(action: UpdateAction, output_dir: Option<&str>) -> Vec<Stri
             args.extend(["--output".to_owned(), dir.to_owned()]);
         }
     }
+    if let Some(proxy) = proxy {
+        args.extend(["--proxy".to_owned(), proxy.to_owned()]);
+    }
     args
+}
+
+/// Minimal sanity check on the proxy string the frontend assembled: a
+/// `host:port` shape has no whitespace or control characters. The CLI's
+/// `normalize_proxy_url` is the authoritative validator (a bad value exits
+/// the sidecar with code 2, surfaced as an update-exit); rejecting here
+/// merely fails fast in the invoke instead of spawning a doomed process —
+/// never silently, so a misconfigured proxy can't degrade to a quiet
+/// direct connection.
+fn validate_update_proxy(value: &str) -> Result<(), String> {
+    if value.trim().is_empty() || value.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Err(format!(
+            "invalid update proxy {value:?}: expected host:port (no spaces or control characters)"
+        ));
+    }
+    Ok(())
 }
 
 /// Start an update action (`obsidian-export update`). Emits `update-event`
@@ -853,6 +875,7 @@ fn build_update_args(action: UpdateAction, output_dir: Option<&str>) -> Vec<Stri
 fn spawn_update_sidecar(
     app: &AppHandle,
     action: UpdateAction,
+    proxy: Option<&str>,
 ) -> Result<
     (
         tauri::async_runtime::Receiver<CommandEvent>,
@@ -902,6 +925,7 @@ fn spawn_update_sidecar(
         } else {
             Some(&output_dir)
         },
+        proxy,
     );
     let (rx, child) = app
         .shell()
@@ -918,6 +942,7 @@ pub async fn start_update(
     app: AppHandle,
     state: State<'_, ExportState>,
     action: UpdateAction,
+    proxy: Option<String>,
 ) -> Result<String, String> {
     let who = match action {
         UpdateAction::Check => OccupiedBy::UpdateCheck,
@@ -925,7 +950,18 @@ pub async fn start_update(
     };
     claim_slot(&state, who)?;
 
-    let spawned = spawn_update_sidecar(&app, action);
+    let proxy = match proxy.as_deref() {
+        Some(value) => match validate_update_proxy(value) {
+            Ok(()) => Some(value),
+            Err(err) => {
+                release_claim(&state, who);
+                return Err(err);
+            }
+        },
+        None => None,
+    };
+
+    let spawned = spawn_update_sidecar(&app, action, proxy);
     let (rx, child, output_dir) = match spawned {
         Ok(spawned) => spawned,
         Err(err) => {
@@ -1372,7 +1408,7 @@ mod tests {
     #[test]
     fn build_update_args_check_and_download() {
         assert_eq!(
-            build_update_args(UpdateAction::Check, None),
+            build_update_args(UpdateAction::Check, None, None),
             vec![
                 "update".to_owned(),
                 "--progress".to_owned(),
@@ -1382,7 +1418,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            build_update_args(UpdateAction::Download, Some(r"C:\tmp\dl")),
+            build_update_args(UpdateAction::Download, Some(r"C:\tmp\dl"), None),
             vec![
                 "update".to_owned(),
                 "--progress".to_owned(),
@@ -1394,6 +1430,54 @@ mod tests {
                 r"C:\tmp\dl".to_owned(),
             ]
         );
+    }
+
+    #[test]
+    fn build_update_args_appends_proxy_last() {
+        // The proxy rides along for both actions; full validation of the
+        // value lives in the CLI (normalize_proxy_url), the args layer only
+        // forwards it verbatim.
+        assert_eq!(
+            build_update_args(UpdateAction::Check, None, Some("127.0.0.1:7890")),
+            vec![
+                "update".to_owned(),
+                "--progress".to_owned(),
+                "json".to_owned(),
+                "--asset".to_owned(),
+                "desktop".to_owned(),
+                "--proxy".to_owned(),
+                "127.0.0.1:7890".to_owned(),
+            ]
+        );
+        assert_eq!(
+            build_update_args(UpdateAction::Download, Some(r"C:\tmp\dl"), Some("h:1")),
+            vec![
+                "update".to_owned(),
+                "--progress".to_owned(),
+                "json".to_owned(),
+                "--asset".to_owned(),
+                "desktop".to_owned(),
+                "--download".to_owned(),
+                "--output".to_owned(),
+                r"C:\tmp\dl".to_owned(),
+                "--proxy".to_owned(),
+                "h:1".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn validate_update_proxy_contract() {
+        assert!(validate_update_proxy("127.0.0.1:7890").is_ok());
+        assert!(validate_update_proxy("proxy.lan:3128").is_ok());
+        // Whitespace / control characters / blank fail fast in the invoke
+        // (the CLI would exit 2 anyway; this just never spawns the doomed
+        // process). Deeper shape rules (scheme, port range) stay in the CLI.
+        assert!(validate_update_proxy("").is_err());
+        assert!(validate_update_proxy("   ").is_err());
+        assert!(validate_update_proxy("a b:1").is_err());
+        assert!(validate_update_proxy("h:1\n").is_err());
+        assert!(validate_update_proxy("h:\u{7}1").is_err());
     }
 
     #[test]

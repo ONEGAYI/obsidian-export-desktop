@@ -82,6 +82,9 @@ obsidian-export update
 追加 `--download` 可同时下载产物——默认为 CLI 二进制，加 `--asset desktop` 则下载 Windows 桌面端安装包——落盘到临时下载目录（可用 `--output` 改写）。
 无论有无更新，检查本身退出码均为 0；脚本可解析 `--progress json` 的机器可读事件流来处理结果。
 
+传入 `--proxy host:port`（或 `http://host:port`）可让更新走 HTTP 代理：检测**优先直连**，仅当直连失败时经代理重试一次（匿名 GitHub API 限额按 IP 计，共享代理出口的免费额度很容易被耗尽——能直连拿到就绝不消耗它）；下载则恒经代理。
+代理环境变量刻意不读取，只有显式 `--proxy` 生效。
+
 ## 字符编码
 
 目前，所有笔记正文与文件名都假定为 UTF-8 编码。

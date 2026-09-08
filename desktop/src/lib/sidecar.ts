@@ -65,6 +65,9 @@ export type UpdateEvent =
   | {
       type: "update-result";
       outcome: UpdateOutcome;
+      /** Which connection answered ("direct" | "proxied"); null = an older
+       * sidecar that doesn't report the channel. */
+      channel: string | null;
       version: string | null;
       htmlUrl: string | null;
       notes: string | null;
@@ -124,9 +127,14 @@ export function cancelExport(): Promise<boolean> {
  * Start an update action on the sidecar. `check` only queries the latest
  * release; `download` additionally saves the NSIS installer into the
  * downloads dir (created by the backend) and resolves to that directory.
+ * `proxy` (host:port) makes the check go direct-first with a single proxy
+ * retry and downloads go through the proxy; null stays fully direct.
  */
-export function startUpdate(action: "check" | "download"): Promise<string> {
-  return invoke<string>("start_update", { action });
+export function startUpdate(
+  action: "check" | "download",
+  proxy: string | null,
+): Promise<string> {
+  return invoke<string>("start_update", { action, proxy });
 }
 
 /** Launch the downloaded installer; the app exits right after (see Rust side). */

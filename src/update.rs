@@ -6,8 +6,12 @@
 //! 24h 节流）与安装动作（运行 NSIS 向导）留在端侧。
 //!
 //! 通道说明：release 元数据与安装包字节都走 [`UpdateClient`] 抽象——
-//! 检测用 10s 短超时 agent，下载用独立的长超时 agent（15s 连接 + 600s
-//! 总超时），两者都由 [`UreqUpdateClient`] 提供；代理从环境变量读取。
+//! 检测用 10s 短超时 agent（5s 连接超时加速不可达时的回退），下载用
+//! 独立的长超时 agent（15s 连接 + 600s 总超时），两者都由
+//! [`UreqUpdateClient`] 提供。显式传入代理地址时另建全代理客户端，
+//! 检测按「直连优先、失败经代理重试一次」编排（见
+//! [`check_update_with_fallback`]）；不读任何代理环境变量（ureq 的
+//! `proxy-from-env` feature 刻意未启用，直连通道必须保持纯净）。
 //!
 //! 版本语义：本项目用 CalVer（如 `26.8.4`），与三段数字比较器天然
 //! 兼容；tag 解析失败按「无更新」处理，宁可不提示也不误报。
@@ -71,6 +75,21 @@ pub enum UpdateStatus {
         /// 选中的资产。
         asset: Option<ReleaseAsset>,
     },
+}
+
+/// 检测应答实际使用的通道，随 [`check_update_with_fallback`] 的结果
+/// 透出（端侧展示「经代理」标注，排查代理故障用）。
+///
+/// `#[non_exhaustive]`：新增变体时须同步更新 CLI 的 `channel_str` 映射
+/// 与 `update-result` 事件的 `channel` 字段契约（当前未来变体在 CLI
+/// 侧按 `direct` 降级展示）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum UpdateChannel {
+    /// 直连应答（未配代理，或直连一次成功）。
+    Direct,
+    /// 代理通道应答（直连失败后回退成功）。
+    Proxied,
 }
 
 /// release 附带的可下载资产。
@@ -348,6 +367,31 @@ pub fn check_update(
     }
 }
 
+/// 双通道检测：先直连，直连成功（含无 release / 已最新）即用且**不发出
+/// 代理请求**；直连任何失败（网络/超时/限流/解析——直连被劫持时既可能
+/// 表现为网络错、也可能是 200 + 烂 JSON）且配置了代理时经代理重试一次，
+/// 代理结果（无论成败）为最终结果。未配置代理时直连错误即最终错误
+/// （单通道现状不变）。
+///
+/// 动机：匿名 GitHub API 按 IP 限额（60 次/小时），代理出口是共享 IP、
+/// 免费查询额度易被耗尽——能直连拿到就绝不消耗代理额度。必须串行而非
+/// 并行双发：并行必然消耗代理共享额度，违背目的。
+pub fn check_update_with_fallback(
+    direct: &dyn UpdateClient,
+    proxied: Option<&dyn UpdateClient>,
+    target: AssetTarget,
+) -> Result<(UpdateStatus, UpdateChannel), UpdateError> {
+    match check_update(direct, target) {
+        Ok(status) => Ok((status, UpdateChannel::Direct)),
+        // 直连错误不透出：有代理时经代理重试、以代理结果（无论成败）
+        // 为最终结果；无代理时直连错误才是最终错误。default 值
+        // `Err(direct_err)` 是纯构造，map_or 的急切求值无副作用。
+        Err(direct_err) => proxied.map_or(Err(direct_err), |client| {
+            check_update(client, target).map(|status| (status, UpdateChannel::Proxied))
+        }),
+    }
+}
+
 /// 提取 GitHub 错误响应体的 `message` 字段；非 JSON / 无 message / 空白
 /// → `None`。按字符截断到 200 并加省略号，防异常响应塞超长文案刷屏。
 fn extract_error_message(body: &str) -> Option<String> {
@@ -371,13 +415,61 @@ fn extract_error_message(body: &str) -> Option<String> {
 
 // ---- 下载 -----------------------------------------------------------------
 
+/// 把用户输入的代理地址收口为 `http://host:port` 完整形态。
+///
+/// 接受裸 `host:port`（本机 Clash/V2Ray 场景，自动补 `http://`）与带
+/// `http://` 前缀两种写法。显式拒绝的形态及理由：
+/// - `https://` / `socks*://`：ureq 2.x 前者解析直接失败、后者需未启 用的 `socks-proxy`
+///   feature——都会退化成运行期网络错误而非配置 错误，在此给出明确报错；
+/// - host 非常规域名字符集（ASCII 字母数字与 `.` `-` 之外的字符， 如 `#` `?`
+///   `_`、Unicode、纯数字）：DNS 解析必然失败，同样按配 置错拒绝（本机代理场景 `127.0.0.1` /
+///   `localhost` / `xxx.lan` 全在白名单内）；
+/// - 缺端口：ureq 会默认 80，但用户几乎必是漏敲了自定义端口；
+/// - 认证（`user:pass@`）、IPv6 字面量、路径、空白与控制字符：超出 「本机 HTTP
+///   代理端口」的目标场景，不支持就明确拒绝。
+pub fn normalize_proxy_url(input: &str) -> Result<String, String> {
+    const MSG: &str = "expected host:port or http://host:port (HTTP proxy, port 1-65535)";
+    let trimmed = input.trim();
+    if trimmed.is_empty() || trimmed.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Err(MSG.to_owned());
+    }
+    let rest = if let Some(r) = trimmed.strip_prefix("http://") {
+        r
+    } else if trimmed.contains("://") {
+        // https/socks 等其余 scheme 一律在此拒绝（见函数文档）
+        return Err(MSG.to_owned());
+    } else {
+        trimmed
+    };
+    let Some((host, port)) = rest.rsplit_once(':') else {
+        return Err(MSG.to_owned());
+    };
+    // parse().ok().ok_or_else() 而非 map_err(|_|)：wildcard 会触发
+    // map_err_ignore restriction lint。
+    let port_num: u32 = port.parse().ok().ok_or_else(|| MSG.to_owned())?;
+    if !(1..=65535).contains(&port_num) {
+        return Err(MSG.to_owned());
+    }
+    if host.is_empty()
+        || !host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+        || host.chars().all(|c| c.is_ascii_digit())
+    {
+        return Err(MSG.to_owned());
+    }
+    Ok(format!("http://{host}:{port}"))
+}
+
 /// ureq 实现的更新通道。
 ///
-/// 要点：检测走 10s 总超时 agent（不可达快速失败）；下载走独立 agent
+/// 要点：检测走 5s 连接 + 10s 总超时 agent（直连不可达时快速失败，加速
+/// 上层 [`check_update_with_fallback`] 的代理回退）；下载走独立 agent
 /// （15s 连接超时 + 600s 总超时，302 默认跟随——资产 URL 会跳转到
-/// `objects.githubusercontent.com`）；代理从环境变量读取（ureq 默认
-/// `Proxy::try_from_system`）；512MB 上限（Content-Length 预检 + 实际
-/// 字节数复检）。
+/// `objects.githubusercontent.com`）；512MB 上限（Content-Length 预检 +
+/// 实际字节数复检）。`new()` 恒直连（ureq 的 `proxy-from-env` feature
+/// 未启用，环境变量代理从不生效，直连通道因此天然纯净）；要经代理用
+/// [`UreqUpdateClient::new_with_proxy`]。
 pub struct UreqUpdateClient {
     check_agent: ureq::Agent,
     download_agent: ureq::Agent,
@@ -395,6 +487,7 @@ impl UreqUpdateClient {
         let ua = format!("obsidian-export/{VERSION}");
         Self {
             check_agent: ureq::AgentBuilder::new()
+                .timeout_connect(Duration::from_secs(5))
                 .timeout(Duration::from_secs(10))
                 .user_agent(&ua)
                 .build(),
@@ -404,6 +497,30 @@ impl UreqUpdateClient {
                 .user_agent(&ua)
                 .build(),
         }
+    }
+
+    /// 全代理变体：检测与下载的每个请求都经 `proxy_url` 的 HTTP 代理
+    /// （CONNECT 隧道）。输入先经 [`normalize_proxy_url`] 收口，非法
+    /// 形态在此报错而非静默直连（用户以为走了代理实际裸连是不可接受
+    /// 的）。
+    pub fn new_with_proxy(proxy_url: &str) -> Result<Self, String> {
+        let url = normalize_proxy_url(proxy_url)?;
+        let proxy = ureq::Proxy::new(&url).map_err(|e| e.to_string())?;
+        let ua = format!("obsidian-export/{VERSION}");
+        Ok(Self {
+            check_agent: ureq::AgentBuilder::new()
+                .timeout_connect(Duration::from_secs(5))
+                .timeout(Duration::from_secs(10))
+                .user_agent(&ua)
+                .proxy(proxy.clone())
+                .build(),
+            download_agent: ureq::AgentBuilder::new()
+                .timeout_connect(Duration::from_secs(15))
+                .timeout(Duration::from_secs(600))
+                .user_agent(&ua)
+                .proxy(proxy)
+                .build(),
+        })
     }
 }
 
@@ -974,6 +1091,81 @@ mod tests {
         assert!(chars.iter().all(|c| *c != '\u{FFFD}'));
     }
 
+    // ---- 双通道检测（直连优先、失败经代理回退一次） ----
+
+    /// 契约：直连成功（任何 Ok 形态）即用，代理通道零请求——并行双发
+    /// 或「直连成功也试代理」都必然消耗代理共享额度，违背功能目的。
+    #[test]
+    fn fallback_direct_success_skips_proxied_channel() {
+        let direct = MockClient::ok(&release_json());
+        let proxied = MockClient::ok(&release_json());
+        let (status, channel) =
+            check_update_with_fallback(&direct, Some(&proxied), AssetTarget::Cli).unwrap();
+        match status {
+            UpdateStatus::Available { version, .. } => assert_eq!(version, "99.0.0"),
+            other => panic!("应为 Available：{:?}", other),
+        }
+        assert_eq!(channel, UpdateChannel::Direct);
+        assert_eq!(direct.captured.lock().unwrap().len(), 1);
+        assert!(
+            proxied.captured.lock().unwrap().is_empty(),
+            "直连成功绝不发代理请求"
+        );
+    }
+
+    /// 契约：直连任何 Err 形态（网络错 / HTTP 限流 / 200+烂 JSON——直连
+    /// 被劫持的多种表现）都触发代理重试，且结果标记为 Proxied。
+    #[test]
+    fn fallback_retries_via_proxy_on_each_direct_error_kind() {
+        for direct in [
+            MockClient::failing(),
+            MockClient::status_with_body(403, r#"{"message":"rate limited"}"#),
+            MockClient::ok("not json"),
+        ] {
+            let proxied = MockClient::ok(&release_json());
+            let (status, channel) =
+                check_update_with_fallback(&direct, Some(&proxied), AssetTarget::Cli).unwrap();
+            assert_eq!(channel, UpdateChannel::Proxied);
+            match status {
+                UpdateStatus::Available { version, .. } => assert_eq!(version, "99.0.0"),
+                other => panic!("代理重试应成功：{:?}", other),
+            }
+            assert_eq!(proxied.captured.lock().unwrap().len(), 1);
+        }
+    }
+
+    /// 契约：未配代理时直连错误即最终错误（单通道现状不变）。
+    #[test]
+    fn fallback_without_proxy_reports_direct_error() {
+        for direct in [
+            MockClient::failing(),
+            MockClient::status_with_body(403, r#"{"message":"rate limited"}"#),
+            MockClient::ok("not json"),
+        ] {
+            let expected = check_update(&direct, AssetTarget::Cli)
+                .unwrap_err()
+                .full_message();
+            let actual = check_update_with_fallback(&direct, None, AssetTarget::Cli)
+                .unwrap_err()
+                .full_message();
+            assert_eq!(actual, expected, "无代理时直连错误原样透出");
+        }
+    }
+
+    /// 契约：双失败时以代理通道（最后一次尝试）的错误为最终结果。
+    #[test]
+    fn fallback_both_fail_reports_proxied_error() {
+        let direct = MockClient::failing();
+        let proxied = MockClient::status_with_body(403, r#"{"message":"proxy-side failure"}"#);
+        let err =
+            check_update_with_fallback(&direct, Some(&proxied), AssetTarget::Cli).unwrap_err();
+        assert!(
+            err.full_message().contains("proxy-side failure"),
+            "最终错误应来自代理通道：{}",
+            err.full_message()
+        );
+    }
+
     // ---- ureq 下载（本地 TCP 服务覆盖进度与字节闭环） ----
 
     #[test]
@@ -1111,6 +1303,79 @@ DATA",
     fn speed_uses_elapsed_time_and_handles_zero_duration() {
         assert_eq!(bytes_per_second(1_500, Duration::from_millis(500)), 3_000);
         assert_eq!(bytes_per_second(1_500, Duration::ZERO), 0);
+    }
+
+    // ---- 代理 URL 收口与客户端构造 ----
+
+    #[test]
+    fn normalize_proxy_url_accepts_bare_and_prefixed_host_port() {
+        assert_eq!(
+            normalize_proxy_url("127.0.0.1:7890").unwrap(),
+            "http://127.0.0.1:7890",
+            "裸 host:port 自动补 scheme"
+        );
+        assert_eq!(
+            normalize_proxy_url("  127.0.0.1:7890  ").unwrap(),
+            "http://127.0.0.1:7890",
+            "首尾空白剥除"
+        );
+        assert_eq!(
+            normalize_proxy_url("http://127.0.0.1:7890").unwrap(),
+            "http://127.0.0.1:7890"
+        );
+        assert_eq!(
+            normalize_proxy_url("localhost:8080").unwrap(),
+            "http://localhost:8080"
+        );
+    }
+
+    #[test]
+    fn normalize_proxy_url_rejects_unsupported_and_malformed() {
+        for bad in [
+            "",
+            "   ",
+            "127.0.0.1",               // 缺端口（ureq 默认 80，几乎必是漏敲）
+            "socks5://127.0.0.1:1080", // SOCKS 需未启用的 feature
+            "https://127.0.0.1:7890",  // ureq 2.x 不支持 https 代理 scheme
+            "127.0.0.1:0",
+            "127.0.0.1:65536",
+            "127.0.0.1:abc",
+            "[::1]:7890",    // IPv6 字面量
+            "user:pass@h:1", // 认证形态
+            "a b:1",         // 内部空白
+            "h:1/path",      // 带路径
+            // host 非常规域名字符集：DNS 必然失败，按配置错拒绝而非
+            // 退化成「瞬时网络错 + 建议重试」（与拒 socks 同一标准）
+            "a#b:1",    // URL 结构字符
+            "a?b:1",    // URL 结构字符
+            "_:1",      // 下划线非常规域名字符
+            "123:8080", // 纯数字 host（几乎必是漏敲了 IP 的点）
+        ] {
+            assert!(normalize_proxy_url(bad).is_err(), "{:?} 应被拒绝", bad);
+        }
+    }
+
+    /// 构造层面：合法输入可建全代理客户端，非法输入报错而非静默直连。
+    /// 真实经代理的请求行为（CONNECT 隧道 + TLS）无法在本地 mock 中
+    /// 模拟，回退编排已由上面的 trait mock 测试覆盖。
+    #[test]
+    fn ureq_client_with_proxy_builds_or_rejects() {
+        // 断言风格与下方 is_err 循环保持同构（带格式参数），否则
+        // assertions_on_result_states 会对 is_ok 断言报警。
+        for good in ["127.0.0.1:7890", "http://proxy.lan:3128"] {
+            assert!(
+                UreqUpdateClient::new_with_proxy(good).is_ok(),
+                "{:?} 应可构造",
+                good
+            );
+        }
+        for bad in ["", "socks5://x:1", "127.0.0.1", "h:99999"] {
+            assert!(
+                UreqUpdateClient::new_with_proxy(bad).is_err(),
+                "{:?} 应构造失败",
+                bad
+            );
+        }
     }
 
     // ---- 落盘与资产名校验 ----

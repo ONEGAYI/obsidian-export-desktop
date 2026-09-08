@@ -90,6 +90,12 @@ export const en: Dict = {
     updateAutoCheckTitle: "Check for updates automatically",
     updateAutoCheckHint:
       "Check on launch (at most once a day)",
+    updateProxyTitle: "Update network proxy",
+    updateProxyHostLabel: "Proxy host",
+    updateProxyPortLabel: "Proxy port",
+    updateProxyHint:
+      "Update checks go direct first and retry through this HTTP proxy on failure; downloads use it. Enter your local proxy port (e.g. 7890); leave empty to stay direct, empty host means 127.0.0.1",
+    updateChannelProxied: "Answered via proxy (direct connection failed)",
     frontmatterLabel: "Frontmatter handling",
     missingSectionLabel: "Missing section handling",
     commentsLabel: "Obsidian comment handling (%% fences)",

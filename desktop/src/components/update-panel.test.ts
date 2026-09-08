@@ -4,10 +4,15 @@ import type { UpdateEvent, UpdateExit } from "@/lib/sidecar";
 
 import {
   EMPTY_UPDATE,
+  EMPTY_UPDATE_PROXY,
   applyUpdateEvents,
   applyUpdateExit,
   dueUpdateCheck,
+  loadUpdateProxy,
   markUpdateChecked,
+  normalizeUpdateProxy,
+  saveUpdateProxy,
+  updateProxyArg,
 } from "./UpdatePanel";
 
 const exit = (code: number | null): UpdateExit => ({ code, stderr: "" });
@@ -15,6 +20,7 @@ const exit = (code: number | null): UpdateExit => ({ code, stderr: "" });
 const availableResult: UpdateEvent = {
   type: "update-result",
   outcome: "available",
+  channel: "direct",
   version: "26.9.0",
   htmlUrl: "https://example.com/released",
   notes: "release notes",
@@ -39,10 +45,43 @@ describe("applyUpdateEvents", () => {
     const next = applyUpdateEvents(dirty, [availableResult]);
     expect(next.phase).toBe("result");
     expect(next.version).toBe("26.9.0");
+    expect(next.channel).toBe("direct");
     expect(next.exit).toBeNull();
     expect(next.streamErrors).toEqual([]);
     expect(next.invokeError).toBeNull();
     expect(next.downloadPath).toBeNull();
+  });
+
+  it("keeps the channel through a mid-download re-check and updates it", () => {
+    const downloading = {
+      ...EMPTY_UPDATE,
+      phase: "downloading" as const,
+      channel: "direct",
+      downloadedBytes: 100,
+    };
+    const proxied: UpdateEvent = {
+      ...availableResult,
+      channel: "proxied",
+    };
+    const next = applyUpdateEvents(downloading, [proxied]);
+    expect(next.phase).toBe("downloading");
+    expect(next.channel).toBe("proxied");
+    expect(next.downloadedBytes).toBe(100);
+  });
+
+  it("folds a missing channel (older sidecar) to null", () => {
+    const legacy: UpdateEvent = {
+      type: "update-result",
+      outcome: "up-to-date",
+      channel: null,
+      version: null,
+      htmlUrl: null,
+      notes: null,
+      assetName: null,
+      assetSize: null,
+    };
+    const next = applyUpdateEvents(EMPTY_UPDATE, [legacy]);
+    expect(next.channel).toBeNull();
   });
 
   it("keeps downloading when a mid-download re-check still finds the asset", () => {
@@ -70,6 +109,7 @@ describe("applyUpdateEvents", () => {
     const gone: UpdateEvent = {
       type: "update-result",
       outcome: "up-to-date",
+      channel: "direct",
       version: null,
       htmlUrl: null,
       notes: null,
@@ -184,5 +224,103 @@ describe("update check throttle", () => {
     expect(store.get("obsidian-export-update-state")).toBe(
       '{"lastCheck":1000}',
     );
+  });
+});
+
+describe("update proxy preference", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("is unconfigured by default and on a corrupted payload", () => {
+    stubStorage();
+    expect(loadUpdateProxy()).toEqual(EMPTY_UPDATE_PROXY);
+    stubStorage({ "obsidian-export-update-proxy": "not json" });
+    expect(loadUpdateProxy()).toEqual(EMPTY_UPDATE_PROXY);
+  });
+
+  it("round-trips through save and load", () => {
+    stubStorage();
+    saveUpdateProxy({ host: "proxy.lan", port: 3128 });
+    expect(loadUpdateProxy()).toEqual({ host: "proxy.lan", port: 3128 });
+    saveUpdateProxy({ host: null, port: 7897 });
+    expect(loadUpdateProxy()).toEqual({ host: null, port: 7897 });
+  });
+
+  it("degrades invalid hand-edited fields to unset", () => {
+    stubStorage({
+      // port out of range, host with whitespace (a hand-edited payload must
+      // not feed garbage to the sidecar)
+      "obsidian-export-update-proxy": '{"host":"a b","port":99999}',
+    });
+    expect(loadUpdateProxy()).toEqual(EMPTY_UPDATE_PROXY);
+    stubStorage({
+      "obsidian-export-update-proxy": '{"host":42,"port":"7890"}',
+    });
+    expect(loadUpdateProxy()).toEqual(EMPTY_UPDATE_PROXY);
+  });
+
+  it("degrades a bad host even when the port is good (field independence)", () => {
+    stubStorage({
+      "obsidian-export-update-proxy": '{"host":"a b","port":7890}',
+    });
+    expect(loadUpdateProxy()).toEqual({ host: null, port: 7890 });
+  });
+
+  it("maps a config to the sidecar --proxy value, null meaning direct", () => {
+    expect(updateProxyArg(EMPTY_UPDATE_PROXY)).toBeNull();
+    expect(updateProxyArg({ host: null, port: 7890 })).toBe("127.0.0.1:7890");
+    expect(updateProxyArg({ host: "proxy.lan", port: 3128 })).toBe(
+      "proxy.lan:3128",
+    );
+  });
+});
+
+describe("normalizeUpdateProxy (input normalization)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("parses ports leniently, rejecting invalid ones", () => {
+    // number inputs may feed exponent notation
+    expect(normalizeUpdateProxy("", "1e3")).toEqual({ host: null, port: 1000 });
+    expect(normalizeUpdateProxy("", " 8080 ")).toEqual({
+      host: null,
+      port: 8080,
+    });
+    for (const bad of ["", "0", "70000", "80.5", "abc", "8 0"]) {
+      expect(
+        normalizeUpdateProxy("", bad).port,
+        `port ${JSON.stringify(bad)} should normalize to null`,
+      ).toBeNull();
+    }
+  });
+
+  it("trims the host and rejects inner whitespace at save time", () => {
+    expect(normalizeUpdateProxy("  proxy.lan  ", "3128")).toEqual({
+      host: "proxy.lan",
+      port: 3128,
+    });
+    // Same rule as loadUpdateProxy's degradation: a host with inner
+    // whitespace is stored as null right away, so the payload can never
+    // silently degrade to 127.0.0.1 after a restart.
+    expect(normalizeUpdateProxy("my proxy", "7890")).toEqual({
+      host: null,
+      port: 7890,
+    });
+  });
+
+  it("keeps save/load round-trips exact (normalized payloads never degrade)", () => {
+    stubStorage();
+    for (const [host, port] of [
+      ["proxy.lan", "3128"],
+      ["", "7890"],
+      ["my proxy", "1e3"],
+      ["x", "bad"],
+    ] as const) {
+      const config = normalizeUpdateProxy(host, port);
+      saveUpdateProxy(config);
+      expect(loadUpdateProxy()).toEqual(config);
+    }
   });
 });

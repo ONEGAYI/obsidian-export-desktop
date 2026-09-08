@@ -146,7 +146,7 @@ obsidian-export-desktop/
 │   │   │   │   ├── progress.tsx      # 基于 radix 的进度条
 │   │   │   │   ├── radio-group.tsx   # 基于 radix 的单选组
 │   │   │   │   └── switch.tsx        # 基于 radix 的开关
-│   │   │   ├── update-panel.test.ts # 更新状态机与启动节流测试
+│   │   │   ├── update-panel.test.ts # 更新状态机与更新偏好测试
 │   │   │   └── UpdatePanel.tsx      # 关于与更新页（状态外置）
 │   │   ├── i18n/            # 界面国际化目录
 │   │   │   ├── en.ts        # 英文字典，键型受 Dict 约束
