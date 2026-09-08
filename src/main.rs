@@ -664,9 +664,10 @@ fn run_update(opts: &UpdateOpts) -> ! {
     }
 
     // Client pair construction goes before the schema line so a bad --proxy
-    // value exits with a clean stdout (no half stream). The value was already
-    // normalized during parsing; this is a belt-and-suspenders re-check that
-    // also covers Proxy::new rejecting anything normalize let through.
+    // value exits with a clean stdout (no half stream). The value was
+    // normalized during parsing; new_with_proxy re-normalizes purely as
+    // defensive depth (normalize's output shape is always accepted by
+    // ureq's Proxy::new, so this exit is not a real second gate).
     let direct_client = UreqUpdateClient::new();
     let proxied_client = opts
         .proxy
@@ -705,13 +706,23 @@ fn run_update(opts: &UpdateOpts) -> ! {
         Err(err) => {
             eprintln!("Error: {}", err.full_message());
             if err.is_transient() {
-                eprintln!("\nHint: this is usually transient (rate limiting or connectivity); retry later, or pass --proxy host:port to route through an HTTP proxy");
+                // The hint must not suggest --proxy to someone who already
+                // passed it (the proxy channel just failed too).
+                let hint = if opts.proxy.is_some() {
+                    "this is usually transient (rate limiting or connectivity); check the proxy, or retry later"
+                } else {
+                    "this is usually transient (rate limiting or connectivity); retry later, or pass --proxy host:port to route through an HTTP proxy"
+                };
+                eprintln!("\nHint: {hint}");
             } else {
                 eprintln!("\nHint: the release response was malformed; retrying will not help");
             }
             std::process::exit(1);
         }
     };
+    // UpdateChannel is #[non_exhaustive]: a future variant degrades to
+    // "direct" here by design — new variants must update this mapping and
+    // the event contract (see the enum's doc comment).
     let channel_str = if matches!(channel, UpdateChannel::Proxied) {
         "proxied"
     } else {

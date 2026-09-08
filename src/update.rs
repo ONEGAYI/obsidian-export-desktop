@@ -79,6 +79,10 @@ pub enum UpdateStatus {
 
 /// 检测应答实际使用的通道，随 [`check_update_with_fallback`] 的结果
 /// 透出（端侧展示「经代理」标注，排查代理故障用）。
+///
+/// `#[non_exhaustive]`：新增变体时须同步更新 CLI 的 `channel_str` 映射
+/// 与 `update-result` 事件的 `channel` 字段契约（当前未来变体在 CLI
+/// 侧按 `direct` 降级展示）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum UpdateChannel {
@@ -416,7 +420,10 @@ fn extract_error_message(body: &str) -> Option<String> {
 /// 接受裸 `host:port`（本机 Clash/V2Ray 场景，自动补 `http://`）与带
 /// `http://` 前缀两种写法。显式拒绝的形态及理由：
 /// - `https://` / `socks*://`：ureq 2.x 前者解析直接失败、后者需未启用 的 `socks-proxy`
-///   feature（会退化成运行期网络错误而非配置错误）， 都在此给出明确的配置错误；
+///   feature——都会退化成运行期网络错误而非配置错 误，在此给出明确报错；
+/// - host 非常规域名字符集（ASCII 字母数字与 `.` `-` 之外的字符，如 `#` `?`
+///   `_`、Unicode、纯数字）：DNS 解析必然失败，同样按配置错 拒绝（本机代理场景 `127.0.0.1` /
+///   `localhost` / `xxx.lan` 全在 白名单内）；
 /// - 缺端口：ureq 会默认 80，但用户几乎必是漏敲了自定义端口；
 /// - 认证（`user:pass@`）、IPv6 字面量、路径、空白与控制字符：超出 「本机 HTTP
 ///   代理端口」的目标场景，不支持就明确拒绝。
@@ -437,11 +444,18 @@ pub fn normalize_proxy_url(input: &str) -> Result<String, String> {
     let Some((host, port)) = rest.rsplit_once(':') else {
         return Err(MSG.to_owned());
     };
+    // parse().ok().ok_or_else() 而非 map_err(|_|)：wildcard 会触发
+    // map_err_ignore restriction lint。
     let port_num: u32 = port.parse().ok().ok_or_else(|| MSG.to_owned())?;
     if !(1..=65535).contains(&port_num) {
         return Err(MSG.to_owned());
     }
-    if host.is_empty() || host.contains([':', '/', '\\', '@']) {
+    if host.is_empty()
+        || !host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+        || host.chars().all(|c| c.is_ascii_digit())
+    {
         return Err(MSG.to_owned());
     }
     Ok(format!("http://{host}:{port}"))
@@ -1330,6 +1344,12 @@ DATA",
             "user:pass@h:1", // 认证形态
             "a b:1",         // 内部空白
             "h:1/path",      // 带路径
+            // host 非常规域名字符集：DNS 必然失败，按配置错拒绝而非
+            // 退化成「瞬时网络错 + 建议重试」（与拒 socks 同一标准）
+            "a#b:1",    // URL 结构字符
+            "a?b:1",    // URL 结构字符
+            "_:1",      // 下划线非常规域名字符
+            "123:8080", // 纯数字 host（几乎必是漏敲了 IP 的点）
         ] {
             assert!(normalize_proxy_url(bad).is_err(), "{:?} 应被拒绝", bad);
         }
