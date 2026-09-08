@@ -83,8 +83,13 @@ export const en: Dict = {
     updateReady: "Installer ready",
     updateSavedTo: "Saved to {path}",
     updateInstall: "Install update",
+    updateInstallConfirmTitle: "Silent update",
+    updateInstallConfirmBody:
+      "The app will exit and finish installing silently in the background, then relaunch automatically. Continue?",
+    updateInstallConfirmOk: "Install and relaunch",
+    updateInstallConfirmCancel: "Cancel",
     updateInstallHint:
-      "Launches the install wizard and exits the app; reopen it once the installer finishes.",
+      "After confirming, the app exits, installs silently in the background and relaunches automatically.",
     updateFailed: "The check or download did not complete.",
     updateCancelled: "The check or download was cancelled.",
     updateAutoCheckTitle: "Check for updates automatically",

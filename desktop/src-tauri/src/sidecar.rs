@@ -987,11 +987,30 @@ fn validate_installer_path(path: &Path) -> bool {
             .is_some_and(|ext| ext.eq_ignore_ascii_case("exe"))
 }
 
-/// Run a downloaded installer and exit the app.
+/// NSIS arguments for a silent in-place update (behavior verified against
+/// Tauri 2's bundled NSIS installer template, per QuotaTray's field notes):
 ///
-/// The NSIS wizard handles its own UAC elevation; the app exits right
-/// after spawning it because the installer cannot overwrite the app's own
-/// files while they are locked by a running process.
+/// - `/S`: fully silent (no wizard UI). In silent mode the installer kills a still-running app
+///   process itself (the `CheckIfAppIsRunning` macro's `IfSilent` branch) — a race backup only,
+///   since the app exits on its own right after spawning.
+/// - `/UPDATE`: upgrade semantics — **required**: bare `/S` on an already installed version reaches
+///   the nsDialogs reconfirm page, which has no input source when silent (undefined behavior). Also
+///   keeps shortcuts and skips the WebView2 reinstall.
+/// - `/R`: relaunch the app after a successful silent install (user-level `RunAsUser`).
+///
+/// The contract test below locks the exact tuple: changing any of these
+/// silently would break in-place updates on installed machines.
+const SILENT_INSTALLER_ARGS: [&str; 3] = ["/S", "/UPDATE", "/R"];
+
+/// Run a downloaded installer **silently** (NSIS `/S /UPDATE /R`) and exit
+/// the app: the installer overwrites our own files in the background and
+/// relaunches the new version when done. The per-user install mode (Tauri's
+/// default `currentUser`) keeps the whole flow UAC-free.
+///
+/// The app exits 400ms after a successful spawn — delayed so the IPC
+/// response reaches the frontend first — going through Tauri's normal
+/// exit path to unlock its own files cleanly (better than being killed by
+/// the installer's race backup).
 #[tauri::command]
 pub fn run_installer(app: AppHandle, path: String) -> Result<(), String> {
     let installer = PathBuf::from(&path);
@@ -1004,11 +1023,15 @@ pub fn run_installer(app: AppHandle, path: String) -> Result<(), String> {
         return Err(format!("installer file is missing: {path}"));
     }
     std::process::Command::new(&installer)
+        .args(SILENT_INSTALLER_ARGS)
         .spawn()
         .map_err(|err| format!("failed to launch installer: {err}"))?;
-    // The response may not reach the frontend before the process is gone;
-    // that's fine — exiting is the point.
-    app.exit(0);
+    // The delayed exit runs on its own thread: run_installer must return
+    // Ok so the frontend invoke resolves before the window is gone.
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        app.exit(0);
+    });
     Ok(())
 }
 
@@ -1517,5 +1540,13 @@ mod tests {
             !validate_installer_path(Path::new(r"C:\Windows\notepad.exe")),
             "任意路径不放行"
         );
+    }
+
+    /// 契约：静默安装三参数的顺序与内容逐项锁定（见常量文档——裸 /S
+    /// 遇已装版本是未定义行为，/UPDATE 与 /R 缺一不可），任一改动都
+    /// 会让已装机上的原地更新静默失效，必须经人工确认再改。
+    #[test]
+    fn silent_installer_args_contract() {
+        assert_eq!(SILENT_INSTALLER_ARGS, ["/S", "/UPDATE", "/R"]);
     }
 }

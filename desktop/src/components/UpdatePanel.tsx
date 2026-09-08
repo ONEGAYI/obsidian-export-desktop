@@ -11,6 +11,14 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
@@ -320,6 +328,9 @@ export function UpdatePanel({
 }: UpdatePanelProps) {
   const { t } = useI18n();
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  // Pure UI toggle for the silent-install confirmation (the install itself
+  // still goes through the App-owned onInstall callback).
+  const [installConfirmOpen, setInstallConfirmOpen] = useState(false);
 
   useEffect(() => {
     getVersion()
@@ -540,7 +551,7 @@ export function UpdatePanel({
               </Button>
             )}
             {state.phase === "ready" && state.downloadPath && (
-              <Button size="sm" onClick={onInstall}>
+              <Button size="sm" onClick={() => setInstallConfirmOpen(true)}>
                 <PackageCheckIcon className="size-3.5" />
                 {t.options.updateInstall}
               </Button>
@@ -613,6 +624,32 @@ export function UpdatePanel({
           </span>
         </div>
       </div>
+
+      {/* Silent-install confirmation: the flow exits the app and relaunches
+          on completion — the consequence is spelled out before it starts. */}
+      <Dialog open={installConfirmOpen} onOpenChange={setInstallConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t.options.updateInstallConfirmTitle}</DialogTitle>
+            <DialogDescription>
+              {t.options.updateInstallConfirmBody}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setInstallConfirmOpen(false)}>
+              {t.options.updateInstallConfirmCancel}
+            </Button>
+            <Button
+              onClick={() => {
+                setInstallConfirmOpen(false);
+                onInstall();
+              }}
+            >
+              {t.options.updateInstallConfirmOk}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
