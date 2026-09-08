@@ -48,6 +48,7 @@ import {
   dueUpdateCheck,
   loadUpdateProxy,
   markUpdateChecked,
+  normalizeUpdateProxy,
   saveUpdateProxy,
   updateProxyArg,
   type UpdateProxyConfig,
@@ -536,18 +537,12 @@ export default function App() {
 
   // ---- Update actions (sidecar slots live here, mirroring export/check) ---
 
-  /** Normalize and persist the proxy fields as they are typed: blank host
-   * means 127.0.0.1 (stored as null), blank/invalid port means direct
-   * (stored as null). Anything structural the CLI rejects visibly. */
+  /** Normalize (pure function in UpdatePanel, contract-tested there) and
+   * persist the proxy fields as they are typed: blank host means 127.0.0.1
+   * (stored as null), blank/invalid port means direct (stored as null).
+   * Anything structural the CLI rejects visibly. */
   const handleUpdateProxyChange = useCallback((host: string, port: string) => {
-    const portNum = Number(port);
-    const next: UpdateProxyConfig = {
-      host: host.trim() === "" ? null : host.trim(),
-      port:
-        port !== "" && Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535
-          ? portNum
-          : null,
-    };
+    const next = normalizeUpdateProxy(host, port);
     setUpdateProxy(next);
     saveUpdateProxy(next);
   }, []);

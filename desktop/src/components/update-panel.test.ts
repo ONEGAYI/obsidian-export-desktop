@@ -10,6 +10,7 @@ import {
   dueUpdateCheck,
   loadUpdateProxy,
   markUpdateChecked,
+  normalizeUpdateProxy,
   saveUpdateProxy,
   updateProxyArg,
 } from "./UpdatePanel";
@@ -259,11 +260,64 @@ describe("update proxy preference", () => {
     expect(loadUpdateProxy()).toEqual(EMPTY_UPDATE_PROXY);
   });
 
+  it("degrades a bad host even when the port is good (field independence)", () => {
+    stubStorage({
+      "obsidian-export-update-proxy": '{"host":"a b","port":7890}',
+    });
+    expect(loadUpdateProxy()).toEqual({ host: null, port: 7890 });
+  });
+
   it("maps a config to the sidecar --proxy value, null meaning direct", () => {
     expect(updateProxyArg(EMPTY_UPDATE_PROXY)).toBeNull();
     expect(updateProxyArg({ host: null, port: 7890 })).toBe("127.0.0.1:7890");
     expect(updateProxyArg({ host: "proxy.lan", port: 3128 })).toBe(
       "proxy.lan:3128",
     );
+  });
+});
+
+describe("normalizeUpdateProxy (input normalization)", () => {
+  it("parses ports leniently, rejecting invalid ones", () => {
+    // number inputs may feed exponent notation
+    expect(normalizeUpdateProxy("", "1e3")).toEqual({ host: null, port: 1000 });
+    expect(normalizeUpdateProxy("", " 8080 ")).toEqual({
+      host: null,
+      port: 8080,
+    });
+    for (const bad of ["", "0", "70000", "80.5", "abc", "8 0"]) {
+      expect(
+        normalizeUpdateProxy("", bad).port,
+        `port ${JSON.stringify(bad)} should normalize to null`,
+      ).toBeNull();
+    }
+  });
+
+  it("trims the host and rejects inner whitespace at save time", () => {
+    expect(normalizeUpdateProxy("  proxy.lan  ", "3128")).toEqual({
+      host: "proxy.lan",
+      port: 3128,
+    });
+    // Same rule as loadUpdateProxy's degradation: a host with inner
+    // whitespace is stored as null right away, so the payload can never
+    // silently degrade to 127.0.0.1 after a restart.
+    expect(normalizeUpdateProxy("my proxy", "7890")).toEqual({
+      host: null,
+      port: 7890,
+    });
+  });
+
+  it("keeps save/load round-trips exact (normalized payloads never degrade)", () => {
+    stubStorage();
+    for (const [host, port] of [
+      ["proxy.lan", "3128"],
+      ["", "7890"],
+      ["my proxy", "1e3"],
+      ["x", "bad"],
+    ] as const) {
+      const config = normalizeUpdateProxy(host, port);
+      saveUpdateProxy(config);
+      expect(loadUpdateProxy()).toEqual(config);
+    }
+    vi.unstubAllGlobals();
   });
 });

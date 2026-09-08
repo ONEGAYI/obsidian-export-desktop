@@ -258,6 +258,26 @@ export function saveUpdateProxy(config: UpdateProxyConfig): void {
   }
 }
 
+/**
+ * Normalize raw input fields into the persisted config. Host: blank or
+ * containing any whitespace → null (rejected right here — same rule as
+ * `loadUpdateProxy`, so a saved payload always survives the next load
+ * unchanged instead of silently degrading to 127.0.0.1). Port: blank or
+ * invalid (non-integer, out of 1..65535) → null; number inputs may feed
+ * "1e3" notation, which parses to a valid port.
+ */
+export function normalizeUpdateProxy(host: string, port: string): UpdateProxyConfig {
+  const trimmedHost = host.trim();
+  const portNum = Number(port);
+  return {
+    host: trimmedHost === "" || /\s/.test(trimmedHost) ? null : trimmedHost,
+    port:
+      port !== "" && Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535
+        ? portNum
+        : null,
+  };
+}
+
 /** The `host:port` value passed to the sidecar's `--proxy`, or null for
  * direct (no proxy configured). The host defaults to 127.0.0.1. */
 export function updateProxyArg(config: UpdateProxyConfig): string | null {

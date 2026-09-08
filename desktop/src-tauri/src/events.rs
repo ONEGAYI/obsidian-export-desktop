@@ -162,7 +162,10 @@ pub enum UpdateEvent {
         asset_size: Option<u64>,
         /// Which connection answered the check: "direct" or "proxied"
         /// (direct-first with a single proxy retry). `None` = an older
-        /// sidecar that doesn't report the channel.
+        /// sidecar that doesn't report the channel. Note: a *missing* field
+        /// is tolerated, but a wrong-typed one (number/array) rejects the
+        /// whole event — fail-fast, same as every other typed field; only
+        /// a schema bump may change the type.
         channel: Option<String>,
     },
     /// `total` is the size advertised by the release metadata; the actual
