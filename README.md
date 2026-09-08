@@ -148,6 +148,9 @@ obsidian-export update
 Add `--download` to also fetch the artifact — the CLI binary by default, or the Windows desktop installer with `--asset desktop` — into a temporary downloads directory (override with `--output`).
 The check exits 0 either way; scripts can parse the machine-readable stream of `--progress json` to act on the result.
 
+Pass `--proxy host:port` (or `http://host:port`) to route updates through an HTTP proxy: the check goes **direct first** and retries through the proxy only when the direct connection fails (anonymous GitHub API quota is per-IP, and shared proxy exits burn through theirs quickly — direct answers never spend it); downloads always use the proxy.
+Proxy environment variables are deliberately not read; only an explicit `--proxy` applies.
+
 ## Character encodings
 
 At present, UTF-8 character encoding is assumed for all note text as well as filenames.
@@ -367,7 +370,7 @@ Features include:
 * A pre-export sheet summarizing the effective options (with a shortcut back to the options view), and an option to export into `<destination>/<vault folder name>` so the vault's first-level entries stay contained.
 * Live progress, per-file log lines, failure details with full error chains, and cancellation of a running export.
 * An optional post-export link check (against the vault source or the exported tree) with a per-link report of broken links, missing sections and blocks.
-* An "About & update" page: the app checks GitHub releases on launch (at most once a day, toggleable) and on demand, shows release notes, and can download and launch the new installer.
+* An "About & update" page: the app checks GitHub releases on launch (at most once a day, toggleable) and on demand, shows release notes, and can download and launch the new installer. An optional HTTP proxy (host + port, remembered across sessions) makes checks go direct-first with a single proxied retry — shared proxy exits burn through their free GitHub API quota, so direct answers never spend it — while downloads go through the proxy.
 
 The CLI remains fully usable on its own; the desktop app is simply another way to invoke it.
 

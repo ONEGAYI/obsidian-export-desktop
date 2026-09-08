@@ -12,6 +12,7 @@ use obsidian_export::postprocessors::{
     softbreaks_to_hardbreaks,
 };
 use obsidian_export::{
+    normalize_proxy_url,
     AssetTarget,
     CommentsMode,
     DiagramFormat,
@@ -27,6 +28,7 @@ use obsidian_export::{
     LinkKind,
     MissingSectionStrategy,
     ToolName,
+    UpdateChannel,
     UpdateClient,
     UpdateStatus,
     UreqUpdateClient,
@@ -323,6 +325,14 @@ struct UpdateOpts {
         default = "cli"
     )]
     asset: AssetTarget,
+
+    #[options(
+        no_short,
+        help = "HTTP proxy for updates, as host:port or http://host:port. Checks go direct first and retry through the proxy on failure; downloads always use it",
+        long = "proxy",
+        parse(try_from_str = "normalize_proxy_url")
+    )]
+    proxy: Option<String>,
 
     #[options(
         no_short,
@@ -639,6 +649,7 @@ fn run_update_dispatch(argv: &[String]) -> ! {
 /// (regardless of whether an update exists — scripts must not treat "new
 /// version available" as a failure), 1 when the check/download/save itself
 /// fails.
+#[allow(clippy::too_many_lines)]
 fn run_update(opts: &UpdateOpts) -> ! {
     if opts.help {
         print_line(&format!(
@@ -651,6 +662,22 @@ fn run_update(opts: &UpdateOpts) -> ! {
         print_line(&format!("obsidian-export {VERSION}"));
         std::process::exit(0);
     }
+
+    // Client pair construction goes before the schema line so a bad --proxy
+    // value exits with a clean stdout (no half stream). The value was already
+    // normalized during parsing; this is a belt-and-suspenders re-check that
+    // also covers Proxy::new rejecting anything normalize let through.
+    let direct_client = UreqUpdateClient::new();
+    let proxied_client = opts
+        .proxy
+        .as_deref()
+        .map(UreqUpdateClient::new_with_proxy)
+        .transpose()
+        .unwrap_or_else(|err| {
+            eprintln!("Error: invalid --proxy value: {err}");
+            std::process::exit(2);
+        });
+    let proxied_dyn: Option<&dyn UpdateClient> = proxied_client.as_ref().map(as_dyn_client);
 
     let json_mode = opts.progress == ProgressFormat::Json;
     // Same emission point as exports and check: the schema line goes out
@@ -666,24 +693,45 @@ fn run_update(opts: &UpdateOpts) -> ! {
         );
     }
 
-    let client = UreqUpdateClient::new();
-    let status = match obsidian_export::check_update(&client, opts.asset) {
-        Ok(status) => status,
+    // Dual-channel check: direct first (never spends the proxy's shared
+    // GitHub API quota while it works), one retry through the proxy on any
+    // direct failure. Without --proxy this is the plain single channel.
+    let (status, channel) = match obsidian_export::check_update_with_fallback(
+        &direct_client,
+        proxied_dyn,
+        opts.asset,
+    ) {
+        Ok(pair) => pair,
         Err(err) => {
             eprintln!("Error: {}", err.full_message());
             if err.is_transient() {
-                eprintln!("\nHint: this is usually transient (rate limiting or connectivity); retry later, or configure a proxy via HTTPS_PROXY");
+                eprintln!("\nHint: this is usually transient (rate limiting or connectivity); retry later, or pass --proxy host:port to route through an HTTP proxy");
             } else {
                 eprintln!("\nHint: the release response was malformed; retrying will not help");
             }
             std::process::exit(1);
         }
     };
+    let channel_str = if matches!(channel, UpdateChannel::Proxied) {
+        "proxied"
+    } else {
+        "direct"
+    };
+    if !json_mode && channel_str == "proxied" {
+        print_line("Checked via proxy (the direct connection failed).");
+    }
 
     match status {
         UpdateStatus::NoRelease => {
             if json_mode {
-                print_line(&json!({"type": "update-result", "outcome": "no-release"}).to_string());
+                print_line(
+                    &json!({
+                        "type": "update-result",
+                        "outcome": "no-release",
+                        "channel": channel_str,
+                    })
+                    .to_string(),
+                );
             } else {
                 print_line("No releases have been published yet.");
             }
@@ -691,7 +739,14 @@ fn run_update(opts: &UpdateOpts) -> ! {
         }
         UpdateStatus::UpToDate => {
             if json_mode {
-                print_line(&json!({"type": "update-result", "outcome": "up-to-date"}).to_string());
+                print_line(
+                    &json!({
+                        "type": "update-result",
+                        "outcome": "up-to-date",
+                        "channel": channel_str,
+                    })
+                    .to_string(),
+                );
             } else {
                 print_line(&format!("obsidian-export {VERSION} is up to date."));
             }
@@ -708,6 +763,7 @@ fn run_update(opts: &UpdateOpts) -> ! {
                     &json!({
                         "type": "update-result",
                         "outcome": "available",
+                        "channel": channel_str,
                         "version": version,
                         "htmlUrl": html_url,
                         "notes": notes,
@@ -733,7 +789,10 @@ fn run_update(opts: &UpdateOpts) -> ! {
                 // nothing further to do without a matching asset.
                 std::process::exit(0);
             };
-            download_update_asset(&client, asset, opts, json_mode);
+            // Configured proxy means downloads go through it too (large
+            // transfers belong on the proxy); otherwise plain direct.
+            let download_client = proxied_client.as_ref().unwrap_or(&direct_client);
+            download_update_asset(download_client, asset, opts, json_mode);
         }
         // UpdateStatus is #[non_exhaustive]: a future variant from a newer
         // library build degrades to an explicit `unknown` verdict (consumers
@@ -741,13 +800,26 @@ fn run_update(opts: &UpdateOpts) -> ! {
         // command — same policy as unparsable tags (never false-alarm).
         _ => {
             if json_mode {
-                print_line(&json!({"type": "update-result", "outcome": "unknown"}).to_string());
+                print_line(
+                    &json!({
+                        "type": "update-result",
+                        "outcome": "unknown",
+                        "channel": channel_str,
+                    })
+                    .to_string(),
+                );
             } else {
                 print_line("Update status could not be determined for this release.");
             }
             std::process::exit(0);
         }
     }
+}
+
+/// Unsize-coercion helper: `as` casts are disallowed (`as_conversions` lint)
+/// and a let/return position is the sanctioned coercion site.
+fn as_dyn_client(client: &UreqUpdateClient) -> &dyn UpdateClient {
+    client
 }
 
 /// Download one release asset to the output directory, emit progress along

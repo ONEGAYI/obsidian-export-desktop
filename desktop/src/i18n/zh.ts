@@ -87,6 +87,12 @@ export const zh = {
     updateCancelled: "检查或下载已取消。",
     updateAutoCheckTitle: "自动检查更新",
     updateAutoCheckHint: "启动时检查新版本（每天至多一次）",
+    updateProxyTitle: "更新网络代理",
+    updateProxyHostLabel: "代理主机",
+    updateProxyPortLabel: "代理端口",
+    updateProxyHint:
+      "检查更新优先直连、失败自动经代理重试，下载经代理；填本机 HTTP 代理端口（如 7890），留空直连，主机留空即 127.0.0.1",
+    updateChannelProxied: "本次结果经代理获取（直连失败）",
     frontmatterLabel: "Frontmatter 处理",
     missingSectionLabel: "缺失章节的处理方式",
     commentsLabel: "Obsidian 注释（%% 围栏）的处理",

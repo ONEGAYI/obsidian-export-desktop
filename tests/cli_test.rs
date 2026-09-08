@@ -905,8 +905,17 @@ fn update_available_json_event_contract() {
         1,
         "与导出/check 共享 schema v1"
     );
-    assert_eq!(event_at(&events, 1)["type"], "update-result");
+    assert_eq!(
+        event_at(&events, 1)["type"],
+        "update-result",
+        "事件类型：{events:?}"
+    );
     assert_eq!(event_at(&events, 1)["outcome"], "available");
+    assert_eq!(
+        event_at(&events, 1)["channel"],
+        "direct",
+        "未配代理时通道恒为 direct"
+    );
     assert_eq!(
         event_at(&events, 1)["version"],
         "99.0.0",
@@ -1214,6 +1223,63 @@ fn update_without_matching_asset_still_exits_zero() {
     server.join().expect("mock server panicked");
     assert_eq!(out.code, Some(0_i32), "无资产引导手动下载，不是失败");
     assert!(out.stdout.contains("manually"), "stdout: {:?}", out.stdout);
+}
+
+// ---- update --proxy（检测双通道的 CLI 侧） ---------------------------------
+//
+// 真实经代理的 CONNECT 隧道 + TLS 无法在本地 mock 中模拟（ureq 对 https
+// 目标走 CONNECT，本地 TCP mock 提供不了 TLS），回退编排在
+// `src/update.rs` 的 trait mock 单元测试里覆盖；此处的集成层锁定参数校
+// 验（exit 2）与「直连成功绝不碰代理」的可观测行为（channel=direct）。
+
+#[test]
+fn update_bad_proxy_value_exits_two() {
+    for bad in [
+        "not a url",
+        "socks5://127.0.0.1:1080",
+        "127.0.0.1",
+        "host:0",
+    ] {
+        let out = run_cli(&["update", "--proxy", bad]);
+        assert_eq!(out.code, Some(2_i32), "{bad:?} 应为参数错误");
+        assert!(
+            out.stderr.contains("host:port"),
+            "{bad:?} 的报错应说明期望形态：{}",
+            out.stderr
+        );
+    }
+}
+
+#[test]
+fn update_proxy_direct_success_reports_direct_channel() {
+    // 代理指向几乎必然无人监听的端口 1：直连 mock 成功时绝不能碰它
+    // （碰了要么连接被拒、要么 mock 收到多余请求而 panic），且事件通
+    // 道必须报告 direct。
+    let (addr, server) = spawn_update_mock(
+        |base| {
+            vec![MockRoute {
+                path: "/repos/",
+                status: 200,
+                content_type: "application/json",
+                body: release_json("v99.0.0", base).into_bytes(),
+            }]
+        },
+        1,
+    );
+    let out = run_update_cli(
+        &["update", "--progress", "json", "--proxy", "127.0.0.1:1"],
+        &format!("http://{addr}"),
+    );
+    server.join().expect("mock server panicked");
+
+    assert_eq!(out.code, Some(0_i32), "stderr: {}", out.stderr);
+    let events = parse_json_lines(&out.stdout);
+    assert_eq!(event_at(&events, 1)["outcome"], "available");
+    assert_eq!(
+        event_at(&events, 1)["channel"],
+        "direct",
+        "直连成功即用，不消耗代理通道"
+    );
 }
 
 #[test]

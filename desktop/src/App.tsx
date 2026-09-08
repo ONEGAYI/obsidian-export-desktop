@@ -46,7 +46,11 @@ import {
   applyUpdateEvents,
   applyUpdateExit,
   dueUpdateCheck,
+  loadUpdateProxy,
   markUpdateChecked,
+  saveUpdateProxy,
+  updateProxyArg,
+  type UpdateProxyConfig,
   type UpdateState,
 } from "@/components/UpdatePanel";
 import { fmt, LANGUAGE_ORDER, useI18n } from "@/i18n";
@@ -308,11 +312,16 @@ export default function App() {
   const [sidecarError, setSidecarError] = useState<string | null>(null);
   const [check, setCheck] = useState<LinkCheckState>(EMPTY_LINK_CHECK);
   const [update, setUpdate] = useState<UpdateState>(EMPTY_UPDATE);
-  // The sidecar-exit listener below is subscribed exactly once for the
-  // app's lifetime, so the trigger data it needs (latest options, last
+  const [updateProxy, setUpdateProxy] = useState<UpdateProxyConfig>(() =>
+    loadUpdateProxy(),
+  );
+  // The sidecar subscriptions below are subscribed exactly once for the
+  // app's lifetime, so the trigger data they need (latest options, last
   // run's paths) travels through refs instead of stale closures.
   const optionsRef = useRef(options);
   optionsRef.current = options;
+  const updateProxyRef = useRef(updateProxy);
+  updateProxyRef.current = updateProxy;
   const lastRunRef = useRef<{ source: string; target: string } | null>(null);
 
   useEffect(() => {
@@ -334,7 +343,7 @@ export default function App() {
     const timer = window.setTimeout(() => {
       markUpdateChecked();
       setUpdate((s) => (s.phase === "idle" ? { ...s, phase: "checking" } : s));
-      startUpdate("check").catch(() => {
+      startUpdate("check", updateProxyArg(updateProxyRef.current)).catch(() => {
         setUpdate((s) => (s.phase === "checking" ? EMPTY_UPDATE : s));
       });
     }, 2500);
@@ -527,17 +536,33 @@ export default function App() {
 
   // ---- Update actions (sidecar slots live here, mirroring export/check) ---
 
+  /** Normalize and persist the proxy fields as they are typed: blank host
+   * means 127.0.0.1 (stored as null), blank/invalid port means direct
+   * (stored as null). Anything structural the CLI rejects visibly. */
+  const handleUpdateProxyChange = useCallback((host: string, port: string) => {
+    const portNum = Number(port);
+    const next: UpdateProxyConfig = {
+      host: host.trim() === "" ? null : host.trim(),
+      port:
+        port !== "" && Number.isInteger(portNum) && portNum >= 1 && portNum <= 65535
+          ? portNum
+          : null,
+    };
+    setUpdateProxy(next);
+    saveUpdateProxy(next);
+  }, []);
+
   const handleCheckNow = useCallback(() => {
     markUpdateChecked();
     setUpdate({ ...EMPTY_UPDATE, phase: "checking" });
-    startUpdate("check").catch((err) =>
+    startUpdate("check", updateProxyArg(updateProxy)).catch((err) =>
       setUpdate((s) => ({
         ...s,
         phase: "failed",
         invokeError: String(err),
       })),
     );
-  }, []);
+  }, [updateProxy]);
 
   const handleDownload = useCallback(() => {
     setUpdate((s) => ({
@@ -549,14 +574,14 @@ export default function App() {
       bytesPerSecond: 0,
       downloadPath: null,
     }));
-    startUpdate("download").catch((err) =>
+    startUpdate("download", updateProxyArg(updateProxy)).catch((err) =>
       setUpdate((s) => ({
         ...s,
         phase: "failed",
         invokeError: String(err),
       })),
     );
-  }, []);
+  }, [updateProxy]);
 
   const handleInstall = useCallback(() => {
     const path = update.downloadPath;
@@ -588,6 +613,9 @@ export default function App() {
 
   const updateHandlers: UpdateHandlers = {
     state: update,
+    proxyHost: updateProxy.host ?? "",
+    proxyPort: updateProxy.port === null ? "" : String(updateProxy.port),
+    onProxyChange: handleUpdateProxyChange,
     onCheckNow: handleCheckNow,
     onDownload: handleDownload,
     onInstall: handleInstall,

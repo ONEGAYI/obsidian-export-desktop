@@ -12,7 +12,7 @@ Features include:
 * A pre-export sheet summarizing the effective options (with a shortcut back to the options view), and an option to export into `<destination>/<vault folder name>` so the vault's first-level entries stay contained.
 * Live progress, per-file log lines, failure details with full error chains, and cancellation of a running export.
 * An optional post-export link check (against the vault source or the exported tree) with a per-link report of broken links, missing sections and blocks.
-* An "About & update" page: the app checks GitHub releases on launch (at most once a day, toggleable) and on demand, shows release notes, and can download and launch the new installer.
+* An "About & update" page: the app checks GitHub releases on launch (at most once a day, toggleable) and on demand, shows release notes, and can download and launch the new installer. An optional HTTP proxy (host + port, remembered across sessions) makes checks go direct-first with a single proxied retry — shared proxy exits burn through their free GitHub API quota, so direct answers never spend it — while downloads go through the proxy.
 
 The CLI remains fully usable on its own; the desktop app is simply another way to invoke it.
 

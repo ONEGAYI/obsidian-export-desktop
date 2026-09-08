@@ -5,11 +5,13 @@ import {
   CheckCircle2Icon,
   DownloadIcon,
   ExternalLinkIcon,
+  GlobeIcon,
   PackageCheckIcon,
   RefreshCwIcon,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { fmt, useI18n } from "@/i18n";
@@ -42,6 +44,9 @@ export interface UpdateState {
   notes: string | null;
   assetName: string | null;
   assetSize: number | null;
+  /** Which connection answered the last check ("direct" | "proxied");
+   * null = unknown (older sidecar or no check yet). */
+  channel: string | null;
   downloadedBytes: number;
   totalBytes: number | null;
   bytesPerSecond: number;
@@ -64,6 +69,7 @@ export const EMPTY_UPDATE: UpdateState = {
   notes: null,
   assetName: null,
   assetSize: null,
+  channel: null,
   downloadedBytes: 0,
   totalBytes: null,
   bytesPerSecond: 0,
@@ -115,6 +121,7 @@ function applyOne(state: UpdateState, event: UpdateEvent): UpdateState {
         notes: event.notes,
         assetName: event.assetName,
         assetSize: event.assetSize,
+        channel: event.channel,
         downloadedBytes: downloadContinues ? state.downloadedBytes : 0,
         totalBytes: downloadContinues ? state.totalBytes : null,
         bytesPerSecond: downloadContinues ? state.bytesPerSecond : 0,
@@ -196,12 +203,81 @@ export function markUpdateChecked(now = Date.now()): void {
   }
 }
 
+// ---- 更新代理偏好（localStorage，与节流键同族） -----------------------------
+
+const UPDATE_PROXY_KEY = "obsidian-export-update-proxy";
+
+/**
+ * Update-channel proxy preference: `port: null` means fully direct; a port
+ * without a host means the local machine (127.0.0.1). With a proxy set the
+ * check goes direct-first with a single proxy retry (shared proxy exits have
+ * easily-exhausted free GitHub API quota — never spend it while direct
+ * works) and downloads go through the proxy.
+ */
+export interface UpdateProxyConfig {
+  host: string | null;
+  port: number | null;
+}
+
+export const EMPTY_UPDATE_PROXY: UpdateProxyConfig = { host: null, port: null };
+
+/** Field-by-field validation so a corrupted or hand-edited payload degrades
+ * to "no proxy" instead of feeding garbage to the sidecar. */
+export function loadUpdateProxy(): UpdateProxyConfig {
+  try {
+    const raw = localStorage.getItem(UPDATE_PROXY_KEY);
+    if (raw === null) {
+      return EMPTY_UPDATE_PROXY;
+    }
+    const value = (JSON.parse(raw) ?? {}) as Record<string, unknown>;
+    const host =
+      typeof value.host === "string" &&
+      value.host.trim() !== "" &&
+      !/\s/.test(value.host)
+        ? value.host
+        : null;
+    const port =
+      typeof value.port === "number" &&
+      Number.isInteger(value.port) &&
+      value.port >= 1 &&
+      value.port <= 65535
+        ? value.port
+        : null;
+    return { host, port };
+  } catch {
+    // Corrupted payload: treat as unconfigured.
+    return EMPTY_UPDATE_PROXY;
+  }
+}
+
+export function saveUpdateProxy(config: UpdateProxyConfig): void {
+  try {
+    localStorage.setItem(UPDATE_PROXY_KEY, JSON.stringify(config));
+  } catch {
+    // Storage unavailable: the proxy just isn't remembered across launches.
+  }
+}
+
+/** The `host:port` value passed to the sidecar's `--proxy`, or null for
+ * direct (no proxy configured). The host defaults to 127.0.0.1. */
+export function updateProxyArg(config: UpdateProxyConfig): string | null {
+  if (config.port === null) {
+    return null;
+  }
+  return `${config.host ?? "127.0.0.1"}:${config.port}`;
+}
+
 // ---- 面板 -------------------------------------------------------------------
 
 interface UpdatePanelProps {
   state: UpdateState;
   autoCheckEnabled: boolean;
   onAutoCheckChange: (enabled: boolean) => void;
+  /** Proxy preference display values ("" = unset → 127.0.0.1 / direct). */
+  proxyHost: string;
+  proxyPort: string;
+  /** Receives the raw input strings; App normalizes and persists them. */
+  onProxyChange: (host: string, port: string) => void;
   onCheckNow: () => void;
   onDownload: () => void;
   onInstall: () => void;
@@ -214,6 +290,9 @@ export function UpdatePanel({
   state,
   autoCheckEnabled,
   onAutoCheckChange,
+  proxyHost,
+  proxyPort,
+  onProxyChange,
   onCheckNow,
   onDownload,
   onInstall,
@@ -376,6 +455,18 @@ export function UpdatePanel({
             </p>
           )}
 
+          {/* Channel note: shown only when the proxy actually answered (the
+              direct path is the default and stays quiet). Also visible while
+              downloading — the CLI re-checks before transferring, and that
+              re-check's channel folds here. */}
+          {state.phase !== "checking" && state.phase !== "idle" &&
+            state.channel === "proxied" && (
+            <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+              <GlobeIcon className="size-3.5" />
+              {t.options.updateChannelProxied}
+            </p>
+          )}
+
           {state.phase === "failed" && (
             <div className="flex flex-col gap-1.5">
               <p className="text-sm text-[var(--text-error)]">
@@ -465,6 +556,41 @@ export function UpdatePanel({
             )}
             className="mt-0.5"
           />
+        </div>
+
+        {/* Update-channel proxy (same card shape as the switch row above) */}
+        <div className="flex items-start justify-between gap-3 rounded-md border bg-[var(--background-primary)] p-2.5">
+          <span className="flex flex-col gap-0.5">
+            <span className="text-sm leading-none font-medium">
+              {t.options.updateProxyTitle}
+            </span>
+            <span className="text-muted-foreground text-xs">
+              {t.options.updateProxyHint}
+            </span>
+          </span>
+          <span className="mt-0.5 flex shrink-0 gap-1.5">
+            <Input
+              value={proxyHost}
+              placeholder="127.0.0.1"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              className="h-7 w-28 text-xs"
+              aria-label={t.options.updateProxyHostLabel}
+              onChange={(e) => onProxyChange(e.target.value, proxyPort)}
+            />
+            <Input
+              value={proxyPort}
+              type="number"
+              min={1}
+              max={65535}
+              step={1}
+              placeholder="7890"
+              className="h-7 w-20 text-xs"
+              aria-label={t.options.updateProxyPortLabel}
+              onChange={(e) => onProxyChange(proxyHost, e.target.value)}
+            />
+          </span>
         </div>
       </div>
     </section>

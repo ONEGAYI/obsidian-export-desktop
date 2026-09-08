@@ -46,6 +46,10 @@ import {
 /** Update actions handed down from App (the sidecar slots live there). */
 export interface UpdateHandlers {
   state: UpdateState;
+  /** Proxy preference display values ("" = unset). */
+  proxyHost: string;
+  proxyPort: string;
+  onProxyChange: (host: string, port: string) => void;
   onCheckNow: () => void;
   onDownload: () => void;
   onInstall: () => void;
@@ -617,6 +621,9 @@ export function OptionsView({
                 state={update.state}
                 autoCheckEnabled={options.autoCheckUpdates}
                 onAutoCheckChange={(autoCheckUpdates) => patch({ autoCheckUpdates })}
+                proxyHost={update.proxyHost}
+                proxyPort={update.proxyPort}
+                onProxyChange={update.onProxyChange}
                 onCheckNow={update.onCheckNow}
                 onDownload={update.onDownload}
                 onInstall={update.onInstall}

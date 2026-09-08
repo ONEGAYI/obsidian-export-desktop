@@ -160,6 +160,10 @@ pub enum UpdateEvent {
         notes: Option<String>,
         asset_name: Option<String>,
         asset_size: Option<u64>,
+        /// Which connection answered the check: "direct" or "proxied"
+        /// (direct-first with a single proxy retry). `None` = an older
+        /// sidecar that doesn't report the channel.
+        channel: Option<String>,
     },
     /// `total` is the size advertised by the release metadata; the actual
     /// Content-Length observed during download may differ (and progress
@@ -208,10 +212,8 @@ pub fn parse_line(line: &str) -> Result<ParsedLine, String> {
 
     let event: SidecarEvent = match tag.tag.as_str() {
         "schema" | "start" | "file-done" | "file-skipped" | "file-failed" | "warning"
-        | "diagram-render" | "end" => {
-            serde_json::from_str(trimmed)
-                .map_err(|err| format!("malformed {} event: {err}", tag.tag))?
-        }
+        | "diagram-render" | "end" => serde_json::from_str(trimmed)
+            .map_err(|err| format!("malformed {} event: {err}", tag.tag))?,
         _ => return Ok(ParsedLine::Ignored),
     };
 
@@ -363,9 +365,7 @@ mod tests {
     #[test]
     fn parses_diagram_render_event() {
         assert_eq!(
-            parse_ok(
-                r#"{"type":"diagram-render","language":"mermaid","index":3,"total":12}"#
-            ),
+            parse_ok(r#"{"type":"diagram-render","language":"mermaid","index":3,"total":12}"#),
             SidecarEvent::DiagramRender {
                 language: "mermaid".into(),
                 index: 3,
@@ -544,10 +544,11 @@ mod tests {
             parse_update_ok(r#"{"type":"schema","version":1}"#),
             UpdateEvent::Schema { version: 1 }
         );
-        // available 全字段（真实 CLI 输出形态，camelCase 字段）
+        // available 全字段（真实 CLI 输出形态，camelCase 字段；channel 自
+        // --proxy 起随每个结果事件发出）
         assert_eq!(
             parse_update_ok(
-                r#"{"type":"update-result","outcome":"available","version":"26.9.0","htmlUrl":"https://x","notes":"release notes","assetName":"Obsidian.Export_26.9.0_x64-setup.exe","assetSize":7}"#
+                r#"{"type":"update-result","outcome":"available","channel":"direct","version":"26.9.0","htmlUrl":"https://x","notes":"release notes","assetName":"Obsidian.Export_26.9.0_x64-setup.exe","assetSize":7}"#
             ),
             UpdateEvent::UpdateResult {
                 outcome: UpdateOutcome::Available,
@@ -556,12 +557,13 @@ mod tests {
                 notes: Some("release notes".into()),
                 asset_name: Some("Obsidian.Export_26.9.0_x64-setup.exe".into()),
                 asset_size: Some(7),
+                channel: Some("direct".into()),
             }
         );
         // 无匹配资产：assetName/assetSize 为 null（json! 宏对 None 的输出）
         assert_eq!(
             parse_update_ok(
-                r#"{"type":"update-result","outcome":"available","version":"26.9.0","htmlUrl":"https://x","notes":null,"assetName":null,"assetSize":null}"#
+                r#"{"type":"update-result","outcome":"available","channel":"proxied","version":"26.9.0","htmlUrl":"https://x","notes":null,"assetName":null,"assetSize":null}"#
             ),
             UpdateEvent::UpdateResult {
                 outcome: UpdateOutcome::Available,
@@ -570,9 +572,11 @@ mod tests {
                 notes: None,
                 asset_name: None,
                 asset_size: None,
+                channel: Some("proxied".into()),
             }
         );
-        // up-to-date / no-release：仅 outcome 字段（Option 缺失即 None）
+        // up-to-date / no-release：仅 outcome 字段（Option 缺失即 None）；
+        // 缺 channel 的旧形态也照常解析（前向兼容：未知/缺失字段忽略）
         assert_eq!(
             parse_update_ok(r#"{"type":"update-result","outcome":"up-to-date"}"#),
             UpdateEvent::UpdateResult {
@@ -582,6 +586,21 @@ mod tests {
                 notes: None,
                 asset_name: None,
                 asset_size: None,
+                channel: None,
+            }
+        );
+        assert_eq!(
+            parse_update_ok(
+                r#"{"type":"update-result","outcome":"up-to-date","channel":"proxied"}"#
+            ),
+            UpdateEvent::UpdateResult {
+                outcome: UpdateOutcome::UpToDate,
+                version: None,
+                html_url: None,
+                notes: None,
+                asset_name: None,
+                asset_size: None,
+                channel: Some("proxied".into()),
             }
         );
         assert_eq!(
@@ -593,6 +612,7 @@ mod tests {
                 notes: None,
                 asset_name: None,
                 asset_size: None,
+                channel: None,
             }
         );
         // 未来 outcome 值降级为 Unknown，不丢整行
@@ -605,6 +625,7 @@ mod tests {
                 notes: None,
                 asset_name: None,
                 asset_size: None,
+                channel: None,
             }
         );
         assert_eq!(
