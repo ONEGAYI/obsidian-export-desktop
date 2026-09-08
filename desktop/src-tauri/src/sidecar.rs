@@ -1007,6 +1007,11 @@ const SILENT_INSTALLER_ARGS: [&str; 3] = ["/S", "/UPDATE", "/R"];
 /// relaunches the new version when done. The per-user install mode (Tauri's
 /// default `currentUser`) keeps the whole flow UAC-free.
 ///
+/// Any lingering sidecar is killed before spawning — its binary lives in
+/// the install directory and a locked file would make the silent overwrite
+/// fail (a backend invariant backing up the UI constraint that the settings
+/// view is unreachable while a sidecar runs).
+///
 /// The app exits 400ms after a successful spawn — delayed so the IPC
 /// response reaches the frontend first — going through Tauri's normal
 /// exit path to unlock its own files cleanly (better than being killed by
@@ -1021,6 +1026,17 @@ pub fn run_installer(app: AppHandle, path: String) -> Result<(), String> {
     }
     if !installer.is_file() {
         return Err(format!("installer file is missing: {path}"));
+    }
+    // Kill any lingering sidecar before the installer overwrites our own
+    // files: a running sidecar's binary lives in the install directory, and
+    // a locked file makes the silent overwrite fail — landing in the "no
+    // failure reporting" blind spot. The normal UI flow never reaches this
+    // with a running sidecar (the settings view is hidden during exports);
+    // this turns that UI constraint into a backend invariant.
+    if let Some(child) = take_child(&app) {
+        child.kill().map_err(|err| {
+            format!("failed to stop the running sidecar before installing: {err}")
+        })?;
     }
     std::process::Command::new(&installer)
         .args(SILENT_INSTALLER_ARGS)
