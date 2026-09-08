@@ -82,7 +82,12 @@ export const zh = {
     updateReady: "安装包已就绪",
     updateSavedTo: "已保存至 {path}",
     updateInstall: "安装更新",
-    updateInstallHint: "启动安装向导，应用将自动退出；安装完成后重新打开即可。",
+    updateInstallConfirmTitle: "静默安装更新",
+    updateInstallConfirmBody:
+      "将退出应用并在后台静默完成安装，完成后自动重启。是否继续？",
+    updateInstallConfirmOk: "安装并重启",
+    updateInstallConfirmCancel: "取消",
+    updateInstallHint: "确认后应用退出，在后台静默完成安装并自动重启。",
     updateFailed: "检查或下载未能完成。",
     updateCancelled: "检查或下载已取消。",
     updateAutoCheckTitle: "自动检查更新",

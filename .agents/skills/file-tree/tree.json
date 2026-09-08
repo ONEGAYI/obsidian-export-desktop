@@ -1352,7 +1352,7 @@
                   "kind": "file",
                   "desc": "CLI 边车进程编排核心",
                   "detail": [
-                    "spawn 捆绑的 obsidian-export 边车（--progress json），自身不含转换逻辑。#[tauri::command]：check_sidecar（--version 握手）、start_export（路径解析 + keep_root_folder 目的地解析 + build_args + spawn，返回实际目标路径）、start_check（链接检查子命令，build_check_args）、cancel_export（kill）、export_running、start_update（--asset desktop + 可选 --proxy 转发，validate_update_proxy 快速拒绝含空白/控制字符的值）、run_installer（校验路径后启动 NSIS 并退出应用）。核心类型：ExportState（Mutex<Option<CommandChild>>，导出/检查/更新共用槽位）、ExportOptions（camelCase 反序列化，仅非默认值转 CLI flag）、resolve_destination、StreamDialect（Export/Check/Update 三方言决定解析函数与前端事件通道）、pump_sidecar（按字节缓冲到完整行再 lossy 解码防 UTF-8 截断，转发事件，Terminated 时释放槽位并 emit {code,stderr}）。含大量单元测试。"
+                    "spawn 捆绑的 obsidian-export 边车（--progress json），自身不含转换逻辑。#[tauri::command]：check_sidecar（--version 握手）、start_export（路径解析 + keep_root_folder 目的地解析 + build_args + spawn，返回实际目标路径）、start_check（链接检查子命令，build_check_args）、cancel_export（kill）、export_running、start_update（--asset desktop + 可选 --proxy 转发，validate_update_proxy 快速拒绝含空白/控制字符的值）、run_installer（校验路径后以 NSIS /S /UPDATE /R 静默安装，spawn 成功延迟 400ms 退出应用让安装器原地覆盖并自动重启）。核心类型：ExportState（Mutex<Option<CommandChild>>，导出/检查/更新共用槽位）、ExportOptions（camelCase 反序列化，仅非默认值转 CLI flag）、resolve_destination、StreamDialect（Export/Check/Update 三方言决定解析函数与前端事件通道）、pump_sidecar（按字节缓冲到完整行再 lossy 解码防 UTF-8 截断，转发事件，Terminated 时释放槽位并 emit {code,stderr}）。含大量单元测试。"
                   ],
                   "rel": [
                     "desktop/src-tauri/src/events.rs",
