@@ -135,15 +135,18 @@ obsidian-export-desktop/
 │   │   ├── app-fold.test.ts # 导出事件折叠纯函数测试
 │   │   ├── App.tsx          # 应用根组件，串联三阶段导出流程
 │   │   ├── components/      # 视图组件目录
+│   │   │   ├── ConfigSummary.tsx    # 宽屏只读配置摘要栏
 │   │   │   ├── ExportDialog.tsx     # 导出前确认对话框
 │   │   │   ├── ExportResultView.tsx # 导出结果汇总卡片
 │   │   │   ├── ExportRunView.tsx    # 导出进行中的进度与日志视图
+│   │   │   ├── HomeView.tsx         # 响应式首页主视图
+│   │   │   ├── KeepRootViews.tsx    # 根文件夹输出区双形态
 │   │   │   ├── link-check.test.ts   # 链接检查状态机纯函数测试
 │   │   │   ├── LinkCheckPanel.tsx   # 链接检查面板与状态折叠逻辑
 │   │   │   ├── options-view.test.ts # 页签键盘导航纯函数测试
 │   │   │   ├── OptionsView.tsx      # 分页式转换选项设置面板
-│   │   │   ├── OutputPreview.tsx    # 首页实际输出位置预览区块
 │   │   │   ├── PathPicker.tsx       # 目录路径输入加浏览选择器
+│   │   │   ├── SidecarErrorCard.tsx # 边车不可用错误卡片
 │   │   │   ├── TagInput.tsx         # 多标签芯片输入编辑器
 │   │   │   ├── ui/                  # 手搭 shadcn 基础组件层
 │   │   │   │   ├── button.tsx        # 基础按钮组件（cva 变体）
@@ -165,6 +168,10 @@ obsidian-export-desktop/
 │   │   │   └── zh.ts        # 中文字典并定义 Dict 类型基准
 │   │   ├── index.css        # Obsidian 风格主题变量与全局样式
 │   │   ├── lib/             # 前端工具与封装层目录
+│   │   │   ├── layout.test.ts  # 视口断点边界测试
+│   │   │   ├── layout.ts       # 宽高独立视口断点与 Hook
+│   │   │   ├── naming.test.ts  # 名称派生边界测试
+│   │   │   ├── naming.ts       # 首页路径名称派生
 │   │   │   ├── options.ts      # 导出选项类型、校验与摘要
 │   │   │   ├── preview.test.ts # 预览控制器行为测试
 │   │   │   ├── preview.ts      # 输出路径预览状态控制器与 Hook

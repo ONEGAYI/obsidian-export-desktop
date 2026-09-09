@@ -2,37 +2,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   CheckIcon,
-  FolderOpenIcon,
   LanguagesIcon,
   MinusIcon,
   MonitorIcon,
   MoonIcon,
-  SettingsIcon,
   SquareIcon,
   SunIcon,
   XIcon,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { ExportDialog } from "@/components/ExportDialog";
 import { ExportRunView } from "@/components/ExportRunView";
 import { ExportResultView } from "@/components/ExportResultView";
-import { OutputPreview } from "@/components/OutputPreview";
+import { HomeView } from "@/components/HomeView";
+import { SidecarErrorCard } from "@/components/SidecarErrorCard";
 import {
   EMPTY_LINK_CHECK,
   LinkCheckPanel,
@@ -40,9 +30,7 @@ import {
   applyCheckExit,
   type LinkCheckState,
 } from "@/components/LinkCheckPanel";
-import { OptionsView, type UpdateHandlers } from "@/components/OptionsView";
-import { PathPicker } from "@/components/PathPicker";
-import {
+import { OptionsView, type UpdateHandlers } from "@/components/OptionsView";import {
   EMPTY_UPDATE,
   applyUpdateEvents,
   applyUpdateExit,
@@ -694,103 +682,56 @@ export default function App() {
         </div>
       </header>
 
-      <main
-        className={`mx-auto flex w-full flex-1 flex-col overflow-y-auto p-4 ${
-          phase === "setup" && view === "options" ? "max-w-2xl" : "max-w-xl"
-        }`}
-      >
-        <div className="m-auto flex w-full flex-col gap-4">
-          {sidecarError && (
-            <Card className="border-destructive">
-              <CardHeader>
-                <CardTitle className="text-destructive">
-                  {t.app.sidecarErrorTitle}
-                </CardTitle>
-                <CardDescription>
-                  {t.app.sidecarErrorHint.pre}{" "}
-                  <code>{t.app.sidecarErrorHint.code}</code>{" "}
-                  {t.app.sidecarErrorHint.post}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <pre className="max-h-24 overflow-auto rounded-md bg-[var(--background-secondary)] p-2 font-mono text-xs whitespace-pre-wrap">
-                  {sidecarError}
-                </pre>
-              </CardContent>
-            </Card>
-          )}
+      <main className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+        {phase === "setup" && view === "options" && (
+          <div className="flex-1 overflow-y-auto">
+            <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-4">
+              {sidecarError && <SidecarErrorCard error={sidecarError} />}
+              <OptionsView
+                options={options}
+                onOptionsChange={handleOptionsChange}
+                onBack={() => setView("main")}
+                update={updateHandlers}
+              />
+            </div>
+          </div>
+        )}
 
-          {phase === "setup" && view === "options" && (
-            <OptionsView
-              options={options}
-              onOptionsChange={handleOptionsChange}
-              onBack={() => setView("main")}
-              update={updateHandlers}
-            />
-          )}
+        {phase === "setup" && view === "main" && (
+          <HomeView
+            source={source}
+            onSourceChange={handleSourceChange}
+            destination={destination}
+            onDestinationChange={handleDestinationChange}
+            rememberPaths={rememberPaths}
+            onRememberPathsChange={handleRememberPathsChange}
+            keepRootFolder={keepRootFolder}
+            onKeepRootChange={handleKeepRootChange}
+            preview={preview}
+            options={options}
+            canExport={canExport}
+            sidecarError={sidecarError}
+            onOpenOptions={() => setView("options")}
+            onExport={() => setConfirmOpen(true)}
+          />
+        )}
 
-          {phase === "setup" && view === "main" && (
-            <Card>
-              <CardHeader>
-                <CardTitle>{t.app.exportTitle}</CardTitle>
-                <CardDescription>{t.app.exportDescription}</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-4">
-                <PathPicker
-                  label={t.app.sourceLabel}
-                  placeholder={t.app.sourcePlaceholder}
-                  value={source}
-                  onChange={handleSourceChange}
-                />
-                <PathPicker
-                  label={t.app.destinationLabel}
-                  placeholder={t.app.destinationPlaceholder}
-                  value={destination}
-                  onChange={handleDestinationChange}
-                />
-                <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal text-muted-foreground">
-                  <Checkbox
-                    checked={keepRootFolder}
-                    onCheckedChange={handleKeepRootChange}
-                  />
-                  {t.app.keepRootTitle}
-                </Label>
-                <OutputPreview
-                  state={preview}
-                  keepRootFolder={keepRootFolder}
-                />
-                <div className="flex items-center justify-between">
-                  <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal text-muted-foreground">
-                    <Checkbox
-                      checked={rememberPaths}
-                      onCheckedChange={handleRememberPathsChange}
-                    />
-                    {t.app.rememberPaths}
-                  </Label>
-                  <div className="flex items-center gap-2">
-                    <Button variant="secondary" onClick={() => setView("options")}>
-                      <SettingsIcon className="size-4" />
-                      {t.app.options}
-                    </Button>
-                    <Button disabled={!canExport} onClick={() => setConfirmOpen(true)}>
-                      <FolderOpenIcon className="size-4" />
-                      {t.app.export}
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+        {phase === "running" && (
+          <div className="flex-1 overflow-y-auto">
+            <div className="mx-auto flex w-full max-w-xl flex-col gap-4 p-4">
+              {sidecarError && <SidecarErrorCard error={sidecarError} />}
+              <ExportRunView
+                progress={progress}
+                onCancel={handleCancel}
+              />
+            </div>
+          </div>
+        )}
 
-          {phase === "running" && (
-            <ExportRunView
-              progress={progress}
-              onCancel={handleCancel}
-            />
-          )}
-
-          {phase === "result" && (
-            <>
+        {phase === "result" && (
+          <div className="flex-1 overflow-y-auto">
+            <div className="mx-auto flex w-full max-w-xl flex-col gap-4 p-4">
+              {sidecarError && <SidecarErrorCard error={sidecarError} />}
               <ExportResultView
                 progress={progress}
                 exit={exit}
@@ -811,9 +752,9 @@ export default function App() {
                   }}
                 />
               )}
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        )}
       </main>
 
       <ExportDialog
