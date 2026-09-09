@@ -169,7 +169,7 @@ obsidian-export-desktop/
 │   │   │   ├── layout.test.ts  # 视口断点边界测试
 │   │   │   ├── layout.ts       # 宽高独立视口断点与 Hook
 │   │   │   ├── naming.test.ts  # 名称派生边界测试
-│   │   │   ├── naming.ts       # 首页路径名称派生
+│   │   │   ├── naming.ts       # 路径末段与显示名称派生
 │   │   │   ├── options.ts      # 导出选项类型、校验与摘要
 │   │   │   ├── preview.test.ts # 预览控制器行为测试
 │   │   │   ├── preview.ts      # 输出路径预览状态控制器与 Hook

@@ -5,23 +5,30 @@ import { Button } from "@/components/ui/button";
 import { useI18n } from "@/i18n";
 import { displayName } from "@/lib/naming";
 
-interface PathPickerProps {
+/**
+ * Discriminated on `variant`: the card variant requires its plinth `icon`
+ * (source vs destination) and may take a `namePlaceholder`; the default
+ * variant (settings view) accepts neither — the compiler rejects the silent
+ * fall-back that used to happen when a card was requested without an icon.
+ */
+export type PathPickerProps = {
   label: string;
   placeholder: string;
   value: string;
   onChange: (value: string) => void;
   /** Hint shown below the input, e.g. for the manual-input escape hatch. */
   hint?: string;
-  /** Home-card variant: icon plinth plus a derived-name row above the input
-   * row (spec #37 §4.2). The default variant stays untouched for the
-   * settings view. */
-  variant?: "default" | "card";
-  /** Icon on the card variant's plinth (e.g. source vs destination). */
-  icon?: LucideIcon;
-  /** Name shown for blank input on the card variant (a placeholder — never
-   * a made-up vault name). */
-  namePlaceholder?: string;
-}
+} & (
+  | { variant?: "default"; icon?: never; namePlaceholder?: never }
+  | {
+      /** Home-card variant: icon plinth plus a derived-name row above the
+       * input row (spec #37 §4.2). */
+      variant: "card";
+      icon: LucideIcon;
+      /** Name shown for blank input (a placeholder — never a made-up name). */
+      namePlaceholder?: string;
+    }
+);
 
 export function PathPicker({
   label,

@@ -1,4 +1,15 @@
-import { baseName } from "@/lib/sidecar";
+/**
+ * Reduce a full path to its final component for compact log lines and
+ * summaries. Accepts both separators; a trailing separator yields an empty
+ * string (callers that must not show blank trim it first, like
+ * [`displayName`]). Lives here — with the other path-to-name helpers —
+ * rather than in the sidecar invoke layer.
+ */
+export function baseName(path: string): string {
+  const normalized = path.split("\\").join("/");
+  const idx = normalized.lastIndexOf("/");
+  return idx === -1 ? normalized : normalized.slice(idx + 1);
+}
 
 /**
  * Display name for a path input on the home card: the final component after

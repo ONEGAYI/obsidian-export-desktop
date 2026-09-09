@@ -52,11 +52,11 @@ import {
   type ExportOptions,
 } from "@/lib/options";
 import { useDestinationPreview } from "@/lib/preview";
+import { baseName } from "@/lib/naming";
 import {
   type CheckEvent,
   type SidecarEvent,
   type SidecarExit,
-  baseName,
   cancelExport,
   checkSidecar,
   onCheckError,
@@ -292,7 +292,7 @@ export default function App() {
   );
   // Landing-path preview shared by the home view and the confirm dialog;
   // debounced, stale-result-proof (see lib/preview).
-  const preview = useDestinationPreview(source, destination, keepRootFolder);
+  const preview = useDestinationPreview({ source, destination, keepRootFolder });
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [view, setView] = useState<"main" | "options">("main");
   const [options, setOptions] = useState<ExportOptions>(loadOptions);
@@ -520,6 +520,17 @@ export default function App() {
     saveOptions(next);
   }, []);
 
+  // The source/destination/keep-root trio travels as one bundle from here
+  // down to the home view (see PathSelection there).
+  const pathSelection = {
+    source,
+    destination,
+    keepRootFolder,
+    onSourceChange: handleSourceChange,
+    onDestinationChange: handleDestinationChange,
+    onKeepRootChange: handleKeepRootChange,
+  };
+
   const handleEditOptions = useCallback(() => {
     setConfirmOpen(false);
     setView("options");
@@ -696,16 +707,11 @@ export default function App() {
 
         {phase === "setup" && view === "main" && (
           <HomeView
-            source={source}
-            onSourceChange={handleSourceChange}
-            destination={destination}
-            onDestinationChange={handleDestinationChange}
-            rememberPaths={rememberPaths}
-            onRememberPathsChange={handleRememberPathsChange}
-            keepRootFolder={keepRootFolder}
-            onKeepRootChange={handleKeepRootChange}
+            paths={pathSelection}
             preview={preview}
             options={options}
+            rememberPaths={rememberPaths}
+            onRememberPathsChange={handleRememberPathsChange}
             canExport={canExport}
             sidecarError={sidecarError}
             onOpenOptions={() => setView("options")}
@@ -768,9 +774,7 @@ export default function App() {
       <ExportDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        keepRootFolder={keepRootFolder}
-        source={source}
-        destination={destination}
+        paths={{ source, destination, keepRootFolder }}
         preview={preview}
         options={options}
         onEditOptions={handleEditOptions}

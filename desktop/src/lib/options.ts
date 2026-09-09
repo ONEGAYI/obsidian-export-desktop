@@ -1,5 +1,5 @@
 import type { Dict } from "@/i18n/zh";
-import { baseName } from "@/lib/sidecar";
+import { baseName } from "@/lib/naming";
 
 /** Mirrors ExportOptions in desktop/src-tauri/src/sidecar.rs (camelCase JSON). */
 export type FrontmatterStrategy = "auto" | "always" | "never";
@@ -254,11 +254,35 @@ function migrateLegacyOptions(): ExportOptions {
   return options;
 }
 
+/**
+ * Stable identifiers for the summary lines [`summarizeOptionEntries`] can
+ * emit. Typed (not bare strings) so consumers like the config summary's
+ * `DEDICATED_KEYS` stay in lockstep with the emitters at compile time — a
+ * renamed key breaks the build instead of silently failing to dedupe.
+ */
+export type SummaryKey =
+  | "startAt"
+  | "frontmatter"
+  | "ignoreFile"
+  | "skipTags"
+  | "onlyTags"
+  | "hidden"
+  | "noGit"
+  | "noRecursiveEmbeds"
+  | "preserveMtime"
+  | "missingSection"
+  | "failFast"
+  | "hardLinebreaks"
+  | "comments"
+  | "linkCheck"
+  | "diagramRenderers"
+  | "diagramBins";
+
 /** One labeled line of the options summary; `key` lets consumers (like the
  * config summary column) drop entries they already render in a dedicated
  * group instead of listing the same option twice. */
 export interface SummaryEntry {
-  key: string;
+  key: SummaryKey;
   text: string;
 }
 
@@ -273,7 +297,7 @@ export function summarizeOptionEntries(
   t: Dict,
 ): SummaryEntry[] {
   const items: SummaryEntry[] = [];
-  const push = (key: string, text: string) => items.push({ key, text });
+  const push = (key: SummaryKey, text: string) => items.push({ key, text });
   // Whitespace-only values are filtered below the same way build_args does,
   // so the summary never lists an option the CLI won't receive.
   if (options.startAt?.trim()) {

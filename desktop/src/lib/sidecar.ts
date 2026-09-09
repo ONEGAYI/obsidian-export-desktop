@@ -216,10 +216,3 @@ export function onUpdateError(cb: (message: string) => void): Promise<UnlistenFn
 export function onSidecarError(cb: (message: string) => void): Promise<UnlistenFn> {
   return listen<string>("sidecar-error", (e) => cb(e.payload));
 }
-
-/** Reduce a full path to its file name for compact log lines. */
-export function baseName(path: string): string {
-  const normalized = path.split("\\").join("/");
-  const idx = normalized.lastIndexOf("/");
-  return idx === -1 ? normalized : normalized.slice(idx + 1);
-}

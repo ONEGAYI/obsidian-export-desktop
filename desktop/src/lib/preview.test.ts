@@ -2,8 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createDestinationPreview,
+  isFileSource,
+  isPreviewUsable,
   type PreviewFetcher,
   type PreviewInput,
+  type PreviewState,
 } from "@/lib/preview";
 import type { DestinationPreview } from "@/lib/sidecar";
 
@@ -229,5 +232,29 @@ describe("createDestinationPreview", () => {
     preview.setInput(input("B", "OUT")); // 不再通知
 
     expect(seen).toEqual(["pending", "ready"]);
+  });
+});
+
+describe("预览展示谓词（首页胶囊/展开区与确认框共用）", () => {
+  const ready = (sourceKind: "directory" | "file" | "other"): PreviewState => ({
+    phase: "ready",
+    target: "D:\\out\\vault",
+    sourceKind,
+  });
+
+  it("isPreviewUsable：仅 ready 且来源存在时为真", () => {
+    expect(isPreviewUsable(ready("directory"))).toBe(true);
+    expect(isPreviewUsable(ready("file"))).toBe(true);
+    expect(isPreviewUsable(ready("other"))).toBe(false);
+    expect(isPreviewUsable({ phase: "idle" })).toBe(false);
+    expect(isPreviewUsable({ phase: "pending" })).toBe(false);
+    expect(isPreviewUsable({ phase: "failed", message: "boom" })).toBe(false);
+  });
+
+  it("isFileSource：仅 ready 且来源为单文件时为真（根文件夹不套用的附注依据）", () => {
+    expect(isFileSource(ready("file"))).toBe(true);
+    expect(isFileSource(ready("directory"))).toBe(false);
+    expect(isFileSource(ready("other"))).toBe(false);
+    expect(isFileSource({ phase: "pending" })).toBe(false);
   });
 });

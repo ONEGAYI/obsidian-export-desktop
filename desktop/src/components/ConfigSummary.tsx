@@ -7,7 +7,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { useI18n } from "@/i18n";
-import { summarizeOptionEntries, type ExportOptions } from "@/lib/options";
+import {
+  summarizeOptionEntries,
+  type ExportOptions,
+  type SummaryKey,
+} from "@/lib/options";
 
 interface ConfigSummaryProps {
   options: ExportOptions;
@@ -16,8 +20,10 @@ interface ConfigSummaryProps {
   className?: string;
 }
 
-/** Entries already rendered by a dedicated group above — never list twice. */
-const DEDICATED_KEYS = new Set([
+/** Entries already rendered by a dedicated group above — never list twice.
+ * Typed as `SummaryKey` so renaming an emitter key breaks here at compile
+ * time instead of silently re-listing the option in "other". */
+const DEDICATED_KEYS: ReadonlySet<SummaryKey> = new Set<SummaryKey>([
   "frontmatter",
   "comments",
   "noRecursiveEmbeds",

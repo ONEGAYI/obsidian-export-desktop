@@ -26,6 +26,30 @@ export type PreviewState =
 
 export type PreviewFetcher = (input: PreviewInput) => Promise<DestinationPreview>;
 
+/** The `ready` arm of [`PreviewState`]. */
+export type ReadyPreview = Extract<PreviewState, { phase: "ready" }>;
+
+/**
+ * True when the preview resolved to a landing path the caller may present as
+ * the export destination (ready, and the source actually exists on disk —
+ * `sourceKind: "other"` must not be shown as a valid export). Shared by the
+ * home output area and the confirm dialog so "usable" means one thing; as a
+ * type predicate it also narrows to the ready arm for `target` access.
+ */
+export function isPreviewUsable(state: PreviewState): state is ReadyPreview {
+  return state.phase === "ready" && state.sourceKind !== "other";
+}
+
+/**
+ * True when the source resolved to a single file: the keep-root preference
+ * never applies to it (both surfaces show the same explanatory note).
+ */
+export function isFileSource(
+  state: PreviewState,
+): state is ReadyPreview & { sourceKind: "file" } {
+  return state.phase === "ready" && state.sourceKind === "file";
+}
+
 /** Debounce window the spec picked for merging rapid input edits (~150ms). */
 const DEBOUNCE_MS = 150;
 
@@ -143,25 +167,21 @@ export function createDestinationPreview(fetcher: PreviewFetcher) {
  * unchanged source/destination/keepRootFolder (language or viewport switches
  * included) do not re-query; the controller lives for the app's lifetime.
  */
-export function useDestinationPreview(
-  source: string,
-  destination: string,
-  keepRootFolder: boolean,
-): PreviewState {
+export function useDestinationPreview(input: PreviewInput): PreviewState {
   const controller = useMemo(
     () =>
-      createDestinationPreview((input) =>
+      createDestinationPreview((request) =>
         previewExportDestination(
-          input.source,
-          input.destination,
-          input.keepRootFolder,
+          request.source,
+          request.destination,
+          request.keepRootFolder,
         ),
       ),
     [],
   );
   useEffect(() => {
-    controller.setInput({ source, destination, keepRootFolder });
-  }, [controller, source, destination, keepRootFolder]);
+    controller.setInput(input);
+  }, [controller, input.source, input.destination, input.keepRootFolder]);
   useEffect(() => () => controller.dispose(), [controller]);
   return useSyncExternalStore(controller.subscribe, controller.getState);
 }
