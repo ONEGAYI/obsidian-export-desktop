@@ -14,6 +14,14 @@
  * follow the approved paper-white / soft-violet direction (#F5F4F1 page,
  * #FEFEFC panels, #7656CE accent); dark keeps the graphite + muted violet
  * pairing through the same variables.
+ *
+ * Token roles vs visual roles: the page canvas is NOT the `--background`
+ * token. The app root div paints itself with --background-secondary (the
+ * warm #F5F4F1 paper tone) while cards and popovers sit on
+ * --background-primary (#FEFEFC near-white), so the page reads one step
+ * darker than its panels. `--background` keeps its plain shadcn meaning for
+ * the body base layer only — reading it as "the page color" gets the
+ * hierarchy backwards.
  */
 
 :root {
