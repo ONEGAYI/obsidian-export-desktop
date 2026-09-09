@@ -10,20 +10,27 @@ import { PathPicker } from "@/components/PathPicker";
 import { SidecarErrorCard } from "@/components/SidecarErrorCard";
 import { useI18n } from "@/i18n";
 import type { ExportOptions } from "@/lib/options";
-import type { PreviewState } from "@/lib/preview";
+import type { PreviewInput, PreviewState } from "@/lib/preview";
 import { useLayoutBreakpoints } from "@/lib/layout";
 
-interface HomeViewProps {
-  source: string;
+/**
+ * The source / destination / keep-root trio travels together everywhere the
+ * preview does (this view, the confirm dialog, the preview hook); bundling
+ * the values with their handlers keeps the clump from scattering across
+ * prop lists again.
+ */
+export interface PathSelection extends PreviewInput {
   onSourceChange: (value: string) => void;
-  destination: string;
   onDestinationChange: (value: string) => void;
-  rememberPaths: boolean;
-  onRememberPathsChange: (value: boolean) => void;
-  keepRootFolder: boolean;
   onKeepRootChange: (value: boolean) => void;
+}
+
+interface HomeViewProps {
+  paths: PathSelection;
   preview: PreviewState;
   options: ExportOptions;
+  rememberPaths: boolean;
+  onRememberPathsChange: (value: boolean) => void;
   canExport: boolean;
   /** Environment-level sidecar failure banner, shown under the header. */
   sidecarError: string | null;
@@ -40,16 +47,11 @@ interface HomeViewProps {
  * (tiny window, enlarged fonts, long error text).
  */
 export function HomeView({
-  source,
-  onSourceChange,
-  destination,
-  onDestinationChange,
-  rememberPaths,
-  onRememberPathsChange,
-  keepRootFolder,
-  onKeepRootChange,
+  paths,
   preview,
   options,
+  rememberPaths,
+  onRememberPathsChange,
   canExport,
   sidecarError,
   onOpenOptions,
@@ -103,8 +105,8 @@ export function HomeView({
                     label={t.app.sourceLabel}
                     placeholder={t.app.sourcePlaceholder}
                     namePlaceholder={t.home.sourceNamePlaceholder}
-                    value={source}
-                    onChange={onSourceChange}
+                    value={paths.source}
+                    onChange={paths.onSourceChange}
                   />
                   <span aria-hidden className="h-px shrink-0 bg-border/60" />
                   <PathPicker
@@ -113,22 +115,22 @@ export function HomeView({
                     label={t.app.destinationLabel}
                     placeholder={t.app.destinationPlaceholder}
                     namePlaceholder={t.home.destinationNamePlaceholder}
-                    value={destination}
-                    onChange={onDestinationChange}
+                    value={paths.destination}
+                    onChange={paths.onDestinationChange}
                   />
                 </CardContent>
               </Card>
               {tall ? (
                 <KeepRootExpanded
                   state={preview}
-                  keepRootFolder={keepRootFolder}
-                  onKeepRootChange={onKeepRootChange}
+                  keepRootFolder={paths.keepRootFolder}
+                  onKeepRootChange={paths.onKeepRootChange}
                 />
               ) : (
                 <KeepRootCapsule
                   state={preview}
-                  keepRootFolder={keepRootFolder}
-                  onKeepRootChange={onKeepRootChange}
+                  keepRootFolder={paths.keepRootFolder}
+                  onKeepRootChange={paths.onKeepRootChange}
                 />
               )}
             </div>

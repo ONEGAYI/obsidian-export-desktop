@@ -3,7 +3,11 @@ import { FolderOutputIcon } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { useI18n } from "@/i18n";
-import type { PreviewState } from "@/lib/preview";
+import {
+  isFileSource,
+  isPreviewUsable,
+  type PreviewState,
+} from "@/lib/preview";
 
 interface KeepRootAreaProps {
   state: PreviewState;
@@ -29,9 +33,9 @@ function previewLine(state: PreviewState, waiting: string, resolving: string, mi
     case "pending":
       return { text: resolving, tone: "muted", path: null, detail: null };
     case "ready":
-      return state.sourceKind === "other"
-        ? { text: missing, tone: "error", path: null, detail: null }
-        : { text: state.target, tone: "path", path: state.target, detail: null };
+      return isPreviewUsable(state)
+        ? { text: state.target, tone: "path", path: state.target, detail: null }
+        : { text: missing, tone: "error", path: null, detail: null };
     case "failed":
       return { text: failed, tone: "error", path: null, detail: state.message };
   }
@@ -132,8 +136,7 @@ export function KeepRootExpanded({
   );
   // A single-note source keeps the preference but the rule never applies to
   // it — say so instead of silently ignoring the checkbox.
-  const fileNote =
-    state.phase === "ready" && state.sourceKind === "file" && keepRootFolder;
+  const fileNote = isFileSource(state) && keepRootFolder;
   return (
     <div className="flex shrink-0 flex-col gap-2.5 rounded-xl border bg-card p-4">
       <Label className="flex cursor-pointer items-center gap-2.5 font-normal">

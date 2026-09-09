@@ -1316,13 +1316,13 @@
                 },
                 "naming.ts": {
                   "kind": "file",
-                  "desc": "首页路径名称派生",
+                  "desc": "路径末段与显示名称派生",
                   "detail": [
-                    "displayName：修剪尾部分隔符后取末级名称；空输入返回 null 呈现占位；盘符根等无名路径回退修剪后输入。"
+                    "baseName：全路径取末段（两种分隔符、尾分隔符产空串，日志行与摘要共用，自 sidecar 迁入）；displayName：首页卡片显示名（trim+尾分隔符修剪+末段，空输入 null 呈占位、盘符根等无名路径回退修剪后输入）。"
                   ],
                   "rel": [
-                    "desktop/src/components/PathPicker.tsx",
-                    "desktop/src/lib/naming.test.ts"
+                    "desktop/src/components/HomeView.tsx",
+                    "desktop/src/lib/options.ts"
                   ],
                   "tags": [
                     "frontend"

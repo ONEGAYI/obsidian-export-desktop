@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/card";
 import { fmt, useI18n } from "@/i18n";
 import type { SidecarExit } from "@/lib/sidecar";
-import { baseName } from "@/lib/sidecar";
+import { baseName } from "@/lib/naming";
 
 export interface ExportResultData {
   total: number;

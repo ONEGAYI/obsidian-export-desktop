@@ -8,17 +8,21 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { fmt, useI18n } from "@/i18n";
+import { baseName } from "@/lib/naming";
 import { summarizeOptions, type ExportOptions } from "@/lib/options";
-import type { PreviewState } from "@/lib/preview";
-import { baseName } from "@/lib/sidecar";
+import {
+  isFileSource,
+  isPreviewUsable,
+  type PreviewInput,
+  type PreviewState,
+} from "@/lib/preview";
 
 interface ExportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Read-only restatement: the option is edited on the home view. */
-  keepRootFolder: boolean;
-  source: string;
-  destination: string;
+  /** Read-only restatement of the home view's path selection; the keep-root
+   * option itself is edited on the home view. */
+  paths: PreviewInput;
   /** Shared preview state (same resolver as the spawn); see lib/preview. */
   preview: PreviewState;
   options: ExportOptions;
@@ -37,9 +41,7 @@ interface ExportDialogProps {
 export function ExportDialog({
   open,
   onOpenChange,
-  keepRootFolder,
-  source,
-  destination,
+  paths,
   preview,
   options,
   onEditOptions,
@@ -47,15 +49,11 @@ export function ExportDialog({
 }: ExportDialogProps) {
   const { t } = useI18n();
   const summary = summarizeOptions(options, t);
-  const rootName = baseName(source) || t.app.keepRootFallbackName;
-  const landingPath =
-    preview.phase === "ready" && preview.sourceKind !== "other"
-      ? preview.target
-      : destination;
-  const previewUnusable =
-    preview.phase !== "ready" || preview.sourceKind === "other";
-  const fileNote =
-    preview.phase === "ready" && preview.sourceKind === "file" && keepRootFolder;
+  const rootName = baseName(paths.source) || t.app.keepRootFallbackName;
+  const landingPath = isPreviewUsable(preview)
+    ? preview.target
+    : paths.destination;
+  const fileNote = isFileSource(preview) && paths.keepRootFolder;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -63,18 +61,21 @@ export function ExportDialog({
         <DialogHeader>
           <DialogTitle>{t.dialog.title}</DialogTitle>
           <DialogDescription className="font-mono text-[11px] leading-relaxed break-all">
-            {source}
+            {paths.source}
             <br />
             → {landingPath}
           </DialogDescription>
           {preview.phase === "pending" && (
             <DialogDescription>{t.preview.resolving}</DialogDescription>
           )}
-          {previewUnusable && preview.phase !== "pending" && (
+          {preview.phase === "ready" && preview.sourceKind === "other" && (
             <DialogDescription className="text-xs text-destructive">
-              {preview.phase === "ready"
-                ? t.preview.sourceMissing
-                : t.dialog.previewUnavailable}
+              {t.preview.sourceMissing}
+            </DialogDescription>
+          )}
+          {(preview.phase === "failed" || preview.phase === "idle") && (
+            <DialogDescription className="text-xs text-destructive">
+              {t.dialog.previewUnavailable}
             </DialogDescription>
           )}
         </DialogHeader>
@@ -105,7 +106,7 @@ export function ExportDialog({
 
         <div className="flex flex-col gap-0.5 rounded-md border p-2.5">
           <span className="text-sm leading-none font-medium">
-            {keepRootFolder
+            {paths.keepRootFolder
               ? t.dialog.keepRootSummaryOn
               : t.dialog.keepRootSummaryOff}
           </span>
