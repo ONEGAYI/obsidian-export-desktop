@@ -39,7 +39,7 @@
     - fork 的 CI 在 PR #6 前从未全绿（历史 PR 手动合并不等待），Linux 侧存量债一次性清偿后才成为基线：`cfg(not(windows))` 测试本地不可见（平台断言、`tail_expr_drop_order`）、nightly rustfmt 行为演进（imports 粒度变化需全量重排）、tarpaulin 插桩拖慢执行暴露速率类时序断言——本地 Windows 全绿不代表 CI 绿，动测试时留意平台耦合与耗时假设。
     - `docs/CHANGELOG.md` 与 `docs/CONTRIBUTING.md` 是 **git symlink（mode 120000）**：Windows checkout 把它们物化成「内容为目标路径的普通文本文件」，当普通文件编辑（哪怕只追加换行）会污染 blob，Linux 上 symlink 目标带上 `\n` 变 broken（pre-commit 的 check-symlinks 挂）。修复方式 `git hash-object -w --stdin` + `update-index --cacheinfo 120000,<hash>,<path>`；改文件前先 `git ls-files -s` 看 mode。
     - towncrier 片段正文首行**不要带 `- ` 列表前缀**（towncrier 生成时自己加，双前缀 `- - ` 需手工修 CHANGELOG）；生成后条目链接按 issue_format 指向 zoni issues，需手工替换为 fork 的 pull 链接。
-    - **（PR #9 实践）rustfmt 工具链已钉 dated nightly `nightly-2026-08-20`**：裸 `nightly` 会随 rustfmt 演进漂移（CI 装到的比本地新就全仓重排、CI 红）。三处同步维护：`Justfile` 的 `rustfmt_toolchain` 变量（`just fmt` 一键安装+格式化）、`.github/workflows/ci.yml` 的 fmt matrix 项、`.pre-commit-config.yaml` 的 rustfmt hook。升级流程：改三处日期 → `just fmt` 全量重排 → 同一提交入库。**本机实况（2026-09）**：`rustup` 下载该 dated 工具链反复失败（链路慢 + 缓存并发损坏 + os error 1450），未能常驻安装；本地日常用 `cargo +nightly fmt` 兜底——当前裸 `nightly`（8925ea358a）与 dated（f7d782a3b）两构建的 rustfmt 行为恰好一致（PR #10 重排经 CI 检查通过为实证），但 `rustup update` 后裸 nightly 前进、与 CI 钉版出现 diff 时，须重新设法安装 dated（或换网络/重试 `just fmt`）而非迁就裸 nightly。另注：一旦 dated 安装成功，先用 `cargo +nightly-2026-08-20 fmt --all -- --check` 核对全仓——若与裸 nightly 的重排有出入（如 comments.rs 的注释宽度差异），以 dated（=CI）为准重新格式化提交。
+    - **（PR #9 实践）rustfmt 工具链已钉 dated nightly `nightly-2026-08-20`**：裸 `nightly` 会随 rustfmt 演进漂移（CI 装到的比本地新就全仓重排、CI 红）。三处同步维护：`Justfile` 的 `rustfmt_toolchain` 变量（`just fmt` 一键安装+格式化）、`.github/workflows/ci.yml` 的 fmt matrix 项、`.pre-commit-config.yaml` 的 rustfmt hook。升级流程：改三处日期 → `just fmt` 全量重排 → 同一提交入库。**本机实况（2026-09）**：`rustup` 下载该 dated 工具链反复失败（链路慢 + 缓存并发损坏 + os error 1450），未能常驻安装；本地日常用 `cargo +nightly fmt` 兜底——当前裸 `nightly`（8925ea358a）与 dated（f7d782a3b）两构建的 rustfmt 行为恰好一致（PR #10 重排经 CI 检查通过为实证），但 `rustup update` 后裸 nightly 前进、与 CI 钉版出现 diff 时，须重新设法安装 dated（或换网络/重试 `just fmt`）而非迁就裸 nightly。另注：一旦 dated 安装成功，先用 `cargo +nightly-2026-08-20 fmt --all -- --check` 核对全仓——若与裸 nightly 的重排有出入（如 comments.rs 的注释宽度差异），以 dated（=CI）为准重新格式化提交。**stable 侧同样漂移（2026-09 实况，PR #42）**：runner 上的 stable clippy 演进后开始拦存量 `else_if_without_else`（#35 引入时当时版本不拦），pre-commit 的 end-of-file-fixer 拦下旧 fixture `legacy.excalidraw` 缺尾换行——本地全绿不代表 CI 绿在 clippy/pre-commit 层同样成立，修复随 PR #42 落地（空 else 块 + 补尾换行）。
 - 通用行为准则、提交与发布规范以用户级 AGENTS.md 为准，此处不重复。
 
 ## 待定事项
@@ -60,7 +60,7 @@
 - CI 覆盖：`ci.yml` 的 desktop job（windows-latest）跑 `install → sync-sidecar`（硬顺序：桌面 build script 编译期校验 externalBin，binaries/ 又被 gitignore）`→ tsc+vite build → vitest → cargo test`（桌面 workspace）；rust-cache `workspaces` 同时缓存根 `target/` 与 `desktop/src-tauri/target`（注意 `->` 右侧是 target 目录名非 crate 名，写错会静默失效）。
 - 完整构建说明（含 Windows 坑与图标替换）见 [docs/BUILD.md](docs/BUILD.md)（中文，面向人类读者）。
 - `desktop/src-tauri` 是独立 cargo workspace（自持 `[workspace]`），不影响根 crate 与 cargo-dist；`.cargo/config.toml` 启用 MSRV 感知解析（工具链锁 1.87）。
-- 前端：Tailwind v4 + 手搭 shadcn 层（shadcn CLI 与当前 Node 生态冲突，组件手写在 `src/components/ui/`；CLI 修复后可迁移）。主题三态（light/dark/system，`src/lib/theme.ts`）；用户偏好存 localStorage：路径记忆、「保留根文件夹」（`obsidian-export-*` 逐项键）与转换选项（`obsidian-export-options` 单键 JSON，见 `src/lib/options.ts`）。
+- 前端：Tailwind v4 + 手搭 shadcn 层（shadcn CLI 与当前 Node 生态冲突，组件手写在 `src/components/ui/`；CLI 修复后可迁移）。主题三态（light/dark/system，`src/lib/theme.ts`）；用户偏好存 localStorage：路径记忆、「保留根文件夹」（`obsidian-export-*` 逐项键）与转换选项（`obsidian-export-options` 单键 JSON，见 `src/lib/options.ts`）。视觉为纸白淡紫（浅）/石墨柔紫（深）双配色——语义变量集中在 `src/index.css`（注意页面底色走根容器的 `--background-secondary` 而非 `--background`，头注释有分工说明）；布局宽高独立断点（宽 ≥1000 / 高 ≥640，`src/lib/layout.ts` 纯函数 + `useSyncExternalStore` hook）：宽屏首页出右栏只读配置摘要、运行/结果页并排（结构类布局单一来源走 JS 断点，防滚动条宽度致 JS/CSS 分歧），矮窗根文件夹输出区压缩为单行胶囊，折叠区域从 DOM 移除。首页与确认框共用后端 `resolve_export_paths` 的输出位置预览（`lib/preview.ts` 防抖控制器，代际计数丢弃迟到结果）。
 - i18n：界面文案抽离为字典（`src/i18n/`，zh 为结构基准、`Widen` 宽化出 `Dict` 类型锁两份字典键一致），运行时经项目首个 React Context（`I18nProvider`）分发；语言三态 zh/en/system（跟随系统按 `navigator.languages` 是否含 zh 前缀判定），偏好存 `obsidian-export-language`，生效语言同步 `document.documentElement.lang`；标题栏下拉（`LanguageMenu`，radix dropdown-menu）三态互转。Rust/CLI 侧英文技术错误原文透传，不进字典。
 - 版本号统一由 `just set-version X.Y.Z` 控制：一次对齐六处——根 crate（`Cargo.toml` + `Cargo.lock`）与桌面端三处（`desktop/package.json`、`desktop/src-tauri/tauri.conf.json`、`desktop/src-tauri/Cargo.toml` + 其 `Cargo.lock`），避免安装包文件名与 release 版本错位（26.8.2 起对齐）。`make-new-release` 已接入该目标。依赖 cargo-edit（仓库工具链锁 1.87 而 cargo-edit 0.13.13 要求 1.92，**须在仓库外目录用 stable 工具链安装 0.13.10**：`rustup run stable cargo install cargo-edit --version 0.13.10 --locked`）；`cargo set-version` 拒绝降级（发布防呆，误 bump 的还原属手动操作）。桌面端 lock 由脚本 sed 直接修补——桌面 workspace 的 build script 依赖已同步的 sidecar 二进制，`cargo check` 在 clean 后不可用。
 - 事件流消费遵守 `docs/sidecar-events.md` 契约（导出 / check / update 三种事件方言）；schema 版本常量在 `desktop/src-tauri/src/events.rs` 与 CLI 的 `main.rs` 各有一份，升级时同步改。
@@ -107,10 +107,7 @@ obsidian-export-desktop/
 ├── Cargo.lock              # 根 crate 依赖锁文件
 ├── Cargo.toml              # 主 crate 清单（lib+bin）
 ├── changelog.d/            # towncrier 变更片段目录
-│   ├── .gitignore # 片段目录占位忽略文件
-│   ├── 35.new.md  # 更新代理功能变更片段
-│   ├── 36.new.md  # 桌面静默安装更新变更片段
-│   └── 42.new.md  # GUI美化汇总PR变更片段
+│   └── .gitignore # 片段目录占位忽略文件
 ├── CHANGELOG.md            # 变更日志（towncrier 生成）
 ├── CLAUDE.md               # Claude 专属补充规则
 ├── cliff.toml              # git-cliff 备用变更日志配置

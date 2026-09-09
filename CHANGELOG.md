@@ -2,6 +2,18 @@
 
 <!-- towncrier release notes start -->
 
+## [26.9.3](https://github.com/zoni/obsidian-export/tree/26.9.3) - 2026-09-09
+
+Desktop-focused release: a refreshed paper-white & soft-violet responsive UI with a unified output-path preview, silent update installs, and an optional HTTP proxy for update checks.
+
+### New Features
+
+- 新增 `--proxy` 参数与桌面端「更新网络代理」设置：更新检测优先直连、失败自动经代理重试一次（直连成功绝不消耗代理共享出口的 GitHub API 免费额度），配了代理时下载恒经代理；检测结果事件新增 `channel` 字段并在界面标注实际应答通道。 ([#35](https://github.com/ONEGAYI/obsidian-export-desktop/pull/35))
+- 桌面端「安装更新」改为静默安装：确认后应用退出，NSIS 在后台原地完成安装（`/S /UPDATE /R`）并自动重启新版，全程无向导与 UAC 弹窗。 ([#36](https://github.com/ONEGAYI/obsidian-export-desktop/pull/36))
+- 桌面端界面全面美化：浅色换为纸白淡紫、深色换为石墨柔紫，并引入宽高独立的响应式布局——宽度 ≥1000px 时首页右侧显示只读配置摘要栏，高度 ≥640px 时根文件夹输出区以展开形态呈现（矮窗压缩为单行胶囊），设置、导出运行与结果视图在宽屏下并排利用横向空间（运行页取消按钮恒可见、结果页无检查时单列不留空位）。
+  首页与导出确认框改为共用后端统一解析的「实际输出位置」预览（与导出落点由同一函数保证一致），来源缺失、预览失败均有明确警示与错误详情入口。 ([#42](https://github.com/ONEGAYI/obsidian-export-desktop/pull/42))
+
+
 ## [26.9.2](https://github.com/zoni/obsidian-export/tree/26.9.2) - 2026-09-03
 
 Feature release: a new optional `excalidraw` diagram renderer that converts whole Excalidraw drawing files into SVG/PNG assets during export and rewrites embeds and links to point at them, for both the CLI and the desktop app.
@@ -1197,6 +1209,7 @@ notable new feature.
 * Public release. [Nick Groenen]
 
 <!-- 变更链接 -->
+[26.9.3]: https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.9.2...v26.9.3
 [26.9.2]: https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.9.1...v26.9.2
 
 - [v26.8.2](https://github.com/ONEGAYI/obsidian-export-desktop/commits/v26.8.2)
