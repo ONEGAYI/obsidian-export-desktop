@@ -32,6 +32,7 @@ import {
 import { ExportDialog } from "@/components/ExportDialog";
 import { ExportRunView } from "@/components/ExportRunView";
 import { ExportResultView } from "@/components/ExportResultView";
+import { OutputPreview } from "@/components/OutputPreview";
 import {
   EMPTY_LINK_CHECK,
   LinkCheckPanel,
@@ -61,6 +62,7 @@ import {
   saveOptions,
   type ExportOptions,
 } from "@/lib/options";
+import { useDestinationPreview } from "@/lib/preview";
 import {
   type CheckEvent,
   type SidecarEvent,
@@ -303,6 +305,9 @@ export default function App() {
   const [keepRootFolder, setKeepRootFolder] = useState(() =>
     loadBool(KEEP_ROOT_KEY, true),
   );
+  // Landing-path preview shared by the home view and the confirm dialog;
+  // debounced, stale-result-proof (see lib/preview).
+  const preview = useDestinationPreview(source, destination, keepRootFolder);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [view, setView] = useState<"main" | "options">("main");
   const [options, setOptions] = useState<ExportOptions>(loadOptions);
@@ -743,6 +748,17 @@ export default function App() {
                   value={destination}
                   onChange={handleDestinationChange}
                 />
+                <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal text-muted-foreground">
+                  <Checkbox
+                    checked={keepRootFolder}
+                    onCheckedChange={handleKeepRootChange}
+                  />
+                  {t.app.keepRootTitle}
+                </Label>
+                <OutputPreview
+                  state={preview}
+                  keepRootFolder={keepRootFolder}
+                />
                 <div className="flex items-center justify-between">
                   <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal text-muted-foreground">
                     <Checkbox
@@ -804,9 +820,9 @@ export default function App() {
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         keepRootFolder={keepRootFolder}
-        onKeepRootFolderChange={handleKeepRootChange}
         source={source}
         destination={destination}
+        preview={preview}
         options={options}
         onEditOptions={handleEditOptions}
         onStart={handleStart}

@@ -142,6 +142,7 @@ obsidian-export-desktop/
 │   │   │   ├── LinkCheckPanel.tsx   # 链接检查面板与状态折叠逻辑
 │   │   │   ├── options-view.test.ts # 页签键盘导航纯函数测试
 │   │   │   ├── OptionsView.tsx      # 分页式转换选项设置面板
+│   │   │   ├── OutputPreview.tsx    # 首页实际输出位置预览区块
 │   │   │   ├── PathPicker.tsx       # 目录路径输入加浏览选择器
 │   │   │   ├── TagInput.tsx         # 多标签芯片输入编辑器
 │   │   │   ├── ui/                  # 手搭 shadcn 基础组件层
@@ -164,10 +165,12 @@ obsidian-export-desktop/
 │   │   │   └── zh.ts        # 中文字典并定义 Dict 类型基准
 │   │   ├── index.css        # Obsidian 风格主题变量与全局样式
 │   │   ├── lib/             # 前端工具与封装层目录
-│   │   │   ├── options.ts # 导出选项类型、校验与摘要
-│   │   │   ├── sidecar.ts # Tauri 命令调用与事件封装层
-│   │   │   ├── theme.ts   # 主题偏好 Hook，支持跟随系统
-│   │   │   └── utils.ts   # cn 类名合并工具函数
+│   │   │   ├── options.ts      # 导出选项类型、校验与摘要
+│   │   │   ├── preview.test.ts # 预览控制器行为测试
+│   │   │   ├── preview.ts      # 输出路径预览状态控制器与 Hook
+│   │   │   ├── sidecar.ts      # Tauri 命令调用与事件封装层
+│   │   │   ├── theme.ts        # 主题偏好 Hook，支持跟随系统
+│   │   │   └── utils.ts        # cn 类名合并工具函数
 │   │   ├── main.tsx         # React 入口（含 i18n）
 │   │   └── vite-env.d.ts    # Vite 客户端类型引用
 │   ├── src-tauri/          # Tauri Rust 后端

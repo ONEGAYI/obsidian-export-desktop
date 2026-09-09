@@ -54,6 +54,21 @@ export const zh = {
     rememberPaths: "记住上次路径",
     options: "选项",
     export: "导出",
+    // 根文件夹选项的主要编辑入口在首页（#38 起）；确认框只读复述同一状态。
+    keepRootTitle: "在目标下保留根文件夹",
+    keepRootDescription:
+      "导出文件夹时写入「目标/{name}」，避免内部第一层文件散落在目标位置（仅文件夹来源生效）。",
+    keepRootFallbackName: "来源文件夹名",
+  },
+  // 输出位置预览的各状态文案：预览与启动共用同一后端解析规则。
+  preview: {
+    label: "实际输出位置",
+    waiting: "等待选择来源与目标",
+    resolving: "正在解析输出位置…",
+    sourceMissing: "来源不存在或不可访问，无法确认输出位置",
+    failed: "无法预览输出位置",
+    failedDetail: "技术细节",
+    fileKeepRootNote: "单篇笔记导出不套用根文件夹，直接写入目标位置",
   },
   options: {
     title: "转换选项",
@@ -274,10 +289,9 @@ export const zh = {
     activeOptions: "生效选项",
     modify: "修改",
     allDefault: "全部保持默认",
-    keepRootTitle: "在目标下保留根文件夹",
-    keepRootDescription:
-      "导出文件夹时写入「目标/{name}」，避免内部第一层文件散落在目标位置（仅文件夹来源生效）。",
-    keepRootFallbackName: "来源文件夹名",
+    keepRootSummaryOn: "保留根文件夹：已开启",
+    keepRootSummaryOff: "保留根文件夹：已关闭",
+    previewUnavailable: "未能预览输出位置；开始导出时以后端报告为准",
     cancel: "取消",
     start: "开始导出",
   },

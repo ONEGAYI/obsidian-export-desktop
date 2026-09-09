@@ -893,6 +893,20 @@
                     "frontend"
                   ]
                 },
+                "OutputPreview.tsx": {
+                  "kind": "file",
+                  "desc": "首页实际输出位置预览区块",
+                  "detail": [
+                    "渲染预览状态机各态：等待选择、解析中、解析路径、来源缺失警示、失败可展开技术细节；单文件来源显示根文件夹不适用附注。"
+                  ],
+                  "rel": [
+                    "desktop/src/App.tsx",
+                    "desktop/src/lib/preview.ts"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
                 "PathPicker.tsx": {
                   "kind": "file",
                   "desc": "目录路径输入加浏览选择器",
@@ -1195,6 +1209,33 @@
                   ],
                   "rel": [
                     "desktop/src-tauri/src/sidecar.rs"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
+                "preview.test.ts": {
+                  "kind": "file",
+                  "desc": "预览控制器行为测试",
+                  "detail": [
+                    "覆盖防抖合并、乱序丢弃、失效清旧、空输入不请求与 StrictMode 重挂载后同值重调度（烟测缺陷 A 回归锁）等用户行为。"
+                  ],
+                  "rel": [
+                    "desktop/src/lib/preview.ts"
+                  ],
+                  "tags": [
+                    "test"
+                  ]
+                },
+                "preview.ts": {
+                  "kind": "file",
+                  "desc": "输出路径预览状态控制器与 Hook",
+                  "detail": [
+                    "框架无关的预览编排器（150ms 防抖、代际计数丢弃迟到结果、空输入不请求、dispose 重置去重记忆）与 useDestinationPreview Hook（useSyncExternalStore 订阅），首页与确认框共用一份预览状态。"
+                  ],
+                  "rel": [
+                    "desktop/src/lib/preview.test.ts",
+                    "desktop/src/lib/sidecar.ts"
                   ],
                   "tags": [
                     "frontend"

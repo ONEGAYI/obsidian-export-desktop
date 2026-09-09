@@ -54,6 +54,24 @@ export const en: Dict = {
     rememberPaths: "Remember last paths",
     options: "Options",
     export: "Export",
+    // The keep-root option is edited on the home view (since #38); the
+    // confirm dialog restates the same state read-only.
+    keepRootTitle: "Keep root folder under destination",
+    keepRootDescription:
+      'When exporting a folder, writes to "destination/{name}" so the top-level files don\u2019t spill into the destination itself (folder sources only).',
+    keepRootFallbackName: "source folder name",
+  },
+  // Destination-preview states; the preview shares the backend resolver with
+  // the actual export spawn.
+  preview: {
+    label: "Output location",
+    waiting: "Waiting for a source and destination",
+    resolving: "Resolving the output location…",
+    sourceMissing: "Source missing or inaccessible; output location unconfirmed",
+    failed: "Cannot preview the output location",
+    failedDetail: "Technical detail",
+    fileKeepRootNote:
+      "A single note ignores the root folder and lands directly in the destination",
   },
   options: {
     title: "Conversion Options",
@@ -281,10 +299,9 @@ export const en: Dict = {
     activeOptions: "Active options",
     modify: "Modify",
     allDefault: "All defaults",
-    keepRootTitle: "Keep root folder under destination",
-    keepRootDescription:
-      'When exporting a folder, writes to "destination/{name}" so the top-level files don\u2019t spill into the destination itself (folder sources only).',
-    keepRootFallbackName: "source folder name",
+    keepRootSummaryOn: "Keep root folder: on",
+    keepRootSummaryOff: "Keep root folder: off",
+    previewUnavailable: "Output location not previewed; the backend verdict at start time applies",
     cancel: "Cancel",
     start: "Start Export",
   },
