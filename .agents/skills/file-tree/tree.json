@@ -530,6 +530,19 @@
           "tags": [
             "docs"
           ]
+        },
+        "42.new.md": {
+          "kind": "file",
+          "desc": "GUI美化汇总PR变更片段",
+          "detail": [
+            "PR #42（#38/#39/#40 汇总）的 towncrier 片段：纸白淡紫主题、宽高独立响应式布局、统一输出路径预览。"
+          ],
+          "rel": [
+            "changelog.d/36.new.md"
+          ],
+          "tags": [
+            "docs"
+          ]
         }
       }
     },
