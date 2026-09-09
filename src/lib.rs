@@ -845,6 +845,9 @@ impl<'a> Exporter<'a> {
             return Err(ExportError::PathDoesNotExist {
                 path: self.destination.clone(),
             });
+        } else {
+            // Existing directory destination: the regular checks in `run`
+            // still apply, nothing to precheck here.
         }
         Ok(())
     }

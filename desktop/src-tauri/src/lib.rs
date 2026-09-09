@@ -10,6 +10,7 @@ pub fn run() {
         .manage(sidecar::ExportState::default())
         .invoke_handler(tauri::generate_handler![
             sidecar::check_sidecar,
+            sidecar::preview_export_destination,
             sidecar::start_export,
             sidecar::start_check,
             sidecar::cancel_export,

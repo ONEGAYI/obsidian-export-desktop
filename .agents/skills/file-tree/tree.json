@@ -285,6 +285,164 @@
         "config"
       ]
     },
+    ".scratch": {
+      "kind": "dir",
+      "desc": "规划快照与交接材料",
+      "tags": [
+        "docs",
+        "meta"
+      ],
+      "collapsed": true,
+      "children": {
+        "gui-refresh": {
+          "kind": "dir",
+          "desc": "GUI美化规划交接",
+          "tags": [
+            "docs"
+          ],
+          "children": {
+            "handoff.md": {
+              "kind": "file",
+              "desc": "GUI实现Agent交接入口",
+              "detail": [
+                "远端规格和任务入口、未提交材料说明、用户授权边界、建议技能与精确接手提示。"
+              ],
+              "rel": [
+                ".scratch/gui-refresh/spec.md",
+                "docs/agents/issue-tracker.md"
+              ],
+              "tags": [
+                "docs",
+                "meta"
+              ]
+            },
+            "issues": {
+              "kind": "dir",
+              "desc": "GitHub任务发布快照",
+              "tags": [
+                "docs"
+              ],
+              "children": {
+                "01-output-preview.md": {
+                  "kind": "file",
+                  "desc": "路径预览任务发布快照",
+                  "detail": [
+                    "GitHub#38的任务快照：只读输出路径预览贯通首页、确认框与桌面后端。"
+                  ],
+                  "rel": [
+                    ".scratch/gui-refresh/spec.md"
+                  ],
+                  "tags": [
+                    "docs"
+                  ]
+                },
+                "02-responsive-home.md": {
+                  "kind": "file",
+                  "desc": "响应式首页任务发布快照",
+                  "detail": [
+                    "GitHub#39的任务快照：独立宽高断点、单行输出胶囊、真实配置摘要和主题适配。"
+                  ],
+                  "rel": [
+                    ".scratch/gui-refresh/spec.md"
+                  ],
+                  "tags": [
+                    "docs"
+                  ]
+                },
+                "03-flow-adaptation.md": {
+                  "kind": "file",
+                  "desc": "导出全流程适配任务快照",
+                  "detail": [
+                    "GitHub#40的任务快照：设置、运行与结果视图适配、全流程回归和验收准备。"
+                  ],
+                  "rel": [
+                    ".scratch/gui-refresh/spec.md"
+                  ],
+                  "tags": [
+                    "docs"
+                  ]
+                }
+              }
+            },
+            "reference.png": {
+              "kind": "file",
+              "desc": "已确认GUI布局参考图",
+              "detail": [
+                "用户确认的纸白淡紫布局，含默认高度单行输出胶囊和宽屏配置详情；图像示例值与比例不替代规格契约。"
+              ],
+              "rel": [
+                ".scratch/gui-refresh/spec.md"
+              ],
+              "tags": [
+                "docs"
+              ]
+            },
+            "reports": {
+              "kind": "dir",
+              "desc": "三轮真窗口代测验收报告",
+              "children": {
+                "38-smoke.md": {
+                  "kind": "file",
+                  "desc": "#38桌面烟测报告归档",
+                  "detail": [
+                    "多模态Agent代测：目录导出落点逐字一致、根文件夹即时失效、单文件不追加、无效来源警示、清空不残留；启动初始态缺陷已修复复验。"
+                  ],
+                  "rel": [
+                    ".scratch/gui-refresh/handoff.md"
+                  ],
+                  "tags": [
+                    "docs",
+                    "meta"
+                  ]
+                },
+                "39-viewport-matrix.md": {
+                  "kind": "file",
+                  "desc": "#39视口矩阵验收归档",
+                  "detail": [
+                    "多模态Agent代测：7档视口矩阵（含999/1000与639/640临界）、主题三态、中英切换、双栏比例核查全过；双浮层缺陷已修复复验。"
+                  ],
+                  "rel": [
+                    ".scratch/gui-refresh/handoff.md"
+                  ],
+                  "tags": [
+                    "docs",
+                    "meta"
+                  ]
+                },
+                "40-regression.md": {
+                  "kind": "file",
+                  "desc": "#40全流程回归归档",
+                  "detail": [
+                    "多模态Agent代测：设置页双形态与键盘tabs、默认/宽屏全流程导出（含60000篇大vault）、取消与失败路径、主题抽查全过；登记取消竞态等观察项。"
+                  ],
+                  "rel": [
+                    ".scratch/gui-refresh/handoff.md"
+                  ],
+                  "tags": [
+                    "docs",
+                    "meta"
+                  ]
+                }
+              }
+            },
+            "spec.md": {
+              "kind": "file",
+              "desc": "GUI美化规格发布快照",
+              "detail": [
+                "GitHub总规格#37的首次发布快照，包含宽高独立响应式规则、路径预览和验收矩阵；后续以远端Issue为准。"
+              ],
+              "rel": [
+                ".scratch/gui-refresh/handoff.md",
+                ".scratch/gui-refresh/reference.png"
+              ],
+              "tags": [
+                "docs"
+              ]
+            }
+          }
+        }
+      }
+    },
     "AGENTS.md": {
       "kind": "file",
       "desc": "项目规则单一事实源",
@@ -351,6 +509,39 @@
           ],
           "tags": [
             "config"
+          ]
+        },
+        "35.new.md": {
+          "kind": "file",
+          "desc": "更新代理功能变更片段",
+          "detail": [
+            "登记CLI代理参数、桌面更新代理设置和响应通道展示功能的发布说明。"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "36.new.md": {
+          "kind": "file",
+          "desc": "桌面静默安装更新变更片段",
+          "detail": [
+            "登记桌面更新静默安装、退出和安装后自动重启行为的发布说明。"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "42.new.md": {
+          "kind": "file",
+          "desc": "GUI美化汇总PR变更片段",
+          "detail": [
+            "PR #42（#38/#39/#40 汇总）的 towncrier 片段：纸白淡紫主题、宽高独立响应式布局、统一输出路径预览。"
+          ],
+          "rel": [
+            "changelog.d/36.new.md"
+          ],
+          "tags": [
+            "docs"
           ]
         }
       }
@@ -649,7 +840,8 @@
               "kind": "file",
               "desc": "应用根组件，串联三阶段导出流程",
               "detail": [
-                "管理 phase(setup/running/result) 与 view(main/options) 状态机、路径/选项 localStorage 持久化（remember-paths/source/destination/keep-root 四键）、foldEvent 折叠导出事件流；内嵌 ThemeToggle、LanguageMenu、WindowControls（无边框窗口控制）。监听 sidecar-event/exit/error 与 check-event/exit/error 六个 Tauri 事件；导出成功且 linkCheckEnabled 时自动触发 startCheck。"
+                "管理 phase(setup/running/result) 与 view(main/options) 状态机、路径/选项 localStorage 持久化（remember-paths/source/destination/keep-root 四键）、foldEvent 折叠导出事件流；内嵌 ThemeToggle、LanguageMenu、WindowControls（无边框窗口控制）。监听 sidecar-event/exit/error 与 check-event/exit/error 六个 Tauri 事件；导出成功且 linkCheckEnabled 时自动触发 startCheck。",
+                "布局挂载层：main overflow-hidden 各视图自管滚动；useLayoutBreakpoints 宽断点驱动结果页/运行页外壳（宽屏 max-w-6xl、结果页检查面板存在时并排两卡，否则单列 max-w-3xl）、设置页 max-w-4xl 居中。"
               ],
               "rel": [
                 "desktop/src/lib/options.ts",
@@ -669,6 +861,20 @@
                 "frontend"
               ],
               "children": {
+                "ConfigSummary.tsx": {
+                  "kind": "file",
+                  "desc": "宽屏只读配置摘要栏",
+                  "detail": [
+                    "从真实 ExportOptions 派生四分组（转换行为/图表渲染/链接检查/其他非默认），专用组与摘要条目去重；「配置已保存」仅指选项持久化。"
+                  ],
+                  "rel": [
+                    "desktop/src/components/HomeView.tsx",
+                    "desktop/src/lib/options.ts"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
                 "ExportDialog.tsx": {
                   "kind": "file",
                   "desc": "导出前确认对话框",
@@ -699,10 +905,40 @@
                   "kind": "file",
                   "desc": "导出进行中的进度与日志视图",
                   "detail": [
-                    "props：progress/onCancel；渲染 Progress 进度条（(done+skipped)/total 百分比）、三色计数与自动滚动的等宽日志列表（✓/–/✗/⚠/! 前缀）、取消按钮；数据由 App 折叠后传入。"
+                    "props：progress/onCancel；渲染 Progress 进度条（(done+skipped)/total 百分比）、三色计数与自动滚动的等宽日志列表（✓/–/✗/⚠/! 前缀）、取消按钮；宽屏（≥1000px）进度列固定 288px 与日志左右并排、取消按钮钉在进度列尾恒可见，窄窗上下堆叠、日志固定高度由外层滚动兜底；数据由 App 折叠后传入。"
                   ],
                   "rel": [
                     "desktop/src/App.tsx"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
+                "HomeView.tsx": {
+                  "kind": "file",
+                  "desc": "响应式首页主视图",
+                  "detail": [
+                    "组装页头（标题副标题与选项入口）、宽高独立双栏（右栏配置摘要约 38%）、路径卡片与胶囊/展开输出区、固定底部操作栏与中部滚动区。"
+                  ],
+                  "rel": [
+                    "desktop/src/App.tsx",
+                    "desktop/src/components/ConfigSummary.tsx",
+                    "desktop/src/components/KeepRootViews.tsx",
+                    "desktop/src/lib/layout.ts"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
+                "KeepRootViews.tsx": {
+                  "kind": "file",
+                  "desc": "根文件夹输出区双形态",
+                  "detail": [
+                    "矮窗单行胶囊（复选框+输出标识+截断路径，hover/聚焦弹可复制浮层）与高窗展开区（说明+完整路径换行），共用同一预览状态。"
+                  ],
+                  "rel": [
+                    "desktop/src/components/HomeView.tsx",
+                    "desktop/src/lib/preview.ts"
                   ],
                   "tags": [
                     "frontend"
@@ -771,6 +1007,20 @@
                   ],
                   "rel": [
                     "desktop/src/components/OptionsView.tsx"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
+                "SidecarErrorCard.tsx": {
+                  "kind": "file",
+                  "desc": "边车不可用错误卡片",
+                  "detail": [
+                    "环境级错误横幅（边车缺失或不可运行），各视图共用，含修复指引与错误原文。"
+                  ],
+                  "rel": [
+                    "desktop/src/App.tsx",
+                    "desktop/src/components/HomeView.tsx"
                   ],
                   "tags": [
                     "frontend"
@@ -1057,6 +1307,60 @@
                 "frontend"
               ],
               "children": {
+                "layout.test.ts": {
+                  "kind": "file",
+                  "desc": "视口断点边界测试",
+                  "detail": [
+                    "锁定 999/1000、639/640 临界、宽而矮并存、窄而高不出右栏与最小默认窗口档位。"
+                  ],
+                  "rel": [
+                    "desktop/src/lib/layout.ts"
+                  ],
+                  "tags": [
+                    "test"
+                  ]
+                },
+                "layout.ts": {
+                  "kind": "file",
+                  "desc": "宽高独立视口断点与 Hook",
+                  "detail": [
+                    "classifyLayout 纯函数（宽 >=1000 出右栏、高 >=640 用展开区，两条件独立）与 useLayoutBreakpoints（useSyncExternalStore 订阅 resize，快照缓存保证引用稳定）。"
+                  ],
+                  "rel": [
+                    "desktop/src/components/HomeView.tsx",
+                    "desktop/src/lib/layout.test.ts"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
+                "naming.test.ts": {
+                  "kind": "file",
+                  "desc": "名称派生边界测试",
+                  "detail": [
+                    "覆盖常规、尾分隔符、中文空格、空值、盘符根与相对路径末段。"
+                  ],
+                  "rel": [
+                    "desktop/src/lib/naming.ts"
+                  ],
+                  "tags": [
+                    "test"
+                  ]
+                },
+                "naming.ts": {
+                  "kind": "file",
+                  "desc": "首页路径名称派生",
+                  "detail": [
+                    "displayName：修剪尾部分隔符后取末级名称；空输入返回 null 呈现占位；盘符根等无名路径回退修剪后输入。"
+                  ],
+                  "rel": [
+                    "desktop/src/components/PathPicker.tsx",
+                    "desktop/src/lib/naming.test.ts"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
                 "options.ts": {
                   "kind": "file",
                   "desc": "导出选项类型、校验与摘要",
@@ -1065,6 +1369,33 @@
                   ],
                   "rel": [
                     "desktop/src-tauri/src/sidecar.rs"
+                  ],
+                  "tags": [
+                    "frontend"
+                  ]
+                },
+                "preview.test.ts": {
+                  "kind": "file",
+                  "desc": "预览控制器行为测试",
+                  "detail": [
+                    "覆盖防抖合并、乱序丢弃、失效清旧、空输入不请求与 StrictMode 重挂载后同值重调度（烟测缺陷 A 回归锁）等用户行为。"
+                  ],
+                  "rel": [
+                    "desktop/src/lib/preview.ts"
+                  ],
+                  "tags": [
+                    "test"
+                  ]
+                },
+                "preview.ts": {
+                  "kind": "file",
+                  "desc": "输出路径预览状态控制器与 Hook",
+                  "detail": [
+                    "框架无关的预览编排器（150ms 防抖、代际计数丢弃迟到结果、空输入不请求、dispose 重置去重记忆）与 useDestinationPreview Hook（useSyncExternalStore 订阅），首页与确认框共用一份预览状态。"
+                  ],
+                  "rel": [
+                    "desktop/src/lib/preview.test.ts",
+                    "desktop/src/lib/sidecar.ts"
                   ],
                   "tags": [
                     "frontend"
@@ -1510,6 +1841,46 @@
           "tags": [
             "docs"
           ]
+        },
+        "agents": {
+          "kind": "dir",
+          "desc": "工程技能工作流约定",
+          "tags": [
+            "docs",
+            "meta"
+          ],
+          "children": {
+            "domain.md": {
+              "kind": "file",
+              "desc": "领域文档读取与术语约定",
+              "detail": [
+                "规定单产品上下文、现有规则与事件契约的阅读顺序，以及惰性维护CONTEXT和ADR的方式。"
+              ],
+              "rel": [
+                "AGENTS.md",
+                "docs/sidecar-events.md"
+              ],
+              "tags": [
+                "docs",
+                "meta"
+              ]
+            },
+            "issue-tracker.md": {
+              "kind": "file",
+              "desc": "GitHub规格与任务管理约定",
+              "detail": [
+                "记录fork远端、GitHub Issues事实源、规格与子任务依赖、就绪标签及本地快照和交接边界。"
+              ],
+              "rel": [
+                "AGENTS.md",
+                "docs/agents/domain.md"
+              ],
+              "tags": [
+                "docs",
+                "meta"
+              ]
+            }
+          }
         },
         "BUILD.md": {
           "kind": "file",

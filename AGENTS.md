@@ -66,6 +66,12 @@
 - 事件流消费遵守 `docs/sidecar-events.md` 契约（导出 / check / update 三种事件方言）；schema 版本常量在 `desktop/src-tauri/src/events.rs` 与 CLI 的 `main.rs` 各有一份，升级时同步改。
 - 设置视图为分页式（`OptionsView`：左侧导航六页「转换行为 / 内容过滤 / 文件与过程 / 图表渲染 / 链接检查 / 关于与更新」，窄窗降级横排页签；页签实现 ARIA tabs 模式的 roving tabindex 与方向键导航）。链接检查：导出成功且开关开启时前端自动 invoke `start_check`，检查 vault 源时由 Rust 侧 `build_check_args` 转发与导出一致的非默认过滤项（walk 集对齐；tag 后处理不参与 check），检查导出产物时恒传 `--no-git` 并使 `--hidden` 与导出一致（CLI 默认值本身是过滤——产物目录在 git 仓库内会被 gitignore 静默排除成假阴性）；check 与导出共用 child 槽，`cancel_export` 通杀，`start_export` 返回实际落点供「检查产物」定位；check 流的解析/IO 错误走独立 `check-error` 通道（导出日志视图在检查期已卸载，混入 sidecar-error 会不可见）。
 
+## Agent skills
+
+- **Issue 与规格管理**：GitHub Issues 为规格与 tickets 的事实源，本地 `.scratch/<feature>/` 保存发布快照、参考图和交接；流程见 [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md)。
+- **领域文档**：按单一产品上下文阅读，入口与术语约定见 [docs/agents/domain.md](docs/agents/domain.md)。
+- **GUI 美化规格**：[GitHub #37](https://github.com/ONEGAYI/obsidian-export-desktop/issues/37) 为事实源，按 #38 → #39 → #40 实施；本地入口为 [.scratch/gui-refresh/handoff.md](.scratch/gui-refresh/handoff.md)。这是待实现规格，不表示功能已落地。
+
 ## 文件树（简版速览）
 
 ```
@@ -96,11 +102,15 @@ obsidian-export-desktop/
 │       └── release.yml       # cargo-dist 自动发布工作流
 ├── .gitignore              # 根忽略规则
 ├── .pre-commit-config.yaml # 本地与 CI 共用提交钩子
+├── .scratch/…              # 规划快照与交接材料
 ├── AGENTS.md               # 项目规则单一事实源
 ├── Cargo.lock              # 根 crate 依赖锁文件
 ├── Cargo.toml              # 主 crate 清单（lib+bin）
 ├── changelog.d/            # towncrier 变更片段目录
-│   └── .gitignore # 片段目录占位忽略文件
+│   ├── .gitignore # 片段目录占位忽略文件
+│   ├── 35.new.md  # 更新代理功能变更片段
+│   ├── 36.new.md  # 桌面静默安装更新变更片段
+│   └── 42.new.md  # GUI美化汇总PR变更片段
 ├── CHANGELOG.md            # 变更日志（towncrier 生成）
 ├── CLAUDE.md               # Claude 专属补充规则
 ├── cliff.toml              # git-cliff 备用变更日志配置
@@ -126,14 +136,18 @@ obsidian-export-desktop/
 │   │   ├── app-fold.test.ts # 导出事件折叠纯函数测试
 │   │   ├── App.tsx          # 应用根组件，串联三阶段导出流程
 │   │   ├── components/      # 视图组件目录
+│   │   │   ├── ConfigSummary.tsx    # 宽屏只读配置摘要栏
 │   │   │   ├── ExportDialog.tsx     # 导出前确认对话框
 │   │   │   ├── ExportResultView.tsx # 导出结果汇总卡片
 │   │   │   ├── ExportRunView.tsx    # 导出进行中的进度与日志视图
+│   │   │   ├── HomeView.tsx         # 响应式首页主视图
+│   │   │   ├── KeepRootViews.tsx    # 根文件夹输出区双形态
 │   │   │   ├── link-check.test.ts   # 链接检查状态机纯函数测试
 │   │   │   ├── LinkCheckPanel.tsx   # 链接检查面板与状态折叠逻辑
 │   │   │   ├── options-view.test.ts # 页签键盘导航纯函数测试
 │   │   │   ├── OptionsView.tsx      # 分页式转换选项设置面板
 │   │   │   ├── PathPicker.tsx       # 目录路径输入加浏览选择器
+│   │   │   ├── SidecarErrorCard.tsx # 边车不可用错误卡片
 │   │   │   ├── TagInput.tsx         # 多标签芯片输入编辑器
 │   │   │   ├── ui/                  # 手搭 shadcn 基础组件层
 │   │   │   │   ├── button.tsx        # 基础按钮组件（cva 变体）
@@ -155,10 +169,16 @@ obsidian-export-desktop/
 │   │   │   └── zh.ts        # 中文字典并定义 Dict 类型基准
 │   │   ├── index.css        # Obsidian 风格主题变量与全局样式
 │   │   ├── lib/             # 前端工具与封装层目录
-│   │   │   ├── options.ts # 导出选项类型、校验与摘要
-│   │   │   ├── sidecar.ts # Tauri 命令调用与事件封装层
-│   │   │   ├── theme.ts   # 主题偏好 Hook，支持跟随系统
-│   │   │   └── utils.ts   # cn 类名合并工具函数
+│   │   │   ├── layout.test.ts  # 视口断点边界测试
+│   │   │   ├── layout.ts       # 宽高独立视口断点与 Hook
+│   │   │   ├── naming.test.ts  # 名称派生边界测试
+│   │   │   ├── naming.ts       # 首页路径名称派生
+│   │   │   ├── options.ts      # 导出选项类型、校验与摘要
+│   │   │   ├── preview.test.ts # 预览控制器行为测试
+│   │   │   ├── preview.ts      # 输出路径预览状态控制器与 Hook
+│   │   │   ├── sidecar.ts      # Tauri 命令调用与事件封装层
+│   │   │   ├── theme.ts        # 主题偏好 Hook，支持跟随系统
+│   │   │   └── utils.ts        # cn 类名合并工具函数
 │   │   ├── main.tsx         # React 入口（含 i18n）
 │   │   └── vite-env.d.ts    # Vite 客户端类型引用
 │   ├── src-tauri/          # Tauri Rust 后端
@@ -188,6 +208,9 @@ obsidian-export-desktop/
 │   ├── _combined.zh.md         # 中文 README 章节嵌入清单
 │   ├── _edit-warning.md        # 勿直接编辑 README 的警告块
 │   ├── _edit-warning.zh.md     # 中文版勿直接编辑警告块
+│   ├── agents/                 # 工程技能工作流约定
+│   │   ├── domain.md        # 领域文档读取与术语约定
+│   │   └── issue-tracker.md # GitHub规格与任务管理约定
 │   ├── BUILD.md                # 中文构建指南（CLI 与桌面端）
 │   ├── CHANGELOG.md            # 指向根变更日志的指针文件
 │   ├── changes.md              # 更新日志引导页

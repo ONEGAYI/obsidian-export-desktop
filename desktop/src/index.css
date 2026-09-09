@@ -4,30 +4,44 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Obsidian-flavored theme.
+ * Paper-white & soft-violet theme.
  *
  * The variables in :root / .dark mirror Obsidian's own theme variable naming
- * (background-primary, text-normal, interactive-accent, ...) with values close
- * to Obsidian's default theme; the shadcn-style semantic tokens in @theme inline
- * are all derived from them, so this file is the single place to tweak the look.
- * Values are approximations of the default Obsidian dark/light palettes.
+ * (background-primary, text-normal, interactive-accent, ...) — a carry-over
+ * from the original Obsidian-flavored look that keeps every component token
+ * working; the shadcn-style semantic tokens in @theme inline are all derived
+ * from them, so this file is the single place to tweak the look. Light values
+ * follow the approved paper-white / soft-violet direction (#F5F4F1 page,
+ * #FEFEFC panels, #7656CE accent); dark keeps the graphite + muted violet
+ * pairing through the same variables.
+ *
+ * Token roles vs visual roles: the page canvas is NOT the `--background`
+ * token. The app root div paints itself with --background-secondary (the
+ * warm #F5F4F1 paper tone) while cards and popovers sit on
+ * --background-primary (#FEFEFC near-white), so the page reads one step
+ * darker than its panels. `--background` keeps its plain shadcn meaning for
+ * the body base layer only — reading it as "the page color" gets the
+ * hierarchy backwards.
  */
 
 :root {
-  /* Obsidian light palette */
-  --background-primary: #ffffff;
-  --background-primary-alt: #f2f3f5;
-  --background-secondary: #f6f6f6;
-  --background-modifier-hover: rgba(0, 0, 0, 0.05);
-  --background-modifier-border: #dbdbdb;
-  --text-normal: #222222;
-  --text-muted: #5b5b5b;
-  --text-faint: #999999;
+  /* Paper-white light palette */
+  --background-primary: #fefefc;
+  --background-primary-alt: #f4f3f0;
+  --background-secondary: #f5f4f1;
+  --background-modifier-hover: rgba(40, 38, 55, 0.06);
+  --background-modifier-border: #e6e4de;
+  --text-normal: #28262f;
+  --text-muted: #6e6a7c;
+  --text-faint: #9c98a8;
   --text-on-accent: #ffffff;
-  --interactive-accent: #7c3aed;
-  --interactive-accent-hover: #8b5cf6;
-  --text-error: #e93147;
-  --text-success: #08b94e;
+  --interactive-accent: #7656ce;
+  --interactive-accent-hover: #8769d8;
+  --text-error: #d63c4e;
+  --text-success: #2f9e63;
+  /* Single-line pill (keep-root + output path) */
+  --pill-background: #f5f3fa;
+  --pill-border: #e4e0f2;
 
   /* shadcn semantic tokens */
   --background: var(--background-primary);
@@ -48,24 +62,26 @@
   --border: var(--background-modifier-border);
   --input: var(--background-modifier-border);
   --ring: var(--interactive-accent);
-  --radius: 0.375rem;
+  --radius: 0.625rem;
 }
 
 .dark {
-  /* Obsidian dark palette */
-  --background-primary: #1e1e1e;
-  --background-primary-alt: #262626;
-  --background-secondary: #161616;
-  --background-modifier-hover: rgba(255, 255, 255, 0.075);
-  --background-modifier-border: #333333;
-  --text-normal: #dadada;
-  --text-muted: #a0a0a0;
-  --text-faint: #666666;
+  /* Graphite + muted violet dark palette */
+  --background-primary: #232129;
+  --background-primary-alt: #2c2a34;
+  --background-secondary: #1b1a20;
+  --background-modifier-hover: rgba(226, 224, 238, 0.07);
+  --background-modifier-border: #383643;
+  --text-normal: #e2e0ea;
+  --text-muted: #a8a4b8;
+  --text-faint: #6e6a80;
   --text-on-accent: #ffffff;
-  --interactive-accent: #7f6df2;
-  --interactive-accent-hover: #9373f6;
-  --text-error: #e93147;
-  --text-success: #4ec975;
+  --interactive-accent: #9d87ee;
+  --interactive-accent-hover: #ac99f2;
+  --text-error: #e96a78;
+  --text-success: #5cbb84;
+  --pill-background: #2a2738;
+  --pill-border: #3b3749;
 }
 
 @theme inline {
@@ -87,6 +103,8 @@
   --color-border: var(--background-modifier-border);
   --color-input: var(--background-modifier-border);
   --color-ring: var(--interactive-accent);
+  --color-pill: var(--pill-background);
+  --color-pill-border: var(--pill-border);
 
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);

@@ -96,6 +96,33 @@ export function checkSidecar(): Promise<string> {
   return invoke<string>("check_sidecar");
 }
 
+/** Mirrors SourceKind in desktop/src-tauri/src/sidecar.rs (lowercase serde). */
+export type PreviewSourceKind = "directory" | "file" | "other";
+
+/** Mirrors DestinationPreview in desktop/src-tauri/src/sidecar.rs (camelCase). */
+export interface DestinationPreview {
+  /** Absolute path the export would write into (after keep-root resolution). */
+  target: string;
+  /** What the source path resolved to on disk. */
+  sourceKind: PreviewSourceKind;
+}
+
+/**
+ * Read-only destination preview: resolves the same paths a real export
+ * spawn would (backend shares one resolver) without any side effects.
+ */
+export function previewExportDestination(
+  source: string,
+  destination: string,
+  keepRootFolder: boolean,
+): Promise<DestinationPreview> {
+  return invoke<DestinationPreview>("preview_export_destination", {
+    source,
+    destination,
+    keepRootFolder,
+  });
+}
+
 /** Resolves to the actual export destination (after keep-root resolution). */
 export function startExport(
   source: string,

@@ -254,81 +254,98 @@ function migrateLegacyOptions(): ExportOptions {
   return options;
 }
 
+/** One labeled line of the options summary; `key` lets consumers (like the
+ * config summary column) drop entries they already render in a dedicated
+ * group instead of listing the same option twice. */
+export interface SummaryEntry {
+  key: string;
+  text: string;
+}
+
 /**
- * Human-readable summary of every option deviating from the defaults. Shown
- * in the pre-export dialog so a choice made in the settings view stays
- * visible at export time. Derived from the same defaults as the Rust
+ * Structured variant of the summary: every option deviating from the
+ * defaults, one entry each. Derived from the same defaults as the Rust
  * `build_args`, keeping the two in lockstep; wording comes from the active
  * i18n dictionary.
  */
-export function summarizeOptions(options: ExportOptions, t: Dict): string[] {
-  const items: string[] = [];
+export function summarizeOptionEntries(
+  options: ExportOptions,
+  t: Dict,
+): SummaryEntry[] {
+  const items: SummaryEntry[] = [];
+  const push = (key: string, text: string) => items.push({ key, text });
   // Whitespace-only values are filtered below the same way build_args does,
   // so the summary never lists an option the CLI won't receive.
   if (options.startAt?.trim()) {
-    items.push(
+    push(
+      "startAt",
       fmt(t, "startAt", {
         name: baseName(options.startAt) || options.startAt,
       }),
     );
   }
   if (options.frontmatter !== DEFAULT_OPTIONS.frontmatter) {
-    items.push(
+    push(
+      "frontmatter",
       fmt(t, "frontmatter", {
         label: t.options.frontmatterChoices[options.frontmatter].label,
       }),
     );
   }
   if (options.ignoreFile?.trim()) {
-    items.push(fmt(t, "ignoreFile", { name: options.ignoreFile }));
+    push("ignoreFile", fmt(t, "ignoreFile", { name: options.ignoreFile }));
   }
   if (options.skipTags.length > 0) {
-    items.push(fmt(t, "skipTags", { n: options.skipTags.length }));
+    push("skipTags", fmt(t, "skipTags", { n: options.skipTags.length }));
   }
   if (options.onlyTags.length > 0) {
-    items.push(fmt(t, "onlyTags", { n: options.onlyTags.length }));
+    push("onlyTags", fmt(t, "onlyTags", { n: options.onlyTags.length }));
   }
   if (options.hidden) {
-    items.push(t.options.summary.hidden);
+    push("hidden", t.options.summary.hidden);
   }
   if (options.noGit) {
-    items.push(t.options.summary.noGit);
+    push("noGit", t.options.summary.noGit);
   }
   if (options.noRecursiveEmbeds) {
-    items.push(t.options.summary.noRecursiveEmbeds);
+    push("noRecursiveEmbeds", t.options.summary.noRecursiveEmbeds);
   }
   if (options.preserveMtime) {
-    items.push(t.options.summary.preserveMtime);
+    push("preserveMtime", t.options.summary.preserveMtime);
   }
   if (options.missingSection !== DEFAULT_OPTIONS.missingSection) {
-    items.push(
+    push(
+      "missingSection",
       fmt(t, "missingSection", {
         label: t.options.missingSectionChoices[options.missingSection].label,
       }),
     );
   }
   if (options.failFast) {
-    items.push(t.options.summary.failFast);
+    push("failFast", t.options.summary.failFast);
   }
   if (options.hardLinebreaks) {
-    items.push(t.options.summary.hardLinebreaks);
+    push("hardLinebreaks", t.options.summary.hardLinebreaks);
   }
   if (options.comments !== DEFAULT_OPTIONS.comments) {
-    items.push(
+    push(
+      "comments",
       fmt(t, "comments", {
         label: t.options.commentsChoices[options.comments].label,
       }),
     );
   }
   if (options.linkCheckEnabled) {
-    items.push(
+    push(
+      "linkCheck",
       fmt(t, "linkCheck", {
         target: t.options.linkCheckTargetChoices[options.linkCheckTarget].label,
       }),
     );
   }
   if (options.diagramRenderers.length > 0) {
-    items.push(
+    push(
+      "diagramRenderers",
       fmt(t, "diagramRenderers", {
         n: options.diagramRenderers.length,
         format: t.options.diagramFormatChoices[options.diagramFormat].label,
@@ -340,10 +357,19 @@ export function summarizeOptions(options: ExportOptions, t: Dict): string[] {
       path.trim(),
     ).length;
     if (binCount > 0) {
-      items.push(fmt(t, "diagramBins", { n: binCount }));
+      push("diagramBins", fmt(t, "diagramBins", { n: binCount }));
     }
   }
   return items;
+}
+
+/**
+ * Human-readable summary of every option deviating from the defaults. Shown
+ * in the pre-export dialog so a choice made in the settings view stays
+ * visible at export time.
+ */
+export function summarizeOptions(options: ExportOptions, t: Dict): string[] {
+  return summarizeOptionEntries(options, t).map((entry) => entry.text);
 }
 
 /** `fmt(t, "startAt", {name})` → the `options.summary.startAt` template. */

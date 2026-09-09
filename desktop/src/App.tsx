@@ -2,36 +2,27 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   CheckIcon,
-  FolderOpenIcon,
   LanguagesIcon,
   MinusIcon,
   MonitorIcon,
   MoonIcon,
-  SettingsIcon,
   SquareIcon,
   SunIcon,
   XIcon,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { ExportDialog } from "@/components/ExportDialog";
-import { ExportRunView } from "@/components/ExportRunView";
+import { ExportRunView, type LogLine } from "@/components/ExportRunView";
 import { ExportResultView } from "@/components/ExportResultView";
+import { HomeView } from "@/components/HomeView";
+import { SidecarErrorCard } from "@/components/SidecarErrorCard";
 import {
   EMPTY_LINK_CHECK,
   LinkCheckPanel,
@@ -40,7 +31,6 @@ import {
   type LinkCheckState,
 } from "@/components/LinkCheckPanel";
 import { OptionsView, type UpdateHandlers } from "@/components/OptionsView";
-import { PathPicker } from "@/components/PathPicker";
 import {
   EMPTY_UPDATE,
   applyUpdateEvents,
@@ -61,6 +51,7 @@ import {
   saveOptions,
   type ExportOptions,
 } from "@/lib/options";
+import { useDestinationPreview } from "@/lib/preview";
 import {
   type CheckEvent,
   type SidecarEvent,
@@ -82,15 +73,10 @@ import {
   startExport,
   startUpdate,
 } from "@/lib/sidecar";
+import { useLayoutBreakpoints } from "@/lib/layout";
 import { THEME_ORDER, useTheme, type ThemePreference } from "@/lib/theme";
 
 type Phase = "setup" | "running" | "result";
-
-interface LogLine {
-  kind: "done" | "skipped" | "failed" | "warning" | "error";
-  text: string;
-  detail?: string;
-}
 
 interface ExportProgress {
   total: number;
@@ -290,6 +276,7 @@ function WindowControls() {
 
 export default function App() {
   const { t } = useI18n();
+  const { wide } = useLayoutBreakpoints();
   const [phase, setPhase] = useState<Phase>("setup");
   const [source, setSource] = useState(
     () => localStorage.getItem(SOURCE_KEY) ?? "",
@@ -303,6 +290,9 @@ export default function App() {
   const [keepRootFolder, setKeepRootFolder] = useState(() =>
     loadBool(KEEP_ROOT_KEY, true),
   );
+  // Landing-path preview shared by the home view and the confirm dialog;
+  // debounced, stale-result-proof (see lib/preview).
+  const preview = useDestinationPreview(source, destination, keepRootFolder);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [view, setView] = useState<"main" | "options">("main");
   const [options, setOptions] = useState<ExportOptions>(loadOptions);
@@ -689,92 +679,67 @@ export default function App() {
         </div>
       </header>
 
-      <main
-        className={`mx-auto flex w-full flex-1 flex-col overflow-y-auto p-4 ${
-          phase === "setup" && view === "options" ? "max-w-2xl" : "max-w-xl"
-        }`}
-      >
-        <div className="m-auto flex w-full flex-col gap-4">
-          {sidecarError && (
-            <Card className="border-destructive">
-              <CardHeader>
-                <CardTitle className="text-destructive">
-                  {t.app.sidecarErrorTitle}
-                </CardTitle>
-                <CardDescription>
-                  {t.app.sidecarErrorHint.pre}{" "}
-                  <code>{t.app.sidecarErrorHint.code}</code>{" "}
-                  {t.app.sidecarErrorHint.post}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <pre className="max-h-24 overflow-auto rounded-md bg-[var(--background-secondary)] p-2 font-mono text-xs whitespace-pre-wrap">
-                  {sidecarError}
-                </pre>
-              </CardContent>
-            </Card>
-          )}
+      <main className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
+        {phase === "setup" && view === "options" && (
+          <div className="flex-1 overflow-y-auto">
+            <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-4">
+              {sidecarError && <SidecarErrorCard error={sidecarError} />}
+              <OptionsView
+                options={options}
+                onOptionsChange={handleOptionsChange}
+                onBack={() => setView("main")}
+                update={updateHandlers}
+              />
+            </div>
+          </div>
+        )}
 
-          {phase === "setup" && view === "options" && (
-            <OptionsView
-              options={options}
-              onOptionsChange={handleOptionsChange}
-              onBack={() => setView("main")}
-              update={updateHandlers}
-            />
-          )}
+        {phase === "setup" && view === "main" && (
+          <HomeView
+            source={source}
+            onSourceChange={handleSourceChange}
+            destination={destination}
+            onDestinationChange={handleDestinationChange}
+            rememberPaths={rememberPaths}
+            onRememberPathsChange={handleRememberPathsChange}
+            keepRootFolder={keepRootFolder}
+            onKeepRootChange={handleKeepRootChange}
+            preview={preview}
+            options={options}
+            canExport={canExport}
+            sidecarError={sidecarError}
+            onOpenOptions={() => setView("options")}
+            onExport={() => setConfirmOpen(true)}
+          />
+        )}
 
-          {phase === "setup" && view === "main" && (
-            <Card>
-              <CardHeader>
-                <CardTitle>{t.app.exportTitle}</CardTitle>
-                <CardDescription>{t.app.exportDescription}</CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-4">
-                <PathPicker
-                  label={t.app.sourceLabel}
-                  placeholder={t.app.sourcePlaceholder}
-                  value={source}
-                  onChange={handleSourceChange}
-                />
-                <PathPicker
-                  label={t.app.destinationLabel}
-                  placeholder={t.app.destinationPlaceholder}
-                  value={destination}
-                  onChange={handleDestinationChange}
-                />
-                <div className="flex items-center justify-between">
-                  <Label className="flex cursor-pointer items-center gap-2 text-xs font-normal text-muted-foreground">
-                    <Checkbox
-                      checked={rememberPaths}
-                      onCheckedChange={handleRememberPathsChange}
-                    />
-                    {t.app.rememberPaths}
-                  </Label>
-                  <div className="flex items-center gap-2">
-                    <Button variant="secondary" onClick={() => setView("options")}>
-                      <SettingsIcon className="size-4" />
-                      {t.app.options}
-                    </Button>
-                    <Button disabled={!canExport} onClick={() => setConfirmOpen(true)}>
-                      <FolderOpenIcon className="size-4" />
-                      {t.app.export}
-                    </Button>
-                  </div>
+        {phase === "running" && (
+          <div className="flex-1 overflow-y-auto">
+            <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-4 p-4">
+              {sidecarError && (
+                <div className="shrink-0">
+                  <SidecarErrorCard error={sidecarError} />
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              )}
+              <ExportRunView progress={progress} onCancel={handleCancel} />
+            </div>
+          </div>
+        )}
 
-          {phase === "running" && (
-            <ExportRunView
-              progress={progress}
-              onCancel={handleCancel}
-            />
-          )}
-
-          {phase === "result" && (
-            <>
+        {phase === "result" && (
+          <div className="flex-1 overflow-y-auto">
+            {/* Container width and row direction both derive from the JS
+             * `wide` flag: innerWidth includes the classic scrollbar while
+             * min-[1000px:] media queries do not, so a CSS-driven flex-row
+             * could disagree with the JS-driven max-w in a ~17px window. */}
+            <div
+              className={`mx-auto flex w-full gap-4 p-4 ${
+                wide && check.phase !== "idle"
+                  ? "max-w-6xl flex-row items-start [&>*]:min-w-0 [&>*]:flex-1"
+                  : "max-w-3xl flex-col"
+              }`}
+            >
+              {sidecarError && <SidecarErrorCard error={sidecarError} />}
               <ExportResultView
                 progress={progress}
                 exit={exit}
@@ -795,18 +760,18 @@ export default function App() {
                   }}
                 />
               )}
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        )}
       </main>
 
       <ExportDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         keepRootFolder={keepRootFolder}
-        onKeepRootFolderChange={handleKeepRootChange}
         source={source}
         destination={destination}
+        preview={preview}
         options={options}
         onEditOptions={handleEditOptions}
         onStart={handleStart}

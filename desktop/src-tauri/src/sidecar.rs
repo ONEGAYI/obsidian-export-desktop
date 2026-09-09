@@ -148,6 +148,63 @@ pub fn resolve_destination(
     }
 }
 
+/// What the resolved source path turned out to be on the filesystem.
+/// `Other` covers "does not exist / not accessible / special file" — the
+/// destination preview must not present such a source as a valid single-file
+/// export.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SourceKind {
+    Directory,
+    File,
+    Other,
+}
+
+/// Read-only resolution of user input into export paths: the destination
+/// preview and the export spawn both go through [`resolve_export_paths`], so
+/// the previewed landing path can never disagree with the path an actual
+/// export writes to.
+pub struct ResolvedPaths {
+    /// Absolute source (relative inputs resolve against the GUI working dir).
+    pub source: PathBuf,
+    pub source_kind: SourceKind,
+    /// Absolute destination as typed (before keep-root appending).
+    pub destination: PathBuf,
+    /// Absolute path the export would write into (after keep-root resolution).
+    pub target: PathBuf,
+}
+
+/// Resolve `source`/`destination` the way a real export spawn would: make
+/// both absolute, classify the source on the filesystem, then apply
+/// [`resolve_destination`]. Read-only — creates nothing, touches nothing.
+pub fn resolve_export_paths(
+    source: &str,
+    destination: &str,
+    keep_root_folder: bool,
+) -> Result<ResolvedPaths, String> {
+    let source_path = std::path::absolute(source)
+        .map_err(|err| format!("invalid source path '{source}': {err}"))?;
+    let destination_path = std::path::absolute(destination)
+        .map_err(|err| format!("invalid destination path '{destination}': {err}"))?;
+    let source_kind = match (source_path.is_dir(), source_path.is_file()) {
+        (true, _) => SourceKind::Directory,
+        (false, true) => SourceKind::File,
+        (false, false) => SourceKind::Other,
+    };
+    let target = resolve_destination(
+        &source_path,
+        &destination_path,
+        keep_root_folder,
+        source_kind == SourceKind::Directory,
+    );
+    Ok(ResolvedPaths {
+        source: source_path,
+        source_kind,
+        destination: destination_path,
+        target,
+    })
+}
+
 /// Frontmatter strategy selection; mirrors the CLI `--frontmatter` enum.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -454,6 +511,35 @@ pub async fn check_sidecar(app: AppHandle) -> Result<String, String> {
     Ok(banner)
 }
 
+/// Payload of [`preview_export_destination`].
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DestinationPreview {
+    /// Absolute path the export would write into (after keep-root resolution).
+    pub target: String,
+    /// What the source path resolved to on disk (directory/file/other).
+    pub source_kind: SourceKind,
+}
+
+/// Read-only destination preview: runs the same path resolution a real
+/// export spawn would ([`resolve_export_paths`]) and reports where the export
+/// would land plus what the source is. Creates no directories, spawns no
+/// sidecar, claims no child slot. A successful preview proves the paths
+/// parse — not that the source is valid or the target writable; the CLI
+/// remains the authority once an export actually starts.
+#[tauri::command]
+pub fn preview_export_destination(
+    source: String,
+    destination: String,
+    keep_root_folder: Option<bool>,
+) -> Result<DestinationPreview, String> {
+    let resolved = resolve_export_paths(&source, &destination, keep_root_folder.unwrap_or(false))?;
+    Ok(DestinationPreview {
+        target: resolved.target.to_string_lossy().into_owned(),
+        source_kind: resolved.source_kind,
+    })
+}
+
 /// Start an export. Emits `sidecar-event` per parsed JSON Lines event and a
 /// final `sidecar-exit` with the process exit code (0/1/2 per the contract).
 ///
@@ -486,25 +572,19 @@ fn spawn_export_sidecar(
     // Resolve picked paths against the GUI process's working directory up
     // front, so the sidecar contract holds even for manually typed relative
     // paths: the events echo `path` back in the same absolute shape they
-    // were given (docs/sidecar-events.md).
-    let source_path = std::path::absolute(source)
-        .map_err(|err| format!("invalid source path '{source}': {err}"))?;
-    let destination_path = std::path::absolute(destination)
-        .map_err(|err| format!("invalid destination path '{destination}': {err}"))?;
-    let target = resolve_destination(
-        &source_path,
-        &destination_path,
-        keep_root_folder,
-        source_path.is_dir(),
-    );
+    // were given (docs/sidecar-events.md). Shared with the destination
+    // preview via resolve_export_paths, so the previewed landing path and
+    // the written path come from one rule.
+    let resolved = resolve_export_paths(source, destination, keep_root_folder)?;
+    let target = resolved.target;
     // The user-picked destination always exists; only the appended subfolder
     // needs creating. A mistyped manual destination is left for the CLI to
     // report rather than being silently created here.
-    if target != destination_path {
+    if target != resolved.destination {
         std::fs::create_dir_all(&target)
             .map_err(|err| format!("failed to create destination '{}': {err}", target.display()))?;
     }
-    let source_arg = source_path.to_string_lossy().into_owned();
+    let source_arg = resolved.source.to_string_lossy().into_owned();
     let target_arg = target.to_string_lossy().into_owned();
 
     let args = build_args(options, &source_arg, &target_arg);
@@ -1153,6 +1233,171 @@ mod tests {
         let destination = Path::new(r"E:\out");
         let resolved = resolve_destination(source, destination, true, true);
         assert_eq!(resolved, PathBuf::from(r"E:\out"));
+    }
+
+    // ---- resolve_export_paths（预览与启动共用的路径解析契约） ----------
+
+    /// Per-test scratch dir under the system temp root (unique name + pid so
+    /// parallel runs never collide); removed best-effort by each test.
+    fn scratch_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join("obsidian-export-desktop-preview-tests")
+            .join(format!("{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create scratch dir");
+        dir
+    }
+
+    /// A filesystem root that exists as a directory yet has no file name
+    /// component (drive root on Windows, `/` elsewhere).
+    fn filesystem_root() -> PathBuf {
+        #[cfg(windows)]
+        {
+            PathBuf::from(r"C:\")
+        }
+        #[cfg(not(windows))]
+        {
+            PathBuf::from("/")
+        }
+    }
+
+    #[test]
+    fn real_directory_with_keep_root_appends_folder_name() {
+        // Chinese + spaces in the folder name, real directories on disk: the
+        // same inputs a picked vault would produce.
+        let root = scratch_dir("dir-keep-on");
+        let source = root.join("我的 库");
+        std::fs::create_dir(&source).unwrap();
+        let destination = root.join("out");
+        std::fs::create_dir(&destination).unwrap();
+
+        let resolved = resolve_export_paths(
+            source.to_str().unwrap(),
+            destination.to_str().unwrap(),
+            true,
+        )
+        .unwrap();
+        assert_eq!(resolved.source, source);
+        assert_eq!(resolved.source_kind, SourceKind::Directory);
+        assert_eq!(resolved.target, destination.join("我的 库"));
+        // Preview is read-only: the appended subfolder must not exist.
+        assert!(!resolved.target.exists());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn real_directory_without_keep_root_lands_in_destination() {
+        let root = scratch_dir("dir-keep-off");
+        let source = root.join("vault");
+        std::fs::create_dir(&source).unwrap();
+        let destination = root.join("out");
+        std::fs::create_dir(&destination).unwrap();
+
+        let resolved = resolve_export_paths(
+            source.to_str().unwrap(),
+            destination.to_str().unwrap(),
+            false,
+        )
+        .unwrap();
+        assert_eq!(resolved.source_kind, SourceKind::Directory);
+        assert_eq!(resolved.target, destination);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn file_source_keeps_destination_even_with_keep_root() {
+        // keep_root_folder only ever wraps a directory source; a single note
+        // must land straight in the destination.
+        let root = scratch_dir("file-source");
+        let note = root.join("单篇 笔记.md");
+        std::fs::write(&note, b"# hi").unwrap();
+        let destination = root.join("out");
+        std::fs::create_dir(&destination).unwrap();
+
+        let resolved =
+            resolve_export_paths(note.to_str().unwrap(), destination.to_str().unwrap(), true)
+                .unwrap();
+        assert_eq!(resolved.source_kind, SourceKind::File);
+        assert_eq!(resolved.target, destination);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn missing_source_is_other_not_a_fake_file() {
+        // A path that exists neither as directory nor file must classify as
+        // Other; presenting it as a valid single-file export would be a lie.
+        let root = scratch_dir("ghost-source");
+        let destination = root.join("out");
+
+        let resolved = resolve_export_paths(
+            root.join("ghost").to_str().unwrap(),
+            destination.to_str().unwrap(),
+            true,
+        )
+        .unwrap();
+        assert_eq!(resolved.source_kind, SourceKind::Other);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn trailing_separator_source_still_appends_folder_name() {
+        // `<source>\` keeps its file name component; the preview must not
+        // blank out or mis-append on trailing separators.
+        let root = scratch_dir("trailing-sep");
+        let source = root.join("我的库");
+        std::fs::create_dir(&source).unwrap();
+        let destination = root.join("out");
+        let source_arg = format!("{}{}", source.display(), std::path::MAIN_SEPARATOR);
+
+        let resolved =
+            resolve_export_paths(&source_arg, destination.to_str().unwrap(), true).unwrap();
+        assert_eq!(resolved.source_kind, SourceKind::Directory);
+        assert_eq!(resolved.target, destination.join("我的库"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn relative_inputs_resolve_to_absolute_paths() {
+        // Manually typed relative paths resolve against the GUI working
+        // directory, exactly like the spawn does before handing them to the
+        // CLI (the event stream echoes absolute paths back).
+        let resolved = resolve_export_paths("rel-vault", "rel-out", false).unwrap();
+        assert!(
+            resolved.source.is_absolute(),
+            "source must be absolute: {}",
+            resolved.source.display()
+        );
+        assert!(
+            resolved.target.is_absolute(),
+            "target must be absolute: {}",
+            resolved.target.display()
+        );
+        assert_eq!(
+            resolved.source.file_name().and_then(|n| n.to_str()),
+            Some("rel-vault")
+        );
+        assert_eq!(
+            resolved.target.file_name().and_then(|n| n.to_str()),
+            Some("rel-out")
+        );
+    }
+
+    #[test]
+    fn filesystem_root_source_appends_nothing() {
+        // A real existing root directory (C:\ or /) has no file name: keep-root
+        // must fall back to the bare destination instead of panicking.
+        let root = scratch_dir("fs-root");
+        let destination = root.join("out");
+
+        let resolved = resolve_export_paths(
+            filesystem_root().to_str().unwrap(),
+            destination.to_str().unwrap(),
+            true,
+        )
+        .unwrap();
+        assert_eq!(resolved.source_kind, SourceKind::Directory);
+        assert_eq!(resolved.target, destination);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

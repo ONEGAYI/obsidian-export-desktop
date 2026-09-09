@@ -44,9 +44,6 @@ export const en: Dict = {
       code: "just desktop-sync-sidecar",
       post: "and restart the app.",
     },
-    exportTitle: "Export an Obsidian Vault",
-    exportDescription:
-      "Convert Obsidian-flavored Markdown to plain Markdown. Conversion is done by the bundled obsidian-export sidecar.",
     sourceLabel: "Vault source",
     sourcePlaceholder: "Choose an Obsidian vault folder or a single note",
     destinationLabel: "Destination",
@@ -54,6 +51,59 @@ export const en: Dict = {
     rememberPaths: "Remember last paths",
     options: "Options",
     export: "Export",
+    // The keep-root option is edited on the home view (since #38); the
+    // confirm dialog restates the same state read-only.
+    keepRootTitle: "Keep root folder under destination",
+    keepRootDescription:
+      'When exporting a folder, writes to "destination/{name}" so the top-level files don\u2019t spill into the destination itself (folder sources only).',
+    keepRootFallbackName: "source folder name",
+  },
+  home: {
+    title: "Export Notes",
+    subtitle: "Convert Obsidian notes to plain Markdown",
+    sourceTargetTitle: "Source & Destination",
+    sourceNamePlaceholder: "No vault selected",
+    destinationNamePlaceholder: "No output folder selected",
+  },
+  keepRoot: {
+    label: "Keep root folder",
+    outputTag: "Output",
+    hint: "Folder exports create a same-named subfolder under the destination; single notes ignore it",
+  },
+  configSummary: {
+    title: "Conversion Settings",
+    edit: "Edit options",
+    saved: "Settings saved",
+    groupConversion: "Conversion",
+    groupDiagrams: "Diagram Rendering",
+    groupLinkCheck: "Link Check",
+    groupOther: "Other Non-defaults",
+    frontmatter: "Frontmatter",
+    comments: "Obsidian comments",
+    embeds: "Embeds",
+    embedsRecursive: "Expand nested embeds",
+    embedsFlat: "Don't expand nested embeds",
+    renderers: "Renderers",
+    renderersNone: "None enabled",
+    renderersFormat: "Image format",
+    linkCheck: "Check after export",
+    linkCheckTarget: "Check target",
+    notApplicable: "N/A",
+    on: "On",
+    off: "Off",
+    otherNone: "None",
+  },
+  // Destination-preview states; the preview shares the backend resolver with
+  // the actual export spawn.
+  preview: {
+    label: "Output location",
+    waiting: "Waiting for a source and destination",
+    resolving: "Resolving the output location…",
+    sourceMissing: "Source missing or inaccessible; output location unconfirmed",
+    failed: "Cannot preview the output location",
+    failedDetail: "Technical detail",
+    fileKeepRootNote:
+      "A single note ignores the root folder and lands directly in the destination",
   },
   options: {
     title: "Conversion Options",
@@ -281,10 +331,9 @@ export const en: Dict = {
     activeOptions: "Active options",
     modify: "Modify",
     allDefault: "All defaults",
-    keepRootTitle: "Keep root folder under destination",
-    keepRootDescription:
-      'When exporting a folder, writes to "destination/{name}" so the top-level files don\u2019t spill into the destination itself (folder sources only).',
-    keepRootFallbackName: "source folder name",
+    keepRootSummaryOn: "Keep root folder: on",
+    keepRootSummaryOff: "Keep root folder: off",
+    previewUnavailable: "Output location not previewed; the backend verdict at start time applies",
     cancel: "Cancel",
     start: "Start Export",
   },
