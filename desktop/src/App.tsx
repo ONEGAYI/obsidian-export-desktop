@@ -72,6 +72,7 @@ import {
   startExport,
   startUpdate,
 } from "@/lib/sidecar";
+import { useLayoutBreakpoints } from "@/lib/layout";
 import { THEME_ORDER, useTheme, type ThemePreference } from "@/lib/theme";
 
 type Phase = "setup" | "running" | "result";
@@ -280,6 +281,7 @@ function WindowControls() {
 
 export default function App() {
   const { t } = useI18n();
+  const { wide } = useLayoutBreakpoints();
   const [phase, setPhase] = useState<Phase>("setup");
   const [source, setSource] = useState(
     () => localStorage.getItem(SOURCE_KEY) ?? "",
@@ -685,7 +687,7 @@ export default function App() {
       <main className="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
         {phase === "setup" && view === "options" && (
           <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-4">
+            <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-4">
               {sidecarError && <SidecarErrorCard error={sidecarError} />}
               <OptionsView
                 options={options}
@@ -718,19 +720,26 @@ export default function App() {
 
         {phase === "running" && (
           <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto flex w-full max-w-xl flex-col gap-4 p-4">
-              {sidecarError && <SidecarErrorCard error={sidecarError} />}
-              <ExportRunView
-                progress={progress}
-                onCancel={handleCancel}
-              />
+            <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-4 p-4">
+              {sidecarError && (
+                <div className="shrink-0">
+                  <SidecarErrorCard error={sidecarError} />
+                </div>
+              )}
+              <ExportRunView progress={progress} onCancel={handleCancel} />
             </div>
           </div>
         )}
 
         {phase === "result" && (
           <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto flex w-full max-w-xl flex-col gap-4 p-4">
+            <div
+              className={`mx-auto flex w-full flex-col gap-4 p-4 ${
+                wide && check.phase !== "idle"
+                  ? "max-w-6xl min-[1000px]:flex-row min-[1000px]:items-start min-[1000px]:[&>*]:min-w-0 min-[1000px]:[&>*]:flex-1"
+                  : "max-w-3xl"
+              }`}
+            >
               {sidecarError && <SidecarErrorCard error={sidecarError} />}
               <ExportResultView
                 progress={progress}

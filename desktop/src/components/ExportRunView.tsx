@@ -66,8 +66,8 @@ export function ExportRunView({
     progress.total > 0 ? Math.round((processed / progress.total) * 100) : 0;
 
   return (
-    <Card>
-      <CardHeader>
+    <Card className="flex h-full min-h-0 flex-col">
+      <CardHeader className="shrink-0">
         <CardTitle>{t.run.title}</CardTitle>
         <CardDescription>
           {fmt(t.run.progressCount, {
@@ -76,37 +76,49 @@ export function ExportRunView({
           })}
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <Progress value={percent} />
-        <div className="text-muted-foreground flex items-center gap-4 text-xs">
-          <span className="flex items-center gap-1">
-            <CircleCheckIcon className="size-3.5" />
-            {fmt(t.run.doneCount, { n: progress.done })}
-          </span>
-          <span className="flex items-center gap-1">
-            <MinusCircleIcon className="size-3.5" />
-            {fmt(t.run.skippedCount, { n: progress.skipped })}
-          </span>
-          <span className="flex items-center gap-1 text-destructive">
-            <CircleAlertIcon className="size-3.5" />
-            {fmt(t.run.failedCount, {
-              n: progress.lines.filter((l) => l.kind === "failed").length,
-            })}
-          </span>
-          {progress.diagram && (
+      {/* Wide viewports put the progress column beside the log (which then
+       * takes the remaining height); narrow ones stack, log keeps its fixed
+       * height and the outer scroll container copes with overflow. The
+       * cancel button sits at the end of the progress column so it stays
+       * visible even while the log scrolls. */}
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 min-[1000px]:flex-row">
+        <div className="flex shrink-0 flex-col gap-3 min-[1000px]:w-72">
+          <Progress value={percent} />
+          <div className="text-muted-foreground flex flex-wrap items-center gap-4 text-xs">
             <span className="flex items-center gap-1">
-              <Loader2Icon className="size-3.5 animate-spin" />
-              {fmt(t.run.diagramProgress, {
-                index: progress.diagram.index,
-                total: progress.diagram.total,
-                language: progress.diagram.language,
+              <CircleCheckIcon className="size-3.5" />
+              {fmt(t.run.doneCount, { n: progress.done })}
+            </span>
+            <span className="flex items-center gap-1">
+              <MinusCircleIcon className="size-3.5" />
+              {fmt(t.run.skippedCount, { n: progress.skipped })}
+            </span>
+            <span className="flex items-center gap-1 text-destructive">
+              <CircleAlertIcon className="size-3.5" />
+              {fmt(t.run.failedCount, {
+                n: progress.lines.filter((l) => l.kind === "failed").length,
               })}
             </span>
-          )}
+            {progress.diagram && (
+              <span className="flex items-center gap-1">
+                <Loader2Icon className="size-3.5 animate-spin" />
+                {fmt(t.run.diagramProgress, {
+                  index: progress.diagram.index,
+                  total: progress.diagram.total,
+                  language: progress.diagram.language,
+                })}
+              </span>
+            )}
+          </div>
+          <div className="mt-auto flex justify-end pt-3">
+            <Button variant="outline" onClick={onCancel}>
+              {t.run.cancel}
+            </Button>
+          </div>
         </div>
         <div
           ref={logRef}
-          className="h-52 overflow-y-auto rounded-md border bg-[var(--background-secondary)] p-2 font-mono text-xs leading-5"
+          className="h-52 min-h-0 min-[1000px]:h-auto min-[1000px]:flex-1 overflow-y-auto rounded-md border bg-[var(--background-secondary)] p-2 font-mono text-xs leading-5"
         >
           {progress.lines.length === 0 && (
             <span className="text-[var(--text-faint)]">{t.run.waiting}</span>
@@ -120,11 +132,6 @@ export function ExportRunView({
               {LINE_PREFIX[line.kind]} {line.text}
             </div>
           ))}
-        </div>
-        <div className="flex justify-end">
-          <Button variant="outline" onClick={onCancel}>
-            {t.run.cancel}
-          </Button>
         </div>
       </CardContent>
     </Card>

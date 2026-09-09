@@ -779,7 +779,8 @@
               "kind": "file",
               "desc": "应用根组件，串联三阶段导出流程",
               "detail": [
-                "管理 phase(setup/running/result) 与 view(main/options) 状态机、路径/选项 localStorage 持久化（remember-paths/source/destination/keep-root 四键）、foldEvent 折叠导出事件流；内嵌 ThemeToggle、LanguageMenu、WindowControls（无边框窗口控制）。监听 sidecar-event/exit/error 与 check-event/exit/error 六个 Tauri 事件；导出成功且 linkCheckEnabled 时自动触发 startCheck。"
+                "管理 phase(setup/running/result) 与 view(main/options) 状态机、路径/选项 localStorage 持久化（remember-paths/source/destination/keep-root 四键）、foldEvent 折叠导出事件流；内嵌 ThemeToggle、LanguageMenu、WindowControls（无边框窗口控制）。监听 sidecar-event/exit/error 与 check-event/exit/error 六个 Tauri 事件；导出成功且 linkCheckEnabled 时自动触发 startCheck。",
+                "布局挂载层：main overflow-hidden 各视图自管滚动；useLayoutBreakpoints 宽断点驱动结果页/运行页外壳（宽屏 max-w-6xl、结果页检查面板存在时并排两卡，否则单列 max-w-3xl）、设置页 max-w-4xl 居中。"
               ],
               "rel": [
                 "desktop/src/lib/options.ts",
@@ -843,7 +844,7 @@
                   "kind": "file",
                   "desc": "导出进行中的进度与日志视图",
                   "detail": [
-                    "props：progress/onCancel；渲染 Progress 进度条（(done+skipped)/total 百分比）、三色计数与自动滚动的等宽日志列表（✓/–/✗/⚠/! 前缀）、取消按钮；数据由 App 折叠后传入。"
+                    "props：progress/onCancel；渲染 Progress 进度条（(done+skipped)/total 百分比）、三色计数与自动滚动的等宽日志列表（✓/–/✗/⚠/! 前缀）、取消按钮；宽屏（≥1000px）进度列固定 288px 与日志左右并排、取消按钮钉在进度列尾恒可见，窄窗上下堆叠、日志固定高度由外层滚动兜底；数据由 App 折叠后传入。"
                   ],
                   "rel": [
                     "desktop/src/App.tsx"
