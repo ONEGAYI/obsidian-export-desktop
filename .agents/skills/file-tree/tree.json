@@ -377,6 +377,54 @@
                 "docs"
               ]
             },
+            "reports": {
+              "kind": "dir",
+              "desc": "三轮真窗口代测验收报告",
+              "children": {
+                "38-smoke.md": {
+                  "kind": "file",
+                  "desc": "#38桌面烟测报告归档",
+                  "detail": [
+                    "多模态Agent代测：目录导出落点逐字一致、根文件夹即时失效、单文件不追加、无效来源警示、清空不残留；启动初始态缺陷已修复复验。"
+                  ],
+                  "rel": [
+                    ".scratch/gui-refresh/handoff.md"
+                  ],
+                  "tags": [
+                    "docs",
+                    "meta"
+                  ]
+                },
+                "39-viewport-matrix.md": {
+                  "kind": "file",
+                  "desc": "#39视口矩阵验收归档",
+                  "detail": [
+                    "多模态Agent代测：7档视口矩阵（含999/1000与639/640临界）、主题三态、中英切换、双栏比例核查全过；双浮层缺陷已修复复验。"
+                  ],
+                  "rel": [
+                    ".scratch/gui-refresh/handoff.md"
+                  ],
+                  "tags": [
+                    "docs",
+                    "meta"
+                  ]
+                },
+                "40-regression.md": {
+                  "kind": "file",
+                  "desc": "#40全流程回归归档",
+                  "detail": [
+                    "多模态Agent代测：设置页双形态与键盘tabs、默认/宽屏全流程导出（含60000篇大vault）、取消与失败路径、主题抽查全过；登记取消竞态等观察项。"
+                  ],
+                  "rel": [
+                    ".scratch/gui-refresh/handoff.md"
+                  ],
+                  "tags": [
+                    "docs",
+                    "meta"
+                  ]
+                }
+              }
+            },
             "spec.md": {
               "kind": "file",
               "desc": "GUI美化规格发布快照",

@@ -19,7 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ExportDialog } from "@/components/ExportDialog";
-import { ExportRunView } from "@/components/ExportRunView";
+import { ExportRunView, type LogLine } from "@/components/ExportRunView";
 import { ExportResultView } from "@/components/ExportResultView";
 import { HomeView } from "@/components/HomeView";
 import { SidecarErrorCard } from "@/components/SidecarErrorCard";
@@ -30,7 +30,8 @@ import {
   applyCheckExit,
   type LinkCheckState,
 } from "@/components/LinkCheckPanel";
-import { OptionsView, type UpdateHandlers } from "@/components/OptionsView";import {
+import { OptionsView, type UpdateHandlers } from "@/components/OptionsView";
+import {
   EMPTY_UPDATE,
   applyUpdateEvents,
   applyUpdateExit,
@@ -76,12 +77,6 @@ import { useLayoutBreakpoints } from "@/lib/layout";
 import { THEME_ORDER, useTheme, type ThemePreference } from "@/lib/theme";
 
 type Phase = "setup" | "running" | "result";
-
-interface LogLine {
-  kind: "done" | "skipped" | "failed" | "warning" | "error";
-  text: string;
-  detail?: string;
-}
 
 interface ExportProgress {
   total: number;
@@ -733,11 +728,15 @@ export default function App() {
 
         {phase === "result" && (
           <div className="flex-1 overflow-y-auto">
+            {/* Container width and row direction both derive from the JS
+             * `wide` flag: innerWidth includes the classic scrollbar while
+             * min-[1000px:] media queries do not, so a CSS-driven flex-row
+             * could disagree with the JS-driven max-w in a ~17px window. */}
             <div
-              className={`mx-auto flex w-full flex-col gap-4 p-4 ${
+              className={`mx-auto flex w-full gap-4 p-4 ${
                 wide && check.phase !== "idle"
-                  ? "max-w-6xl min-[1000px]:flex-row min-[1000px]:items-start min-[1000px]:[&>*]:min-w-0 min-[1000px]:[&>*]:flex-1"
-                  : "max-w-3xl"
+                  ? "max-w-6xl flex-row items-start [&>*]:min-w-0 [&>*]:flex-1"
+                  : "max-w-3xl flex-col"
               }`}
             >
               {sidecarError && <SidecarErrorCard error={sidecarError} />}

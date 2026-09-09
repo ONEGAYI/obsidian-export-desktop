@@ -17,7 +17,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { fmt, useI18n } from "@/i18n";
 
-interface LogLine {
+export interface LogLine {
   kind: "done" | "skipped" | "failed" | "warning" | "error";
   text: string;
   detail?: string;

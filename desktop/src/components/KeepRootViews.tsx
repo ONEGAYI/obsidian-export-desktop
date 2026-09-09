@@ -11,19 +11,29 @@ interface KeepRootAreaProps {
   onKeepRootChange: (value: boolean) => void;
 }
 
-/** Preview state → the one line both layouts render (text + visual tone). */
-function previewLine(state: PreviewState, waiting: string, resolving: string, missing: string, failed: string) {
+/** One rendered preview line shared by both layouts (text + tone + extras). */
+interface PreviewLine {
+  text: string;
+  tone: "faint" | "muted" | "error" | "path";
+  /** Full output path when ready (drives the copyable popover), else null. */
+  path: string | null;
+  /** Technical error message when the preview failed, else null. */
+  detail: string | null;
+}
+
+/** Preview state → the one line both layouts render. */
+function previewLine(state: PreviewState, waiting: string, resolving: string, missing: string, failed: string): PreviewLine {
   switch (state.phase) {
     case "idle":
-      return { text: waiting, tone: "faint" as const, path: null };
+      return { text: waiting, tone: "faint", path: null, detail: null };
     case "pending":
-      return { text: resolving, tone: "muted" as const, path: null };
+      return { text: resolving, tone: "muted", path: null, detail: null };
     case "ready":
       return state.sourceKind === "other"
-        ? { text: missing, tone: "error" as const, path: null }
-        : { text: state.target, tone: "path" as const, path: state.target };
+        ? { text: missing, tone: "error", path: null, detail: null }
+        : { text: state.target, tone: "path", path: state.target, detail: null };
     case "failed":
-      return { text: failed, tone: "error" as const, path: null };
+      return { text: failed, tone: "error", path: null, detail: state.message };
   }
 }
 
@@ -37,9 +47,12 @@ const TONE_CLASS: Record<"faint" | "muted" | "error" | "path", string> = {
 /**
  * Short-height layout (viewport < 640 CSS px): keep-root checkbox + output
  * path compressed into one pill. Always a single line: the checkbox group
- * never shrinks, the path truncates (the full text is reachable on hover and
- * keyboard focus via the popover, selectable and copyable — a bare `title`
- * alone would leave keyboard users stranded).
+ * never shrinks, the path truncates at the tail (the full text is reachable
+ * on hover and keyboard focus via the popover, selectable and copyable — a
+ * bare `title` alone would leave keyboard users stranded). Tail truncation
+ * can hide the final folder name — a deliberate trade-off against the spec's
+ * "prefer keeping the last segment": middle truncation needs extra machinery,
+ * and the popover carries the full text either way.
  */
 export function KeepRootCapsule({
   state,
@@ -77,18 +90,20 @@ export function KeepRootCapsule({
       <div className="group relative min-w-0 flex-1">
         {/* No native `title` here: hover and keyboard focus both surface the
          * self-drawn popover below (a second native tooltip would stack on
-         * top of it); screen readers get the full path via aria-label. */}
+         * top of it); screen readers get the full text via aria-label. */}
         <span
           tabIndex={0}
-          aria-label={line.path ?? line.text}
+          aria-label={
+            line.path ?? (line.detail !== null ? `${line.text} (${line.detail})` : line.text)
+          }
           className={`block truncate font-mono text-xs ${TONE_CLASS[line.tone]}`}
         >
           {line.text}
         </span>
-        {line.path !== null && (
+        {(line.path !== null || line.detail !== null) && (
           <div className="invisible absolute inset-x-0 top-full z-20 pt-1 group-hover:visible group-focus-within:visible">
             <div className="rounded-md border bg-popover p-2 font-mono text-xs shadow-md break-all select-text">
-              {line.path}
+              {line.path ?? line.detail}
             </div>
           </div>
         )}
