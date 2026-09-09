@@ -285,6 +285,116 @@
         "config"
       ]
     },
+    ".scratch": {
+      "kind": "dir",
+      "desc": "规划快照与交接材料",
+      "tags": [
+        "docs",
+        "meta"
+      ],
+      "collapsed": true,
+      "children": {
+        "gui-refresh": {
+          "kind": "dir",
+          "desc": "GUI美化规划交接",
+          "tags": [
+            "docs"
+          ],
+          "children": {
+            "handoff.md": {
+              "kind": "file",
+              "desc": "GUI实现Agent交接入口",
+              "detail": [
+                "远端规格和任务入口、未提交材料说明、用户授权边界、建议技能与精确接手提示。"
+              ],
+              "rel": [
+                ".scratch/gui-refresh/spec.md",
+                "docs/agents/issue-tracker.md"
+              ],
+              "tags": [
+                "docs",
+                "meta"
+              ]
+            },
+            "issues": {
+              "kind": "dir",
+              "desc": "GitHub任务发布快照",
+              "tags": [
+                "docs"
+              ],
+              "children": {
+                "01-output-preview.md": {
+                  "kind": "file",
+                  "desc": "路径预览任务发布快照",
+                  "detail": [
+                    "GitHub#38的任务快照：只读输出路径预览贯通首页、确认框与桌面后端。"
+                  ],
+                  "rel": [
+                    ".scratch/gui-refresh/spec.md"
+                  ],
+                  "tags": [
+                    "docs"
+                  ]
+                },
+                "02-responsive-home.md": {
+                  "kind": "file",
+                  "desc": "响应式首页任务发布快照",
+                  "detail": [
+                    "GitHub#39的任务快照：独立宽高断点、单行输出胶囊、真实配置摘要和主题适配。"
+                  ],
+                  "rel": [
+                    ".scratch/gui-refresh/spec.md"
+                  ],
+                  "tags": [
+                    "docs"
+                  ]
+                },
+                "03-flow-adaptation.md": {
+                  "kind": "file",
+                  "desc": "导出全流程适配任务快照",
+                  "detail": [
+                    "GitHub#40的任务快照：设置、运行与结果视图适配、全流程回归和验收准备。"
+                  ],
+                  "rel": [
+                    ".scratch/gui-refresh/spec.md"
+                  ],
+                  "tags": [
+                    "docs"
+                  ]
+                }
+              }
+            },
+            "reference.png": {
+              "kind": "file",
+              "desc": "已确认GUI布局参考图",
+              "detail": [
+                "用户确认的纸白淡紫布局，含默认高度单行输出胶囊和宽屏配置详情；图像示例值与比例不替代规格契约。"
+              ],
+              "rel": [
+                ".scratch/gui-refresh/spec.md"
+              ],
+              "tags": [
+                "docs"
+              ]
+            },
+            "spec.md": {
+              "kind": "file",
+              "desc": "GUI美化规格发布快照",
+              "detail": [
+                "GitHub总规格#37的首次发布快照，包含宽高独立响应式规则、路径预览和验收矩阵；后续以远端Issue为准。"
+              ],
+              "rel": [
+                ".scratch/gui-refresh/handoff.md",
+                ".scratch/gui-refresh/reference.png"
+              ],
+              "tags": [
+                "docs"
+              ]
+            }
+          }
+        }
+      }
+    },
     "AGENTS.md": {
       "kind": "file",
       "desc": "项目规则单一事实源",
@@ -351,6 +461,26 @@
           ],
           "tags": [
             "config"
+          ]
+        },
+        "35.new.md": {
+          "kind": "file",
+          "desc": "更新代理功能变更片段",
+          "detail": [
+            "登记CLI代理参数、桌面更新代理设置和响应通道展示功能的发布说明。"
+          ],
+          "tags": [
+            "docs"
+          ]
+        },
+        "36.new.md": {
+          "kind": "file",
+          "desc": "桌面静默安装更新变更片段",
+          "detail": [
+            "登记桌面更新静默安装、退出和安装后自动重启行为的发布说明。"
+          ],
+          "tags": [
+            "docs"
           ]
         }
       }
@@ -1510,6 +1640,46 @@
           "tags": [
             "docs"
           ]
+        },
+        "agents": {
+          "kind": "dir",
+          "desc": "工程技能工作流约定",
+          "tags": [
+            "docs",
+            "meta"
+          ],
+          "children": {
+            "domain.md": {
+              "kind": "file",
+              "desc": "领域文档读取与术语约定",
+              "detail": [
+                "规定单产品上下文、现有规则与事件契约的阅读顺序，以及惰性维护CONTEXT和ADR的方式。"
+              ],
+              "rel": [
+                "AGENTS.md",
+                "docs/sidecar-events.md"
+              ],
+              "tags": [
+                "docs",
+                "meta"
+              ]
+            },
+            "issue-tracker.md": {
+              "kind": "file",
+              "desc": "GitHub规格与任务管理约定",
+              "detail": [
+                "记录fork远端、GitHub Issues事实源、规格与子任务依赖、就绪标签及本地快照和交接边界。"
+              ],
+              "rel": [
+                "AGENTS.md",
+                "docs/agents/domain.md"
+              ],
+              "tags": [
+                "docs",
+                "meta"
+              ]
+            }
+          }
         },
         "BUILD.md": {
           "kind": "file",
