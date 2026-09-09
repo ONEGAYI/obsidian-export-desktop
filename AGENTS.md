@@ -26,20 +26,14 @@
 
 - 远端策略已定：fork 上游 zoni/obsidian-export 并改名为 [ONEGAYI/obsidian-export-desktop](https://github.com/ONEGAYI/obsidian-export-desktop)。`origin` 指向 fork（SSH，桌面端开发主远端），`upstream` 指向上游（同步用）。
 - `desktop` 分支直接推送 fork；面向上游的 issue/commit/PR 使用英文（贡献上游时走 PR），本地自有提交与文档使用中文。
-- **发布（fork 现状，26.8.2 起登记）**：
-  - **版本方案是 CalVer `YY.MM.PATCH`**（上游 v21.9.0 起沿用，git tag 日期与版本号逐一对得上：`22.1.0`→2022-01、`25.3.0`→2025-03、`26.8.0~26.8.5` 全在 2026-08）：前两段是发布当月的年月，是日历时间戳、不承载语义（不要按 SemVer 理解成「minor 进位表示新功能」）；第三段是该月内第几次发布，功能新增与 Bug 修复同样只递增此位。**版本不得跳月**：2026 年 8 月的下一个版本是 26.8.6，写成 26.9.0 等于把发布日期标到未来；跨月首发时月位随日历进位（9 月即 26.9.0）。`just set-version`、towncrier `--version`、tag 与 release 全按此口径。
-  - ~~fork 上 workflow 的 push/tag 事件从不触发~~（**26.9.0 实况更新**：tag 推送已能自动触发 release workflow——`v*.*.*` 触发模式修正后生效，v26.8.x 期间「从不触发」应是当时 tag 模式尚不匹配所致）。**tag 自动触发与手动 dispatch 会叠加重复 run**：v26.9.0 发布时二者并发，取消了排队中的 tag 触发 run 保留 dispatch 的。日常发布打完 tag 后观察 `gh run list --workflow=release.yml`：tag 已触发即无需 dispatch；确需手动 dispatch 用 `gh workflow run release.yml --ref vX.Y.Z -R ONEGAYI/obsidian-export-desktop`。dispatch 走 tag 所指 commit 上的 workflow 定义，tag 必须指向含最新 workflow 的提交。
-  - `release.yml` 的 tag 触发模式已手改为 `v*.*.*`（cargo-dist 生成的 `'**[0-9]+.[0-9]+.[0-9]+*'` 里 `+` 是字面字符，v26.8.x 从不匹配）并补 `workflow_dispatch`；因此 `dist-workspace.toml` 配了 `allow-dirty = ["ci"]` 放行 cargo-dist 对 release.yml 的漂移检查（0.28 语法为列表，布尔值会 TOML 报错）。
-  - dispatch 后 macOS/Linux runner 可能长时间排队（曾 50 分钟未分配，v26.8.3 曾排队 5.5 小时后手动取消）——**不等 runner**：Windows 产物直接本地 `cargo dist build --tag vX.Y.Z` 构建后 `gh release upload`（`target/distrib/` 下连 `source.tar.gz` 与 installer 脚本都会生成），桌面安装包（`just desktop-build` 产物在 `desktop/src-tauri/target/release/bundle/{msi,nsis}/`）同法上传；tauri 生成的文件名带空格（`Obsidian Export_…`），按 v26.8.3 起惯例改名点连接（`Obsidian.Export_…`）再传；macOS/Linux 产物由 dispatch 的 workflow 排队慢慢补齐即可。**（26.9.1 实况）**runner 紧张时连 Windows 的 build job 也一起排队（四平台全部 queued 超 6 分钟）——不等依然成立：`gh release create vX.Y.Z --notes-file` 直接建 published release + 本地 upload Windows 产物，workflow 排到后 announce 补齐多平台。另注意 `git push origin desktop --tags` 会因试图推全部本地 tag 而报 access rights 失败，分支与 tag 分开推。`target/distrib/` 里可能残留**旧版本**的桌面安装包（cargo dist 只清自己的产物），上传前核对文件名版本号。**（26.9.2 实况）**runner 紧张是持续现状：v26.9.1 的 tag 触发 run 排队 24h+ 从未跑成、其 macOS/Linux 产物至今缺失，v26.9.2 同样仅靠本地 Windows 产物先行。本地双路并行构建安全（根 `target/` 与 `desktop/src-tauri/target/` 是独立目录、互不抢锁）：`cargo dist build` 与 `just desktop-release` 同时后台跑。本地直合的变更要拿 PR 号供 CHANGELOG 引用时：先推 feature 分支并 `gh pr create`，再推 desktop——GitHub 检测 head commits 已可达 base 会自动标记 merged，PR #34 即此法所得。
-  - `make-new-release` 在 Git Bash 下会因 `just_executable()` 返回的反斜杠路径被 bash 吞掉而失败；改为手动分步执行其等价步骤：`just set-version` → `uvx towncrier==24.8.0 build --version X.Y.Z --yes` → `bash docs/generate.sh` → 提交 → `git tag vX.Y.Z`。CHANGELOG 片段必须是新式命名 `<issue>.<type>.md`（旧式 `<type>.<issue>.md` 不被识别且**静默跳过**，v26.8.4 曾手工补并入漏掉的 check-json 条目）。
-  - **README 是双语的**：`bash docs/generate.sh` 用 obsidian-export 自身导出 docs vault，展开 `docs/_combined.md` 与 `docs/_combined.zh.md` 生成根 `README.md`（英文）与 `README.zh.md`（中文），两份顶部互为语言入口。改 README 一律改 `docs/` 下对应源（中文为 `.zh.md` 成对文件）再重新生成，禁止直接编辑产物；两语言版本内容需人工保持对照。
-  - release notes 末尾附「Downloads」资产说明段（GUI 与 CLI 是独立产物、按需下载、其余文件用途），模板见 v26.8.2；桌面与 CLI 的关系（GUI 内置边车、装 GUI 无需另装 CLI）必须写明。写入含反斜杠的路径（如 `%USERPROFILE%\.cargo\bin`）时用文件（`--notes-file`）而非 heredoc，v26.8.2 的 `\b` 曾被 shell 吃掉。
-  - 注意 gh CLI 在本仓库目录下无默认 repo 时会解析到 upstream：查 fork 的 release/run 一律带 `-R ONEGAYI/obsidian-export-desktop`。
-  - **（26.8.6 实践）CI 与发布的新坑**：
-    - fork 的 CI 在 PR #6 前从未全绿（历史 PR 手动合并不等待），Linux 侧存量债一次性清偿后才成为基线：`cfg(not(windows))` 测试本地不可见（平台断言、`tail_expr_drop_order`）、nightly rustfmt 行为演进（imports 粒度变化需全量重排）、tarpaulin 插桩拖慢执行暴露速率类时序断言——本地 Windows 全绿不代表 CI 绿，动测试时留意平台耦合与耗时假设。
-    - `docs/CHANGELOG.md` 与 `docs/CONTRIBUTING.md` 是 **git symlink（mode 120000）**：Windows checkout 把它们物化成「内容为目标路径的普通文本文件」，当普通文件编辑（哪怕只追加换行）会污染 blob，Linux 上 symlink 目标带上 `\n` 变 broken（pre-commit 的 check-symlinks 挂）。修复方式 `git hash-object -w --stdin` + `update-index --cacheinfo 120000,<hash>,<path>`；改文件前先 `git ls-files -s` 看 mode。
-    - towncrier 片段正文首行**不要带 `- ` 列表前缀**（towncrier 生成时自己加，双前缀 `- - ` 需手工修 CHANGELOG）；生成后条目链接按 issue_format 指向 zoni issues，需手工替换为 fork 的 pull 链接。
-    - **（PR #9 实践）rustfmt 工具链已钉 dated nightly `nightly-2026-08-20`**：裸 `nightly` 会随 rustfmt 演进漂移（CI 装到的比本地新就全仓重排、CI 红）。三处同步维护：`Justfile` 的 `rustfmt_toolchain` 变量（`just fmt` 一键安装+格式化）、`.github/workflows/ci.yml` 的 fmt matrix 项、`.pre-commit-config.yaml` 的 rustfmt hook。升级流程：改三处日期 → `just fmt` 全量重排 → 同一提交入库。**本机实况（2026-09）**：`rustup` 下载该 dated 工具链反复失败（链路慢 + 缓存并发损坏 + os error 1450），未能常驻安装；本地日常用 `cargo +nightly fmt` 兜底——当前裸 `nightly`（8925ea358a）与 dated（f7d782a3b）两构建的 rustfmt 行为恰好一致（PR #10 重排经 CI 检查通过为实证），但 `rustup update` 后裸 nightly 前进、与 CI 钉版出现 diff 时，须重新设法安装 dated（或换网络/重试 `just fmt`）而非迁就裸 nightly。另注：一旦 dated 安装成功，先用 `cargo +nightly-2026-08-20 fmt --all -- --check` 核对全仓——若与裸 nightly 的重排有出入（如 comments.rs 的注释宽度差异），以 dated（=CI）为准重新格式化提交。**stable 侧同样漂移（2026-09 实况，PR #42）**：runner 上的 stable clippy 演进后开始拦存量 `else_if_without_else`（#35 引入时当时版本不拦），pre-commit 的 end-of-file-fixer 拦下旧 fixture `legacy.excalidraw` 缺尾换行——本地全绿不代表 CI 绿在 clippy/pre-commit 层同样成立，修复随 PR #42 落地（空 else 块 + 补尾换行）。
+- **发布（fork 现状）**：**版本方案是 CalVer `YY.MM.PATCH`**——前两段是发布当月的年月（日历时间戳、不承载语义，勿按 SemVer 理解成「minor 进位表示新功能」），第三段是该月内第几次发布（功能新增与 Bug 修复同样只递增此位），**版本不得跳月**（2026 年 9 月的发布都是 26.9.x）。发布操作、towncrier 片段规范与全部实况教训（tag 触发与 dispatch 叠加、runner 紧张不等、Windows 产物本地双路构建、`target/distrib/` 旧残留、分支与 tag 分开推等）集中在 [docs/Release-checklist.md](docs/Release-checklist.md)。片段生命周期一句话：PR 合并时登记 `changelog.d/<PR>.<type>.md`、下次发布时被 towncrier 消费——目录里存在上次发布之后登记的片段是**正常待发状态**，不是残留。本地直合 desktop 的变更要拿 PR 号供 CHANGELOG 引用时：先推 feature 分支并 `gh pr create`，再推 desktop——GitHub 检测 head commits 已可达 base 会自动标记 merged（PR #34 即此法所得）。
+- **README 是双语的**：`bash docs/generate.sh` 用 obsidian-export 自身导出 docs vault，展开 `docs/_combined.md` 与 `docs/_combined.zh.md` 生成根 `README.md`（英文）与 `README.zh.md`（中文），两份顶部互为语言入口。改 README 一律改 `docs/` 下对应源（中文为 `.zh.md` 成对文件）再重新生成，禁止直接编辑产物；两语言版本内容需人工保持对照。
+- 注意 gh CLI 在本仓库目录下无默认 repo 时会解析到 upstream：查 fork 的 release/run 一律带 `-R ONEGAYI/obsidian-export-desktop`。
+- **CI 工具链与文件坑（本地全绿 ≠ CI 绿）**：
+  - 平台债：fork 的 CI 在 PR #6 前从未全绿（历史 PR 手动合并不等待），Linux 侧存量债一次性清偿后才成为基线——`cfg(not(windows))` 测试本地不可见（平台断言、`tail_expr_drop_order`）、tarpaulin 插桩拖慢执行暴露速率类时序断言。动测试时留意平台耦合与耗时假设。
+  - `docs/CHANGELOG.md` 与 `docs/CONTRIBUTING.md` 是 **git symlink（mode 120000）**：Windows checkout 把它们物化成「内容为目标路径的普通文本文件」，当普通文件编辑（哪怕只追加换行）会污染 blob，Linux 上 symlink 目标带上 `\n` 变 broken（pre-commit 的 check-symlinks 挂）。修复方式 `git hash-object -w --stdin` + `update-index --cacheinfo 120000,<hash>,<path>`；改文件前先 `git ls-files -s` 看 mode。
+  - **rustfmt 工具链已钉 dated nightly `nightly-2026-08-20`**：裸 `nightly` 会随 rustfmt 演进漂移（CI 装到的比本地新就全仓重排、CI 红）。三处同步维护：`Justfile` 的 `rustfmt_toolchain` 变量（`just fmt` 一键安装+格式化）、`.github/workflows/ci.yml` 的 fmt matrix 项、`.pre-commit-config.yaml` 的 rustfmt hook。升级流程：改三处日期 → `just fmt` 全量重排 → 同一提交入库。**本机实况（2026-09）**：`rustup` 下载该 dated 工具链反复失败（链路慢 + 缓存并发损坏 + os error 1450），未能常驻安装；本地日常用 `cargo +nightly fmt` 兜底——当前裸 `nightly`（8925ea358a）与 dated（f7d782a3b）两构建的 rustfmt 行为恰好一致（PR #10 重排经 CI 检查通过为实证），但 `rustup update` 后裸 nightly 前进、与 CI 钉版出现 diff 时，须重新设法安装 dated（或换网络/重试 `just fmt`）而非迁就裸 nightly。另注：一旦 dated 安装成功，先用 `cargo +nightly-2026-08-20 fmt --all -- --check` 核对全仓——若与裸 nightly 的重排有出入（如 comments.rs 的注释宽度差异），以 dated（=CI）为准重新格式化提交。
+  - **stable 侧同样漂移（2026-09 实况，PR #42）**：runner 上的 stable clippy 演进后开始拦存量 `else_if_without_else`（#35 引入时当时版本不拦），pre-commit 的 end-of-file-fixer 拦下旧 fixture `legacy.excalidraw` 缺尾换行——本地全绿不代表 CI 绿在 clippy/pre-commit 层同样成立，修复随 PR #42 落地（空 else 块 + 补尾换行）。
 - 通用行为准则、提交与发布规范以用户级 AGENTS.md 为准，此处不重复。
 
 ## 待定事项
@@ -49,12 +43,9 @@
 
 已知限制与设计取舍（审查登记后决定维持现状的五项：注释转换差异、linkcheck 原文语义、进程树击杀平台不对称、图表副本自包含、EmbedFull 不对称，另含桌面端 ureq watch 项与 Excalidraw 降级链接死链报告项）已迁至 [docs/known-limitations.zh.md](docs/known-limitations.zh.md) 逐条细说（现象/根因/为何不修/绕过方法/源码定位）。26.9.0 发布后的开发期已关闭七项登记（随 26.9.1 发布）：预扫描 comments 感知 #28、`.render-*` 惰性清扫与同文件嵌入全文回退 #27、测试 release 门 const 断言与引用正则兜底 #26、有序列表接续编号 #30、cmd 脚本 `%` 路径自动警告 #31。
 
-## 修复路线（已批准）
-
-按「正确性 → 稳健性 → 性能」三阶段推进（M0 环境基线 → M1 正确性 → M2 稳健性 → M3 性能），彻底完善前不动桌面端业务。GUI 极简原则：缺陷修在 core/CLI 层，桌面端只做展示。三阶段已完成并经两轮子代理审查-修复-复审闭环。
-
 ## 桌面端开发（Tauri）
 
+- GUI 极简原则：桌面端缺陷一律优先修在 core/CLI 层，桌面端只做展示（正确性/稳健性/性能三阶段加固已完成并经两轮子代理审查-修复-复审闭环）。
 - 常用命令：`just desktop-sync-sidecar`（构建 CLI 并复制到 `desktop/src-tauri/binaries/`，**改动 CLI 后必须重跑**）、`just desktop-dev`、`just desktop-build`、`just desktop-test`、`just desktop-release <tag>`（构建 + 版本校验 + 空格改点 + 上传安装包到 release，`--dry-run` 预览须经 pnpm 直调：`pnpm -C desktop run release -- <tag> --dry-run`）、`just clean <target|desktop|sidecar|all>`（清理中间产物与依赖，范围可选）。
 - 前端测试：vitest（`pnpm -C desktop test`，复用 vite.config.ts 的 `@` alias 零额外配置），测试文件与源码同目录（`src/**/*.test.ts`，显式 import vitest API）；含 zh/en 字典占位符集合一致性测试（Widen 宽化抹掉字面量类型，编译期校验不可行，由测试锁定）。
 - CI 覆盖：`ci.yml` 的 desktop job（windows-latest）跑 `install → sync-sidecar`（硬顺序：桌面 build script 编译期校验 externalBin，binaries/ 又被 gitignore）`→ tsc+vite build → vitest → cargo test`（桌面 workspace）；rust-cache `workspaces` 同时缓存根 `target/` 与 `desktop/src-tauri/target`（注意 `->` 右侧是 target 目录名非 crate 名，写错会静默失效）。
@@ -62,7 +53,7 @@
 - `desktop/src-tauri` 是独立 cargo workspace（自持 `[workspace]`），不影响根 crate 与 cargo-dist；`.cargo/config.toml` 启用 MSRV 感知解析（工具链锁 1.87）。
 - 前端：Tailwind v4 + 手搭 shadcn 层（shadcn CLI 与当前 Node 生态冲突，组件手写在 `src/components/ui/`；CLI 修复后可迁移）。主题三态（light/dark/system，`src/lib/theme.ts`）；用户偏好存 localStorage：路径记忆、「保留根文件夹」（`obsidian-export-*` 逐项键）与转换选项（`obsidian-export-options` 单键 JSON，见 `src/lib/options.ts`）。视觉为纸白淡紫（浅）/石墨柔紫（深）双配色——语义变量集中在 `src/index.css`（注意页面底色走根容器的 `--background-secondary` 而非 `--background`，头注释有分工说明）；布局宽高独立断点（宽 ≥1000 / 高 ≥640，`src/lib/layout.ts` 纯函数 + `useSyncExternalStore` hook）：宽屏首页出右栏只读配置摘要、运行/结果页并排（结构类布局单一来源走 JS 断点，防滚动条宽度致 JS/CSS 分歧），矮窗根文件夹输出区压缩为单行胶囊，折叠区域从 DOM 移除。首页与确认框共用后端 `resolve_export_paths` 的输出位置预览（`lib/preview.ts` 防抖控制器，代际计数丢弃迟到结果）。
 - i18n：界面文案抽离为字典（`src/i18n/`，zh 为结构基准、`Widen` 宽化出 `Dict` 类型锁两份字典键一致），运行时经项目首个 React Context（`I18nProvider`）分发；语言三态 zh/en/system（跟随系统按 `navigator.languages` 是否含 zh 前缀判定），偏好存 `obsidian-export-language`，生效语言同步 `document.documentElement.lang`；标题栏下拉（`LanguageMenu`，radix dropdown-menu）三态互转。Rust/CLI 侧英文技术错误原文透传，不进字典。
-- 版本号统一由 `just set-version X.Y.Z` 控制：一次对齐六处——根 crate（`Cargo.toml` + `Cargo.lock`）与桌面端三处（`desktop/package.json`、`desktop/src-tauri/tauri.conf.json`、`desktop/src-tauri/Cargo.toml` + 其 `Cargo.lock`），避免安装包文件名与 release 版本错位（26.8.2 起对齐）。`make-new-release` 已接入该目标。依赖 cargo-edit（仓库工具链锁 1.87 而 cargo-edit 0.13.13 要求 1.92，**须在仓库外目录用 stable 工具链安装 0.13.10**：`rustup run stable cargo install cargo-edit --version 0.13.10 --locked`）；`cargo set-version` 拒绝降级（发布防呆，误 bump 的还原属手动操作）。桌面端 lock 由脚本 sed 直接修补——桌面 workspace 的 build script 依赖已同步的 sidecar 二进制，`cargo check` 在 clean 后不可用。
+- 版本号统一由 `just set-version X.Y.Z` 控制：一次对齐六处——根 crate（`Cargo.toml` + `Cargo.lock`）与桌面端三处（`desktop/package.json`、`desktop/src-tauri/tauri.conf.json`、`desktop/src-tauri/Cargo.toml` + 其 `Cargo.lock`），避免安装包文件名与 release 版本错位（26.8.2 起对齐）。`make-new-release` 已接入该目标。依赖 cargo-edit（与仓库锁 1.87 的工具链不兼容，安装命令见 [docs/Release-checklist.md](docs/Release-checklist.md)）；`cargo set-version` 拒绝降级（发布防呆，误 bump 的还原属手动操作）。桌面端 lock 由脚本 sed 直接修补——桌面 workspace 的 build script 依赖已同步的 sidecar 二进制，`cargo check` 在 clean 后不可用。
 - 事件流消费遵守 `docs/sidecar-events.md` 契约（导出 / check / update 三种事件方言）；schema 版本常量在 `desktop/src-tauri/src/events.rs` 与 CLI 的 `main.rs` 各有一份，升级时同步改。
 - 设置视图为分页式（`OptionsView`：左侧导航六页「转换行为 / 内容过滤 / 文件与过程 / 图表渲染 / 链接检查 / 关于与更新」，窄窗降级横排页签；页签实现 ARIA tabs 模式的 roving tabindex 与方向键导航）。链接检查：导出成功且开关开启时前端自动 invoke `start_check`，检查 vault 源时由 Rust 侧 `build_check_args` 转发与导出一致的非默认过滤项（walk 集对齐；tag 后处理不参与 check），检查导出产物时恒传 `--no-git` 并使 `--hidden` 与导出一致（CLI 默认值本身是过滤——产物目录在 git 仓库内会被 gitignore 静默排除成假阴性）；check 与导出共用 child 槽，`cancel_export` 通杀，`start_export` 返回实际落点供「检查产物」定位；check 流的解析/IO 错误走独立 `check-error` 通道（导出日志视图在检查期已卸载，混入 sidecar-error 会不可见）。
 
@@ -70,7 +61,8 @@
 
 - **Issue 与规格管理**：GitHub Issues 为规格与 tickets 的事实源，本地 `.scratch/<feature>/` 保存发布快照、参考图和交接；流程见 [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md)。
 - **领域文档**：按单一产品上下文阅读，入口与术语约定见 [docs/agents/domain.md](docs/agents/domain.md)。
-- **GUI 美化规格**：[GitHub #37](https://github.com/ONEGAYI/obsidian-export-desktop/issues/37) 为事实源，按 #38 → #39 → #40 实施；本地入口为 [.scratch/gui-refresh/handoff.md](.scratch/gui-refresh/handoff.md)。这是待实现规格，不表示功能已落地。
+- **代码审查派发**：对分支/PR 派发正式审查子代理（两轴模式）时，brief 模板与证据规则见 [docs/agents/code-review.md](docs/agents/code-review.md)——UI/样式类结论必须有像素实测或源码行定位，推断须标注。
+- **视觉验收代测**：GUI 需要真实窗口的视觉/交互验收时，走交接文档转交多模态 Agent 代测（不要用 computer-use 直接控窗），模板与流程见 [docs/agents/visual-acceptance.md](docs/agents/visual-acceptance.md)。
 
 ## 文件树（简版速览）
 
@@ -206,8 +198,10 @@ obsidian-export-desktop/
 │   ├── _edit-warning.md        # 勿直接编辑 README 的警告块
 │   ├── _edit-warning.zh.md     # 中文版勿直接编辑警告块
 │   ├── agents/                 # 工程技能工作流约定
-│   │   ├── domain.md        # 领域文档读取与术语约定
-│   │   └── issue-tracker.md # GitHub规格与任务管理约定
+│   │   ├── code-review.md       # 审查子代理派发约定
+│   │   ├── domain.md            # 领域文档读取与术语约定
+│   │   ├── issue-tracker.md     # GitHub规格与任务管理约定
+│   │   └── visual-acceptance.md # 视觉验收代测交接约定
 │   ├── BUILD.md                # 中文构建指南（CLI 与桌面端）
 │   ├── CHANGELOG.md            # 指向根变更日志的指针文件
 │   ├── changes.md              # 更新日志引导页

@@ -1817,6 +1817,20 @@
             "meta"
           ],
           "children": {
+            "code-review.md": {
+              "kind": "file",
+              "desc": "审查子代理派发约定",
+              "detail": [
+                "两轴模式（Standards/Spec 并行互不污染）、brief 必含项（三点 diff、来源、输出格式）、证据规则（发现必须带文件行号，UI/样式结论须像素实测或源码定位，推断须标注，登记取舍不重报）、聚合时 分轴呈现不跨轴重排。v26.9.3 配色 token 误报教训沉淀。"
+              ],
+              "rel": [
+                "docs/agents/issue-tracker.md"
+              ],
+              "tags": [
+                "docs",
+                "meta"
+              ]
+            },
             "domain.md": {
               "kind": "file",
               "desc": "领域文档读取与术语约定",
@@ -1841,6 +1855,20 @@
               "rel": [
                 "AGENTS.md",
                 "docs/agents/domain.md"
+              ],
+              "tags": [
+                "docs",
+                "meta"
+              ]
+            },
+            "visual-acceptance.md": {
+              "kind": "file",
+              "desc": "视觉验收代测交接约定",
+              "detail": [
+                "真实窗口视觉/交互验收的代测模式：实现 Agent 写交接文档（环境/可判定检查清单/视口控制换算/截图命名/报告落点/边界）→ 用户转交多模态 Agent 执行 → 报告回传 → 判定处置（修/登记/观察）；弃用 computer-use 直接控窗的实证理由；报告归档 .scratch/<feature>/reports/；含用户侧转交提示语模板。"
+              ],
+              "rel": [
+                "docs/agents/issue-tracker.md"
               ],
               "tags": [
                 "docs",
