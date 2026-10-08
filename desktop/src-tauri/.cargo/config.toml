@@ -1,4 +1,4 @@
-# The repository toolchain is pinned to 1.87 (see root rust-toolchain.toml, which
+# The repository toolchain is pinned to 1.98 (see root rust-toolchain.toml, which
 # cascades into this crate). Have the dependency resolver prefer versions whose
 # MSRV fits that toolchain instead of hand-pinning transitive deps.
 [resolver]

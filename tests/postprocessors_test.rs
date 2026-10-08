@@ -212,7 +212,7 @@ fn test_embed_postprocessors_context() {
             // error shows up.
             panic!(
                 "postprocessor: expected is_root_note in {} to be true, got false",
-                &ctx.current_file().display()
+                ctx.current_file().display()
             );
         }
         PostprocessorResult::Continue
@@ -229,7 +229,7 @@ fn test_embed_postprocessors_context() {
             // error shows up.
             panic!(
                 "embed_postprocessor: expected is_root_note in {} to be false, got true",
-                &ctx.current_file().display()
+                ctx.current_file().display()
             );
         }
         PostprocessorResult::Continue

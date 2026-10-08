@@ -475,7 +475,7 @@
       "kind": "file",
       "desc": "主 crate 清单（lib+bin）",
       "detail": [
-        "package obsidian-export，rust-version 1.82，edition 2018，BSD-2-Clause-Patent。lib 目标 obsidian_export（src/lib.rs），bin 目标 obsidian-export（src/main.rs，doc=false）。依赖 pulldown-cmark 系/rayon/ignore/gumdrop/eyre/snafu/serde_yaml（实为 yaml_serde 包 rename）等；[profile.dist] 供 cargo-dist；大量 pedantic/nursery/restriction lint 配置。desktop/ 为独立 workspace，不在本清单内。"
+        "package obsidian-export，rust-version 1.87，edition 2018，BSD-2-Clause-Patent。lib 目标 obsidian_export（src/lib.rs），bin 目标 obsidian-export（src/main.rs，doc=false）。依赖 pulldown-cmark 系/rayon/ignore/gumdrop/eyre/snafu/serde_yaml（实为 yaml_serde 包 rename）等；[profile.dist] 供 cargo-dist；大量 pedantic/nursery/restriction lint 配置。desktop/ 为独立 workspace，不在本清单内。"
       ],
       "rel": [
         "dist-workspace.toml",
@@ -1460,7 +1460,7 @@
                   "kind": "file",
                   "desc": "MSRV 感知的依赖解析配置",
                   "detail": [
-                    "resolver.incompatible-rust-versions = fallback：依赖解析器优先选择 MSRV 兼容仓库锁定工具链（根 rust-toolchain.toml 固定 1.87.0，级联到本 crate）的版本，免手工钉传递依赖；工具链锁本身在仓库根。"
+                    "resolver.incompatible-rust-versions = fallback：依赖解析器优先选择 MSRV 兼容仓库锁定工具链（根 rust-toolchain.toml 固定 1.98.0，级联到本 crate）的版本，免手工钉传递依赖；工具链锁本身在仓库根。"
                   ],
                   "rel": [
                     "rust-toolchain.toml"
@@ -1881,7 +1881,7 @@
           "kind": "file",
           "desc": "中文构建指南（CLI 与桌面端）",
           "detail": [
-            "本 fork 新增中文文档：环境要求（Rust 1.87 / pnpm / just 1.53.x）、cargo 命令、just desktop-dev/test/build 与边车同步机制、just clean 清理范围、图标替换、Windows 坑、维护者发布流程；不进 README 生成列表。"
+            "本 fork 新增中文文档：环境要求（Rust 1.98 / pnpm / just 1.53.x）、cargo 命令、just desktop-dev/test/build 与边车同步机制、just clean 清理范围、图标替换、Windows 坑、维护者发布流程；不进 README 生成列表。"
           ],
           "rel": [
             "docs/desktop.md",
@@ -2268,7 +2268,7 @@
       "kind": "file",
       "desc": "固定 Rust 工具链版本",
       "detail": [
-        "channel = 1.87.0，profile = default；renovate 经 regex manager 自动更新此版本号；桌面端经 .cargo/config.toml 级联锁定。"
+        "channel = 1.98.0，profile = default；renovate 经 regex manager 自动更新此版本号；桌面端经 .cargo/config.toml 级联锁定。"
       ],
       "rel": [
         ".github/renovate.json5",

@@ -225,6 +225,9 @@ pub enum ExportError {
 
     #[snafu(display("Failed to export '{}'", path.display()))]
     /// This occurs when a file fails to export successfully.
+    // `Self` would resolve to the wrong type inside the snafu derive
+    // expansion, so the explicit name is required here.
+    #[allow(clippy::use_self)]
     FileExportError {
         path: PathBuf,
         #[snafu(source(from(ExportError, Box::new)))]
@@ -2446,31 +2449,28 @@ fn reduce_to_section<'a>(events: &[Event<'a>], section: &str) -> Option<Markdown
             ) => {
                 open_containers.pop();
             }
-            Event::End(TagEnd::Heading(_)) => {
-                if in_heading {
-                    in_heading = false;
-                    // A same-named heading nested deeper than the target is simply part
-                    // of the section content; only the first match starts the section.
-                    if !currently_in_target_section
-                        && heading_text.nfc().collect::<String>().to_lowercase()
-                            == section_normalized
-                    {
-                        target_section_encountered = true;
-                        currently_in_target_section = true;
-                        section_level = last_level;
+            Event::End(TagEnd::Heading(_)) if in_heading => {
+                in_heading = false;
+                // A same-named heading nested deeper than the target is simply part
+                // of the section content; only the first match starts the section.
+                if !currently_in_target_section
+                    && heading_text.nfc().collect::<String>().to_lowercase() == section_normalized
+                {
+                    target_section_encountered = true;
+                    currently_in_target_section = true;
+                    section_level = last_level;
 
-                        // Discard everything collected before the target heading; the heading
-                        // itself (which may consist of multiple inline events) is kept. The
-                        // prefix may contain the Start of containers the heading lives in:
-                        // re-open them so the slice stays balanced.
-                        let heading_events = filtered_events.split_off(heading_start_idx);
-                        let mut balanced_events: MarkdownEvents<'a> = open_containers
-                            .iter()
-                            .map(|tag| Event::Start(tag.clone()))
-                            .collect();
-                        balanced_events.extend(heading_events);
-                        filtered_events = balanced_events;
-                    }
+                    // Discard everything collected before the target heading; the heading
+                    // itself (which may consist of multiple inline events) is kept. The
+                    // prefix may contain the Start of containers the heading lives in:
+                    // re-open them so the slice stays balanced.
+                    let heading_events = filtered_events.split_off(heading_start_idx);
+                    let mut balanced_events: MarkdownEvents<'a> = open_containers
+                        .iter()
+                        .map(|tag| Event::Start(tag.clone()))
+                        .collect();
+                    balanced_events.extend(heading_events);
+                    filtered_events = balanced_events;
                 }
             }
             _ => {}

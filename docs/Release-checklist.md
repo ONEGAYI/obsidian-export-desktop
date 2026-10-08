@@ -18,9 +18,8 @@ Windows 产物一律本地构建上传。
       应只剩 `.gitignore`
 - [ ] `just set-version X.Y.Z` 一次对齐六处版本（根 crate 两处 + 桌面端四处）；
       CalVer `YY.MM.PATCH` 不得跳月，`just set-version` 拒绝降级。依赖
-      cargo-edit（仓库工具链锁 1.87 而 0.13.13 要求 1.92，**须在仓库外目录用
-      stable 工具链安装 0.13.10**：
-      `rustup run stable cargo install cargo-edit --version 0.13.10 --locked`）
+      cargo-edit（仓库工具链锁 1.98，已高于 0.13.13 要求的 1.92，可直接
+      `cargo install cargo-edit --locked`）
 - [ ] `uvx towncrier==24.8.0 build --version X.Y.Z --yes` 生成 CHANGELOG；
       条目里的 issue 链接按 issue_format 指向上游，需手工替换为 fork 的 pull
       链接；版本标题与第一个分类之间补 1-2 句版本总结；底部 `<!-- 变更链接 -->`

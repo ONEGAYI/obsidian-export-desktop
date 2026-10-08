@@ -6,7 +6,7 @@
 
 | 工具 | 版本 | 说明 |
 |------|------|------|
-| Rust | 1.87（以 `rust-toolchain.toml` 固定为准） | rustup 会自动安装指定版本 |
+| Rust | 1.98（以 `rust-toolchain.toml` 固定为准） | rustup 会自动安装指定版本 |
 | pnpm | ≥ 9 | 桌面端前端依赖管理与命令入口 |
 | just | 1.53.x | 常用任务入口（见下文 Windows 注意事项） |
 | uvx | 可选 | 仅发布 CHANGELOG 时需要（towncrier） |
