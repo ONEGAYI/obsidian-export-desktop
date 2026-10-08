@@ -1294,10 +1294,8 @@ mod tests {
             match event {
                 Event::Start(Tag::BlockQuote(_)) => in_quote = in_quote.saturating_add(1),
                 Event::End(TagEnd::BlockQuote(_)) => in_quote = in_quote.saturating_sub(1),
-                Event::Html(_) | Event::InlineHtml(_) => {
-                    if in_quote > 0 {
-                        comment_in_outer_quote = true;
-                    }
+                Event::Html(_) | Event::InlineHtml(_) if in_quote > 0 => {
+                    comment_in_outer_quote = true;
                 }
                 _ => {}
             }

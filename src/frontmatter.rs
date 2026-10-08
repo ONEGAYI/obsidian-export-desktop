@@ -77,10 +77,7 @@ mod tests {
     #[test]
     fn empty_frontmatter_to_str() {
         let frontmatter = Frontmatter::new();
-        assert_eq!(
-            frontmatter_to_str(&frontmatter).unwrap(),
-            format!("---\n---\n")
-        );
+        assert_eq!(frontmatter_to_str(&frontmatter).unwrap(), "---\n---\n");
     }
 
     #[test]
@@ -89,7 +86,7 @@ mod tests {
         frontmatter.insert(Value::String("foo".into()), Value::String("bar".into()));
         assert_eq!(
             frontmatter_to_str(&frontmatter).unwrap(),
-            format!("---\nfoo: bar\n---\n")
+            "---\nfoo: bar\n---\n"
         );
     }
 }

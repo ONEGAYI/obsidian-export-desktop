@@ -1,7 +1,7 @@
 [package]
 name = "obsidian-export"
 version = "26.9.3"
-rust-version = "1.82"
+rust-version = "1.87"
 authors = ["Nick Groenen <nick@groenen.me>"]
 edition = "2018"
 license = "BSD-2-Clause-Patent"
@@ -41,8 +41,8 @@ serde_yaml = { package = "yaml_serde", version = "0.10" }
 snafu = "0.8.3"
 unicode-normalization = "0.1.23"
 filetime = "0.2.23"
-# ureq 2.x 维护分支（MSRV 1.71）：3.x 需要 MSRV 1.85，超出本 crate 的
-# 1.82。仅开 rustls TLS，禁 gzip/charset 精简依赖面。
+# ureq 2.x 维护分支：3.x 属破坏性 API 迁移，不随工具链升级顺带实施。
+# 仅开 rustls TLS，禁 gzip/charset 精简依赖面。
 ureq = { version = "2.12", default-features = false, features = ["tls"] }
 # 渲染临时工作目录（diagram 源文件与 tikz 中间产物），随 drop 自动清理。
 tempfile = "3.10.1"
@@ -119,7 +119,6 @@ shadow_unrelated = "warn"
 str_to_string = "warn"
 string_add = "warn"
 string_slice = "warn"
-string_to_string = "warn"
 suspicious_xor_used_as_pow = "warn"
 todo = "warn"
 try_err = "warn"

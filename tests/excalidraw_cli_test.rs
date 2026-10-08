@@ -594,8 +594,9 @@ fn single_file_export_with_directory_destination_writes_asset_inside() {
         list_dir(dest.path()),
         vec![String::from("glitch.excalidraw.svg")]
     );
-    assert!(
-        events_of_type(&parse_json_lines(&out.stdout), "file-skipped").len() == 1,
+    assert_eq!(
+        events_of_type(&parse_json_lines(&out.stdout), "file-skipped").len(),
+        1,
         "the drawing source itself is skipped"
     );
 }

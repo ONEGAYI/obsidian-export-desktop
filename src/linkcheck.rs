@@ -138,7 +138,7 @@ pub struct CheckSummary {
 impl CheckSummary {
     /// How many links were found in total (checked and skipped).
     #[must_use]
-    pub fn total_links(&self) -> usize {
+    pub const fn total_links(&self) -> usize {
         self.reports.len()
     }
 
@@ -421,8 +421,7 @@ fn display_rel(root: &Path, path: &Path) -> String {
 /// match, matching how the exported tree is laid out).
 fn known_file(root: &Path, path: &Path, known: &HashSet<String>) -> bool {
     path.strip_prefix(root)
-        .map(|rel| known.contains(&display_path(rel)))
-        .unwrap_or(false)
+        .is_ok_and(|rel| known.contains(&display_path(rel)))
 }
 
 /// Verify an Obsidian reference (wikilink or embed) found in `source`.
