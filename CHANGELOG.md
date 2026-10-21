@@ -2,6 +2,20 @@
 
 <!-- towncrier release notes start -->
 
+## [26.10.0](https://github.com/zoni/obsidian-export/tree/26.10.0) - 2026-10-21
+
+Correctness release: a wikilink conversion fix for aliases containing inline code, math, or HTML, plus Rust toolchain and TLS-dependency security upgrades.
+
+### Fixes
+
+- 修复 wikilink 别名含行内代码（反引号）、行内/块数学（`$...$` / `$$...$$`）或行内 HTML（`<...>`）时整条链接转换失败的问题：此前这类 wikilink 被转义为字面文本 `\[\[...\]\]` 断链输出。修复后按普通 wikilink 正常转换为 Markdown 链接，别名定界符原样透传；linkcheck 此前对这类链接不可见，修复后一并纳入检查。 ([#46](https://github.com/ONEGAYI/obsidian-export-desktop/pull/46))
+
+### Miscellaneous
+
+- Rust 编译工具链从 1.87.0 升级到 1.98.0；库的 rust-version（MSRV）声明由 1.82 修正为真实下限 1.87——1.82 自 const fn 引入（#26）起实际不可编译，对下游无实际影响。CI 的 fmt 钉版 nightly-2026-08-20 不受影响。 ([#45](https://github.com/ONEGAYI/obsidian-export-desktop/pull/45))
+- 安全依赖升级：rustls 0.23.45→0.23.46（RUSTSEC-2026-0346/0347/0348：Debug 输出暴露 TLS 会话密钥、ECH 拒绝后缓冲数据外发、Brotli 证书解压未认证先分配）、rustls-webpki 0.103.15→0.103.16 与 webpki-roots 1.0.9→1.0.10（RUSTSEC-2026-0381/0382：emSign 根证书信任链收紧）；ureq 2.x 锁定的 webpki-roots 0.26.x 兼容层无补丁版，deny.toml 登记 ignore（证书数据实际取自已修复的 1.0.10）。 ([#46](https://github.com/ONEGAYI/obsidian-export-desktop/pull/46))
+
+
 ## [26.9.3](https://github.com/zoni/obsidian-export/tree/26.9.3) - 2026-09-09
 
 Desktop-focused release: a refreshed paper-white & soft-violet responsive UI with a unified output-path preview, silent update installs, and an optional HTTP proxy for update checks.
@@ -1209,6 +1223,7 @@ notable new feature.
 * Public release. [Nick Groenen]
 
 <!-- 变更链接 -->
+[26.10.0]: https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.9.3...v26.10.0
 [26.9.3]: https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.9.2...v26.9.3
 [26.9.2]: https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.9.1...v26.9.2
 
