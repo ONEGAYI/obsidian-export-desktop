@@ -545,7 +545,7 @@ fn check_reports_per_link_verdicts_and_exit_code() {
         out.stdout
     );
     assert!(
-        out.stdout.contains("35 link(s) found, 6 broken"),
+        out.stdout.contains("40 link(s) found, 6 broken"),
         "summary counts, got: {:?}",
         out.stdout
     );
@@ -672,14 +672,14 @@ fn check_progress_json_emits_event_stream() {
     let end = events.last().expect("non-empty output");
     assert_eq!(end["type"], "check-end", "check-end comes last");
     assert_eq!(end["filesChecked"], 19);
-    assert_eq!(end["totalLinks"], 35);
+    assert_eq!(end["totalLinks"], 40);
     assert_eq!(end["broken"], 6);
 
     let reports: Vec<&Value> = events
         .iter()
         .filter(|event| event["type"] == "link-report")
         .collect();
-    assert_eq!(reports.len(), 35, "one report event per link");
+    assert_eq!(reports.len(), 40, "one report event per link");
 
     // A broken embed carries its verdict as structured data instead of the
     // formatted text line, so consumers never parse English prose. `raw` is
