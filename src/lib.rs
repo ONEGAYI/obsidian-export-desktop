@@ -1266,9 +1266,15 @@ impl<'a> Exporter<'a> {
                         ref_parser.transition(RefParserState::Resetting);
                     }
                     // Formatting events (Strong/Emphasis/Strikethrough) carry
-                    // no literal text of their own; the verbatim source slice
-                    // below recovers their original spelling.
+                    // no literal text of their own, and Code/InlineMath/
+                    // DisplayMath/InlineHtml events carry it without the
+                    // delimiters that produced it; the verbatim source slice
+                    // below recovers the original spelling either way.
                     Event::Text(_)
+                    | Event::Code(_)
+                    | Event::InlineMath(_)
+                    | Event::DisplayMath(_)
+                    | Event::InlineHtml(_)
                     | Event::Start(Tag::Emphasis | Tag::Strong | Tag::Strikethrough)
                     | Event::End(TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough) => {
                         ref_parser.transition(RefParserState::ExpectRefTextOrCloseBracket);
@@ -1282,6 +1288,10 @@ impl<'a> Exporter<'a> {
                         ref_parser.transition(RefParserState::ExpectFinalCloseBracket);
                     }
                     Event::Text(_)
+                    | Event::Code(_)
+                    | Event::InlineMath(_)
+                    | Event::DisplayMath(_)
+                    | Event::InlineHtml(_)
                     | Event::Start(Tag::Emphasis | Tag::Strong | Tag::Strikethrough)
                     | Event::End(TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough) => (),
                     _ => {
