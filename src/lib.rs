@@ -1909,11 +1909,12 @@ impl<'a> Exporter<'a> {
                     context.current_file().display(),
                 ),
             );
-            return vec![
-                Event::Start(Tag::Emphasis),
-                Event::Text(CowStr::from(reference.display())),
-                Event::End(TagEnd::Emphasis),
-            ];
+            return [
+                vec![Event::Start(Tag::Emphasis)],
+                reference_display_events(reference),
+                vec![Event::End(TagEnd::Emphasis)],
+            ]
+            .concat();
         }
         let mut target_file = target_file.unwrap().clone();
         // A converted Excalidraw drawing is replaced by its rendered asset:
@@ -1966,12 +1967,87 @@ impl<'a> Exporter<'a> {
             id: CowStr::from(""),
         };
 
-        vec![
-            Event::Start(link_tag),
-            Event::Text(CowStr::from(reference.display())),
-            Event::End(TagEnd::Link),
-        ]
+        let mut events = vec![Event::Start(link_tag)];
+        events.extend(reference_display_events(reference));
+        events.push(Event::End(TagEnd::Link));
+        events
     }
+}
+
+/// Events for the text a reference displays inside its link.
+///
+/// An explicit alias is Markdown the author typed inside `[[...]]`, so it is
+/// re-parsed as inline Markdown: a code span, emphasis, math or inline HTML in
+/// it has to reach the serializer as the matching events. Emitting the alias
+/// as one `Text` event instead makes the serializer escape a leading special
+/// character: an alias written as a code span comes out as a visible backslash
+/// followed by literal backticks, and the code span is dead.
+///
+/// Derived display text carries no alias and stays a plain `Text` event: a
+/// note named `_underscored-note` must keep rendering literally, and the
+/// serializer's escaping is exactly what preserves that.
+fn reference_display_events(reference: ObsidianNoteReference<'_>) -> MarkdownEvents<'static> {
+    let Some(label) = reference.label else {
+        return vec![Event::Text(CowStr::from(reference.display()))];
+    };
+    inline_markdown_events(label)
+}
+
+/// Parse the verbatim text of a reference alias as a single run of inline
+/// Markdown, returning owned events without the enclosing paragraph.
+///
+/// The text arrives as a source slice, so a `\|` in it is Obsidian's
+/// escaping — inside a table it is the cell-level escaping, and in a wikilink
+/// alias a plain `|` could never reach this function: the reference parser
+/// treats it as the separator when the alias is split apart (see
+/// `ObsidianNoteReference::from_str`). It is restored to a plain `|` first,
+/// and inside tables the serializer re-escapes whatever a code span or text
+/// run needs. Without this, a table alias like `` [[x\|`a\|b`]] `` kept the
+/// backslash in the code span and gained a second one from the serializer.
+///
+/// The sentinels keep the text in one paragraph and out of the block parser's
+/// reach: unprefixed, an alias like `- dash` would parse as a list item, and
+/// unsuffixed, a trailing `#` would be trimmed as an ATX closing sequence.
+/// Both are format characters (U+2063 INVISIBLE SEPARATOR, U+2064 INVISIBLE
+/// PLUS) that render as nothing; they land inside the first and last `Text`
+/// events and are removed again below.
+fn inline_markdown_events(text: &str) -> MarkdownEvents<'static> {
+    const OPEN: char = '\u{2063}';
+    const CLOSE: char = '\u{2064}';
+
+    let unescaped = text.replace("\\|", "|");
+    let wrapped = format!("{OPEN}{unescaped}{CLOSE}");
+    let mut events: MarkdownEvents<'_> = Parser::new_ext(&wrapped, markdown_parser_options())
+        .filter(|event| {
+            !matches!(
+                event,
+                Event::Start(Tag::Paragraph) | Event::End(TagEnd::Paragraph)
+            )
+        })
+        .collect();
+
+    let (mut open_seen, mut close_seen) = (false, false);
+    for event in &mut events {
+        let Event::Text(cowstr) = event else {
+            continue;
+        };
+        let mut stripped = cowstr.to_string();
+        if !open_seen && stripped.starts_with(OPEN) {
+            stripped.remove(0);
+            open_seen = true;
+        }
+        if !close_seen && stripped.ends_with(CLOSE) {
+            stripped.pop();
+            close_seen = true;
+        }
+        *cowstr = CowStr::from(stripped);
+    }
+
+    events
+        .into_iter()
+        .filter(|event| !matches!(event, Event::Text(cowstr) if cowstr.is_empty()))
+        .map(event_to_owned)
+        .collect()
 }
 
 /// Get the full path for the given filename when it's contained in `vault_contents`, taking into
@@ -2872,6 +2948,95 @@ mod tests {
         // transliterated these into pinyin, producing anchors no renderer matches.
         assert_eq!(format_anchor("中文标题"), "中文标题");
         assert_eq!(format_anchor("混合 Heading 标题"), "混合-heading-标题");
+    }
+
+    /// Render inline alias events back to Markdown, dropping the synthetic
+    /// paragraph wrapper, so a test can assert on the emitted shape.
+    fn render_inline_alias(alias: &str) -> String {
+        let events = inline_markdown_events(alias);
+        assert!(
+            !events.is_empty(),
+            "alias {:?} produced no events at all",
+            alias
+        );
+        let mut out = String::new();
+        cmark_with_options(
+            events.iter(),
+            &mut out,
+            pulldown_cmark_to_cmark::Options::default(),
+        )
+        .expect("formatting to string not expected to fail");
+        out
+    }
+
+    #[rstest]
+    // A leading inline construct must survive as its own event: emitting the
+    // alias as one Text event makes the serializer escape the opening marker.
+    #[case("`DialogSelect`", "`DialogSelect`")]
+    #[case("`code-only alias`", "`code-only alias`")]
+    #[case("**bold** then text", "**bold** then text")]
+    #[case("*it* tail", "*it* tail")]
+    #[case("~~del~~", "~~del~~")]
+    #[case("$x+y$", "$x+y$")]
+    #[case("$$x+y$$", "$$x+y$$")]
+    #[case("<br> line", "<br> line")]
+    #[case("table cell `code` alias", "table cell `code` alias")]
+    #[case("`Toast`（成功）", "`Toast`（成功）")]
+    // Block syntax stays literal: the sentinels keep the alias a single
+    // paragraph, so list/quote/heading markers are not consumed.
+    #[case("- dash", "- dash")]
+    #[case("1. item", "1. item")]
+    #[case("> quote", "\\> quote")]
+    #[case("#tag", "\\#tag")]
+    // A trailing `#` is not an ATX closing sequence, and surrounding spaces
+    // survive because paragraph leading/trailing trimming is bypassed.
+    #[case("C#", "C#")]
+    #[case(" lead", " lead")]
+    #[case("trail  ", "trail  ")]
+    // Underscore-only names keep rendering literally rather than as emphasis.
+    #[case("_underscored-note", "\\_underscored-note")]
+    #[case("[WIP]", "\\[WIP\\]")]
+    // Obsidian's escaped pipe loses the backslash but stays a literal pipe,
+    // re-escaped by the serializer so it survives a table cell.
+    #[case("a\\|b", "a|b")]
+    #[case("plain\\|pipe", "plain|pipe")]
+    // A code span alias carrying the table-escaped pipe keeps a single level
+    // of escaping: the source escape is consumed here, and the serializer
+    // adds its own exactly when a table cell requires it.
+    #[case("`a\\|b`", "`a|b`")]
+    // Bare URLs stay plain text rather than autolinks: a nested link inside
+    // the alias would produce invalid Markdown.
+    #[case("https://example.com", "https://example.com")]
+    #[case("www.example.com", "www.example.com")]
+    fn test_inline_markdown_events_render_aliases(#[case] alias: &str, #[case] expected: &str) {
+        assert_eq!(render_inline_alias(alias), expected, "alias {:?}", alias);
+    }
+
+    #[test]
+    fn test_inline_markdown_events_drops_empty_and_sentinel_only_text() {
+        assert!(inline_markdown_events("").is_empty());
+        // Whitespace inside an alias is real content (the label is not
+        // trimmed), so it survives as a single text event.
+        assert_eq!(
+            inline_markdown_events("   "),
+            vec![Event::Text(CowStr::Borrowed("   "))]
+        );
+    }
+
+    #[test]
+    fn test_reference_display_events_keeps_derived_text_unescaped() {
+        // Without an explicit alias the display is synthesized from the note
+        // name; it must stay a single Text event so the serializer applies its
+        // own escaping (`_underscored-note` -> `\_underscored-note`).
+        let events = reference_display_events(ObsidianNoteReference {
+            file: Some("_underscored-note"),
+            section: None,
+            label: None,
+        });
+        assert_eq!(
+            events,
+            vec![Event::Text(CowStr::Borrowed("_underscored-note"))]
+        );
     }
 
     #[test]
