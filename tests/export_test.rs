@@ -1321,6 +1321,88 @@ fn test_escaped_pipe_wikilinks_resolve_inside_tables() {
 }
 
 #[test]
+fn test_alias_starting_with_inline_markup_survives_export() {
+    let tmp_dir = TempDir::new().expect("failed to make tempdir");
+    let vault = tmp_dir.path().join("vault");
+    std::fs::create_dir_all(&vault).expect("failed to make vault dir");
+
+    // Aliases are Markdown the author typed inside `[[...]]`. Emitting one as
+    // plain text makes the serializer escape a leading special character:
+    // ``[[x|`Code`]]`` used to land as ``[\`Code`](x.md)`` — a visible
+    // backslash and a dead code span. Aliases that are nothing but inline
+    // markup are the sharpest form of the bug; the surrounding table adds the
+    // escaped-pipe spelling Obsidian requires there.
+    std::fs::write(vault.join("target.md"), "# Target\n\nBody.\n").expect("failed to write target");
+    std::fs::write(
+        vault.join("note.md"),
+        concat!(
+            "Alias starting with code: [[target|`DialogSelect`]].\n\n",
+            "Alias that is only code: [[target|`code-only`]].\n\n",
+            "Alias starting with strong: [[target|**bold** then text]].\n\n",
+            "Unresolved alias keeps markup: [[no-such-note|`ghost`]].\n\n",
+            "| Ref | Role |\n",
+            "|---|---|\n",
+            "| [[target\\|`DialogSelect`]] | code alias |\n",
+            "| [[target\\|**bold** alias]] | strong alias |\n",
+        ),
+    )
+    .expect("failed to write note");
+
+    Exporter::new(vault, tmp_dir.path().to_path_buf())
+        .run()
+        .expect("exporter returned error");
+
+    let actual = read_to_string(tmp_dir.path().join("note.md")).unwrap();
+    for expected in [
+        "[`DialogSelect`](target.md)",
+        "[`code-only`](target.md)",
+        "[**bold** then text](target.md)",
+        "[**bold** alias](target.md)",
+    ] {
+        assert!(
+            actual.contains(expected),
+            "alias keeps its inline markup ({}): {}",
+            expected,
+            actual
+        );
+    }
+    // An unresolved reference takes the emphasis-wrapped fallback path; the
+    // alias still goes through inline re-parsing there, so the ghost code span
+    // survives instead of being escaped into literal backticks.
+    assert!(
+        actual.contains("*`ghost`*"),
+        "unresolved fallback re-parses the alias too: {}",
+        actual
+    );
+    assert!(
+        !actual.contains("\\`") && !actual.contains("\\*"),
+        "no backslash escaping leaks into alias markup: {}",
+        actual
+    );
+
+    // The exported text must round-trip: re-parsing it yields the code span
+    // and strong run as real inline events rather than literal backticks.
+    let mut saw_code = false;
+    let mut saw_strong = false;
+    for event in pulldown_cmark::Parser::new_ext(
+        &actual,
+        pulldown_cmark::Options::ENABLE_TABLES | pulldown_cmark::Options::ENABLE_STRIKETHROUGH,
+    ) {
+        match event {
+            pulldown_cmark::Event::Code(text) if text.as_ref() == "DialogSelect" => saw_code = true,
+            pulldown_cmark::Event::Start(pulldown_cmark::Tag::Strong) => saw_strong = true,
+            _ => {}
+        }
+    }
+    assert!(
+        saw_code,
+        "exported alias re-parses as a code span: {}",
+        actual
+    );
+    assert!(saw_strong, "exported alias re-parses as strong: {}", actual);
+}
+
+#[test]
 fn test_block_refs_edge_cases() {
     let tmp_dir = TempDir::new().expect("failed to make tempdir");
 
