@@ -2,6 +2,17 @@
 
 <!-- towncrier release notes start -->
 
+## [26.10.1](https://github.com/zoni/obsidian-export/tree/26.10.1) - 2026-10-22
+
+Bugfix release: aliases that start with inline markup (code spans, emphasis, math, inline HTML) now survive export as real markup instead of escaped literals, most visibly inside tables.
+
+### Fixes
+
+- 修复 wikilink / 嵌入的显式别名（`[[note|别名]]`、`![[img.png|别名]]`）以行内 Markdown 语法开头时导出结果损坏的问题。此前别名被整体当作纯文本事件交给序列化器，序列化器对首字符转义，使 ``[[x|`Code`]]`` 导出成 ``[\`Code`](x.md)``——多出一个可见反斜杠且行内代码失效；开头为 `**`、`*`、`~~`、`$`、`<` 的别名同样被转义成字面符号。表格内的场景（`[[x\|`Code`]]`）受影响最明显。修复后别名按行内 Markdown 重新解析，代码、强调、删除线、数学与行内 HTML 均以对应事件发出，导出结果可被标准渲染器正确还原。
+
+  无显式别名时由文件名派生的链接文本维持原样（仍按纯文本转义），`_underscored-note` 这类文件名不会被误当作强调语法。 ([#49](https://github.com/ONEGAYI/obsidian-export-desktop/pull/49))
+
+
 ## [26.10.0](https://github.com/zoni/obsidian-export/tree/26.10.0) - 2026-10-21
 
 Correctness release: a wikilink conversion fix for aliases containing inline code, math, or HTML, plus Rust toolchain and TLS-dependency security upgrades.
@@ -1223,6 +1234,7 @@ notable new feature.
 * Public release. [Nick Groenen]
 
 <!-- 变更链接 -->
+[26.10.1]: https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.10.0...v26.10.1
 [26.10.0]: https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.9.3...v26.10.0
 [26.9.3]: https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.9.2...v26.9.3
 [26.9.2]: https://github.com/ONEGAYI/obsidian-export-desktop/compare/v26.9.1...v26.9.2
